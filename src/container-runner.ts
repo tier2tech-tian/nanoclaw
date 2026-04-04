@@ -99,7 +99,11 @@ export function rotateAccount(agentId: string): {
   // 5. 检查是否轮换一圈（全部耗尽）
   // 如果 cooldown 期间再次触发，已在上面 debounce 拦截
   // 这里检查：如果 nextIndex 回到 0 且上次轮换在 cooldown 内，视为全部耗尽
-  if (nextIndex === 0 && lastRotate && now - lastRotate < EXHAUSTED_COOLDOWN_MS) {
+  if (
+    nextIndex === 0 &&
+    lastRotate &&
+    now - lastRotate < EXHAUSTED_COOLDOWN_MS
+  ) {
     logger.warn('所有账号配额已耗尽');
     return { success: false, newSecretName: '' };
   }

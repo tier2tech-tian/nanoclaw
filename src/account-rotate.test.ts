@@ -90,7 +90,9 @@ describe('detectRateLimit', () => {
   });
 
   it('匹配 rate_limit_error', () => {
-    expect(detectRateLimit('{"type":"error","error":{"type":"rate_limit_error"}}')).toBe(true);
+    expect(
+      detectRateLimit('{"type":"error","error":{"type":"rate_limit_error"}}'),
+    ).toBe(true);
   });
 
   it('匹配 rate limit（带空格）', () => {
@@ -98,11 +100,15 @@ describe('detectRateLimit', () => {
   });
 
   it('匹配 overloaded', () => {
-    expect(detectRateLimit('{"type":"error","error":{"type":"overloaded_error"}}')).toBe(true);
+    expect(
+      detectRateLimit('{"type":"error","error":{"type":"overloaded_error"}}'),
+    ).toBe(true);
   });
 
   it('匹配 quota exceeded', () => {
-    expect(detectRateLimit('API quota exceeded for this billing period')).toBe(true);
+    expect(detectRateLimit('API quota exceeded for this billing period')).toBe(
+      true,
+    );
   });
 
   it('匹配 too many requests', () => {

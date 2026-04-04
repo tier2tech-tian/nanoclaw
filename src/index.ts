@@ -433,10 +433,14 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   // 轮换通知
   if (output.rotatedTo) {
-    channel.sendMessage(chatJid, `🔄 账号已自动切换到 ${output.rotatedTo}`).catch(() => {});
+    channel
+      .sendMessage(chatJid, `🔄 账号已自动切换到 ${output.rotatedTo}`)
+      .catch(() => {});
   }
   if (output.allExhausted) {
-    channel.sendMessage(chatJid, '⚠️ 所有账号配额已耗尽，请等待恢复或添加新账号').catch(() => {});
+    channel
+      .sendMessage(chatJid, '⚠️ 所有账号配额已耗尽，请等待恢复或添加新账号')
+      .catch(() => {});
   }
 
   if (output.status === 'error' || hadError) {
@@ -604,12 +608,17 @@ async function runAgent(
             { group: group.name, newSecret: rotateResult.newSecretName },
             '429 检测到，已轮换账号，重试中',
           );
-          return runAgent(group, prompt, chatJid, onOutput, latestUserMessage, true).then(
-            (retryResult) => ({
-              ...retryResult,
-              rotatedTo: rotateResult.newSecretName,
-            }),
-          );
+          return runAgent(
+            group,
+            prompt,
+            chatJid,
+            onOutput,
+            latestUserMessage,
+            true,
+          ).then((retryResult) => ({
+            ...retryResult,
+            rotatedTo: rotateResult.newSecretName,
+          }));
         }
       }
 
