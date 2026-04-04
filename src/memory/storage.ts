@@ -116,7 +116,9 @@ export function loadProfile(
 ): Record<string, unknown> | null {
   const db = getMemoryDb();
   const row = db
-    .prepare('SELECT profile_json FROM memory_profiles WHERE group_folder = ? AND user_id = ?')
+    .prepare(
+      'SELECT profile_json FROM memory_profiles WHERE group_folder = ? AND user_id = ?',
+    )
     .get(groupFolder, userId) as { profile_json: string } | undefined;
   if (!row) return null;
   try {
@@ -146,7 +148,10 @@ export function saveProfile(
 // Facts CRUD
 // ─────────────────────────────────────────────────────────────
 
-export function loadFacts(groupFolder: string, userId: string = ''): MemoryFact[] {
+export function loadFacts(
+  groupFolder: string,
+  userId: string = '',
+): MemoryFact[] {
   const db = getMemoryDb();
   const rows = db
     .prepare(

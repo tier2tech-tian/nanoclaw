@@ -796,6 +796,21 @@ async function main(): Promise<void> {
         return;
       }
 
+      // /clear 指令 — 清除 session，开始新对话（对齐 Claude Code /clear）
+      if (trimmed === '/clear') {
+        const group = registeredGroups[chatJid];
+        if (group) {
+          delete sessions[group.folder];
+          deleteSession(group.folder);
+          logger.info({ group: group.folder }, '/clear: session 已清除');
+          const ch = findChannel(channels, chatJid);
+          ch?.sendMessage(chatJid, '✅ 对话已清除，下次消息将开始新 session。记忆保留。').catch((err) =>
+            logger.error({ err }, 'Failed to send /clear reply'),
+          );
+        }
+        return;
+      }
+
       // /trigger 和 /notrigger 指令 — 拦截并切换模式
       if (trimmed === '/trigger' || trimmed === '/notrigger') {
         const reply = handleTriggerToggle(
