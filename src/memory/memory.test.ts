@@ -258,10 +258,11 @@ describe('storage', () => {
       // 先绕过 FTS 直接插入
       const db = getMemoryDb();
       db.prepare(
-        'INSERT INTO memory_facts (id, group_folder, content, category, confidence, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO memory_facts (id, group_folder, user_id, content, category, confidence, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       ).run(
         'bf1',
         'test_group',
+        '',
         'Direct insert',
         'context',
         0.8,

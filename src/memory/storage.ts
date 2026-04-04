@@ -57,14 +57,17 @@ export function closeMemoryDb(): void {
 function initMemoryDb(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS memory_profiles (
-      group_folder TEXT PRIMARY KEY,
+      group_folder TEXT NOT NULL,
+      user_id TEXT NOT NULL DEFAULT '',
       profile_json TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (group_folder, user_id)
     );
 
     CREATE TABLE IF NOT EXISTS memory_facts (
       id TEXT PRIMARY KEY,
       group_folder TEXT NOT NULL,
+      user_id TEXT NOT NULL DEFAULT '',
       content TEXT NOT NULL,
       category TEXT NOT NULL DEFAULT 'context',
       confidence REAL NOT NULL DEFAULT 0.0,
@@ -74,6 +77,7 @@ function initMemoryDb(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_facts_group ON memory_facts(group_folder);
+    CREATE INDEX IF NOT EXISTS idx_facts_group_user ON memory_facts(group_folder, user_id);
   `);
 
   // FTS5 trigram 虚拟表（W2 修复：用 trigram tokenizer 支持中文子串匹配）
@@ -108,11 +112,12 @@ export function isFtsAvailable(): boolean {
 
 export function loadProfile(
   groupFolder: string,
+  userId: string = '',
 ): Record<string, unknown> | null {
   const db = getMemoryDb();
   const row = db
-    .prepare('SELECT profile_json FROM memory_profiles WHERE group_folder = ?')
-    .get(groupFolder) as { profile_json: string } | undefined;
+    .prepare('SELECT profile_json FROM memory_profiles WHERE group_folder = ? AND user_id = ?')
+    .get(groupFolder, userId) as { profile_json: string } | undefined;
   if (!row) return null;
   try {
     return JSON.parse(row.profile_json);
@@ -125,30 +130,31 @@ export function loadProfile(
 export function saveProfile(
   groupFolder: string,
   data: Record<string, unknown>,
+  userId: string = '',
 ): void {
   const db = getMemoryDb();
   const json = JSON.stringify(data, null, 0);
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO memory_profiles (group_folder, profile_json, updated_at)
-     VALUES (?, ?, ?)
-     ON CONFLICT(group_folder) DO UPDATE SET profile_json = excluded.profile_json, updated_at = excluded.updated_at`,
-  ).run(groupFolder, json, now);
+    `INSERT INTO memory_profiles (group_folder, user_id, profile_json, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(group_folder, user_id) DO UPDATE SET profile_json = excluded.profile_json, updated_at = excluded.updated_at`,
+  ).run(groupFolder, userId, json, now);
 }
 
 // ─────────────────────────────────────────────────────────────
 // Facts CRUD
 // ─────────────────────────────────────────────────────────────
 
-export function loadFacts(groupFolder: string): MemoryFact[] {
+export function loadFacts(groupFolder: string, userId: string = ''): MemoryFact[] {
   const db = getMemoryDb();
   const rows = db
     .prepare(
       `SELECT id, group_folder, content, category, confidence, source, embedding, created_at
-       FROM memory_facts WHERE group_folder = ?
+       FROM memory_facts WHERE group_folder = ? AND user_id = ?
        ORDER BY confidence DESC`,
     )
-    .all(groupFolder) as Array<{
+    .all(groupFolder, userId) as Array<{
     id: string;
     group_folder: string;
     content: string;
@@ -184,11 +190,12 @@ export async function storeFacts(
     confidence: number;
     source: string;
   }>,
+  userId: string = '',
 ): Promise<number> {
   if (facts.length === 0) return 0;
 
   const db = getMemoryDb();
-  const existing = loadFacts(groupFolder);
+  const existing = loadFacts(groupFolder, userId);
   const existingContents = new Set(existing.map((f) => f.content.trim()));
 
   // 收集已有的 embeddings 用于语义去重
@@ -197,8 +204,8 @@ export async function storeFacts(
     .map((f) => f.embedding!);
 
   const insertFact = db.prepare(
-    `INSERT OR IGNORE INTO memory_facts (id, group_folder, content, category, confidence, source, embedding, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR IGNORE INTO memory_facts (id, group_folder, user_id, content, category, confidence, source, embedding, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const insertFts = isFtsAvailable()
     ? db.prepare(
@@ -241,6 +248,7 @@ export async function storeFacts(
     insertFact.run(
       fact.id,
       groupFolder,
+      userId,
       content,
       fact.category,
       fact.confidence,
@@ -305,6 +313,7 @@ export function removeFacts(factIds: string[]): number {
 export function enforceMaxFacts(
   groupFolder: string,
   maxFacts?: number,
+  userId: string = '',
 ): number {
   const config = getMemoryConfig();
   const limit = maxFacts ?? config.maxFacts;
@@ -312,9 +321,9 @@ export function enforceMaxFacts(
 
   const rows = db
     .prepare(
-      'SELECT id, confidence, created_at FROM memory_facts WHERE group_folder = ?',
+      'SELECT id, confidence, created_at FROM memory_facts WHERE group_folder = ? AND user_id = ?',
     )
-    .all(groupFolder) as Array<{
+    .all(groupFolder, userId) as Array<{
     id: string;
     confidence: number;
     created_at: string;
