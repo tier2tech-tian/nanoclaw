@@ -61,7 +61,12 @@ export class MemoryStore {
     // 2. 关键词检索
     let keywordResults: HybridResult[] = [];
     try {
-      const kwResults = keywordSearch(query, this.groupFolder, topK * 2, this.userId);
+      const kwResults = keywordSearch(
+        query,
+        this.groupFolder,
+        topK * 2,
+        this.userId,
+      );
       keywordResults = kwResults.map((r) => ({
         id: r.id,
         content: r.content,
@@ -92,15 +97,19 @@ export class MemoryStore {
     metadata?: { category?: string; confidence?: number; source?: string },
   ): Promise<string | null> {
     const id = crypto.randomUUID();
-    const stored = await storeFactsToDb(this.groupFolder, [
-      {
-        id,
-        content,
-        category: metadata?.category || 'context',
-        confidence: metadata?.confidence ?? 0.5,
-        source: metadata?.source || 'unknown',
-      },
-    ], this.userId);
+    const stored = await storeFactsToDb(
+      this.groupFolder,
+      [
+        {
+          id,
+          content,
+          category: metadata?.category || 'context',
+          confidence: metadata?.confidence ?? 0.5,
+          source: metadata?.source || 'unknown',
+        },
+      ],
+      this.userId,
+    );
     return stored > 0 ? id : null;
   }
 }

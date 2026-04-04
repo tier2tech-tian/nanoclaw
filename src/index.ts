@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
 
 import { OneCLI } from '@onecli-sh/sdk';
 
@@ -810,6 +811,87 @@ async function main(): Promise<void> {
           ).catch((err) =>
             logger.error({ err }, 'Failed to send /clear reply'),
           );
+        }
+        return;
+      }
+
+      // /account 指令 — 切换 Anthropic 账号
+      if (trimmed === '/account' || trimmed.startsWith('/account ')) {
+        const arg = trimmed.slice('/account'.length).trim();
+        const ch = findChannel(channels, chatJid);
+        try {
+          if (!arg) {
+            // 列出所有 secrets
+            
+            const secrets = JSON.parse(
+              execSync('onecli secrets list', { encoding: 'utf-8', timeout: 5000 }),
+            ) as Array<{ id: string; name: string; type: string }>;
+            const agents = JSON.parse(
+              execSync('onecli agents list', { encoding: 'utf-8', timeout: 5000 }),
+            ) as Array<{ id: string; name: string; identifier: string; secretMode: string }>;
+
+            // 找当前群对应的 agent
+            const group = registeredGroups[chatJid];
+            const agentId = group?.folder.toLowerCase().replace(/_/g, '-') || '';
+            const currentAgent = agents.find((a) => a.identifier === agentId) || agents.find((a) => ("isDefault" in a && a.isDefault));
+
+            // 获取当前 agent 绑定的 secrets
+            let assignedSecretIds: string[] = [];
+            if (currentAgent) {
+              try {
+                const agentSecrets = JSON.parse(
+                  execSync(`onecli agents secrets ${currentAgent.id}`, { encoding: 'utf-8', timeout: 5000 }),
+                ) as Array<{ id: string; name: string }>;
+                assignedSecretIds = agentSecrets.map((s) => s.id);
+              } catch { /* no secrets assigned */ }
+            }
+
+            const lines = secrets.map((s) => {
+              const active = assignedSecretIds.includes(s.id) ? ' ← 当前' : '';
+              return `• ${s.name} (${s.type})${active}`;
+            });
+            const reply = lines.length > 0
+              ? `📋 可用账号：\n${lines.join('\n')}\n\n切换：/account <name>`
+              : '没有配置任何账号。用 onecli secrets create 添加。';
+            ch?.sendMessage(chatJid, reply).catch(() => {});
+          } else {
+            // 切换到指定账号
+            
+            const secrets = JSON.parse(
+              execSync('onecli secrets list', { encoding: 'utf-8', timeout: 5000 }),
+            ) as Array<{ id: string; name: string }>;
+            const target = secrets.find(
+              (s) => s.name === arg || s.id === arg || s.name.toLowerCase().includes(arg.toLowerCase()),
+            );
+            if (!target) {
+              ch?.sendMessage(chatJid, `❌ 找不到账号 "${arg}"。用 /account 查看可用账号。`).catch(() => {});
+            } else {
+              const group = registeredGroups[chatJid];
+              const agentId = group?.folder.toLowerCase().replace(/_/g, '-') || '';
+              const agents = JSON.parse(
+                execSync('onecli agents list', { encoding: 'utf-8', timeout: 5000 }),
+              ) as Array<{ id: string; identifier: string; isDefault?: boolean }>;
+              const agent = agents.find((a) => a.identifier === agentId) || agents.find((a) => ("isDefault" in a && a.isDefault));
+              if (agent) {
+                execSync(
+                  `onecli agents set-secrets ${agent.id} --secret-ids ${target.id}`,
+                  { encoding: 'utf-8', timeout: 5000 },
+                );
+                // 也清掉 session，让新容器用新 key
+                if (group) {
+                  delete sessions[group.folder];
+                  deleteSession(group.folder);
+                }
+                ch?.sendMessage(chatJid, `✅ 已切换到 ${target.name}。下次对话生效。`).catch(() => {});
+                logger.info({ agent: agent.id, secret: target.name }, '/account: 账号已切换');
+              } else {
+                ch?.sendMessage(chatJid, '❌ 找不到对应的 agent。').catch(() => {});
+              }
+            }
+          }
+        } catch (err) {
+          logger.error({ err }, '/account 执行失败');
+          ch?.sendMessage(chatJid, `❌ 账号操作失败: ${(err as Error).message}`).catch(() => {});
         }
         return;
       }

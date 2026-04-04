@@ -538,24 +538,32 @@ describe('keyword-store', () => {
   });
 
   it('按 user_id 隔离（跨群共享用户记忆）', async () => {
-    await storeFacts('group_a', [
-      {
-        id: 'ua1',
-        content: 'User A fact about TypeScript',
-        category: 'context',
-        confidence: 0.8,
-        source: 'test',
-      },
-    ], 'user_a');
-    await storeFacts('group_b', [
-      {
-        id: 'ub1',
-        content: 'User B fact about TypeScript',
-        category: 'context',
-        confidence: 0.8,
-        source: 'test',
-      },
-    ], 'user_b');
+    await storeFacts(
+      'group_a',
+      [
+        {
+          id: 'ua1',
+          content: 'User A fact about TypeScript',
+          category: 'context',
+          confidence: 0.8,
+          source: 'test',
+        },
+      ],
+      'user_a',
+    );
+    await storeFacts(
+      'group_b',
+      [
+        {
+          id: 'ub1',
+          content: 'User B fact about TypeScript',
+          category: 'context',
+          confidence: 0.8,
+          source: 'test',
+        },
+      ],
+      'user_b',
+    );
 
     // user_a 的记忆跨群可查
     const resultsA = keywordSearch('TypeScript', 'group_a', 5, 'user_a');
