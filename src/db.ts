@@ -149,15 +149,11 @@ function createSchema(database: Database.Database): void {
 
   // Add reply context columns if they don't exist (migration for existing DBs)
   try {
-    database.exec(
-      `ALTER TABLE messages ADD COLUMN reply_to_message_id TEXT`,
-    );
+    database.exec(`ALTER TABLE messages ADD COLUMN reply_to_message_id TEXT`);
     database.exec(
       `ALTER TABLE messages ADD COLUMN reply_to_message_content TEXT`,
     );
-    database.exec(
-      `ALTER TABLE messages ADD COLUMN reply_to_sender_name TEXT`,
-    );
+    database.exec(`ALTER TABLE messages ADD COLUMN reply_to_sender_name TEXT`);
   } catch {
     /* columns already exist */
   }
@@ -245,6 +241,16 @@ export interface ChatInfo {
   last_message_time: string;
   channel: string;
   is_group: number;
+}
+
+/**
+ * Get a chat's display name by JID. Returns undefined if not found.
+ */
+export function getChatName(chatJid: string): string | undefined {
+  const row = db
+    .prepare('SELECT name FROM chats WHERE jid = ?')
+    .get(chatJid) as { name: string } | undefined;
+  return row?.name ?? undefined;
 }
 
 /**

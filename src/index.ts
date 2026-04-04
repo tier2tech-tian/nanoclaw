@@ -4,6 +4,11 @@ import path from 'path';
 import { OneCLI } from '@onecli-sh/sdk';
 
 import {
+  getMemoryQueue,
+  injectMemory,
+  isMemoryEnabled,
+} from './memory/index.js';
+import {
   ASSISTANT_NAME,
   DEFAULT_TRIGGER,
   getTriggerPattern,
@@ -33,6 +38,7 @@ import {
   getAllChats,
   getAllRegisteredGroups,
   getAllSessions,
+  getChatName,
   deleteSession,
   getAllTasks,
   getLastBotMessageTimestamp,
@@ -47,7 +53,7 @@ import {
   storeMessage,
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
-import { resolveGroupFolderPath } from './group-folder.js';
+import { isValidGroupFolder, resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
 import {
@@ -113,6 +119,97 @@ function loadState(): void {
     { groupCount: Object.keys(registeredGroups).length },
     'State loaded',
   );
+}
+
+/**
+ * 自动注册未注册的群聊。从 chat metadata 中取名称，生成合法的 folder name，
+ * 以 requiresTrigger: true 注册，这样必须 @触发 才会响应。
+ * 返回是否成功注册。
+ */
+function autoRegisterGroup(chatJid: string): boolean {
+  if (registeredGroups[chatJid]) return false;
+
+  const chatName = getChatName(chatJid);
+  if (!chatName) {
+    logger.debug({ chatJid }, '自动注册跳过：找不到群名');
+    return false;
+  }
+
+  // 从群名生成 folder name：去除非法字符，截断到 64 字符
+  let folder = chatName
+    .replace(/[^A-Za-z0-9_-]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 64);
+
+  // 确保 folder 以字母或数字开头
+  if (!folder || !/^[A-Za-z0-9]/.test(folder)) {
+    folder = `grp_${folder || chatJid.replace(/[^A-Za-z0-9]/g, '').slice(0, 50)}`;
+  }
+
+  if (!isValidGroupFolder(folder)) {
+    logger.warn({ chatJid, folder }, '自动注册失败：生成的 folder name 不合法');
+    return false;
+  }
+
+  // 检查 folder 是否已被其他群占用
+  const folderInUse = Object.values(registeredGroups).some(
+    (g) => g.folder === folder,
+  );
+  if (folderInUse) {
+    // 追加 JID hash 后缀避免冲突
+    const suffix = chatJid.replace(/[^A-Za-z0-9]/g, '').slice(-6);
+    folder = `${folder.slice(0, 57)}_${suffix}`;
+    if (!isValidGroupFolder(folder)) {
+      logger.warn({ chatJid, folder }, '自动注册失败：去重后 folder 不合法');
+      return false;
+    }
+  }
+
+  const group: RegisteredGroup = {
+    name: chatName,
+    folder,
+    trigger: DEFAULT_TRIGGER,
+    added_at: new Date().toISOString(),
+    requiresTrigger: true,
+  };
+
+  registerGroup(chatJid, group);
+  logger.info({ chatJid, name: chatName, folder }, '群聊已自动注册');
+  return true;
+}
+
+/**
+ * 处理 /trigger 和 /notrigger 指令，切换群的 requiresTrigger 状态。
+ * 返回要发送给用户的确认消息，如果不适用则返回 null。
+ */
+function handleTriggerToggle(
+  chatJid: string,
+  command: '/trigger' | '/notrigger',
+): string | null {
+  const group = registeredGroups[chatJid];
+  if (!group) return null;
+  if (group.isMain) return null; // main group 不需要 trigger
+
+  const wantTrigger = command === '/trigger';
+  if (group.requiresTrigger === wantTrigger) {
+    return wantTrigger
+      ? `已经是 @触发 模式，发消息需要 ${group.trigger || DEFAULT_TRIGGER} 开头`
+      : '已经是免@模式，所有消息都会被处理';
+  }
+
+  group.requiresTrigger = wantTrigger;
+  registeredGroups[chatJid] = group;
+  setRegisteredGroup(chatJid, group);
+
+  logger.info(
+    { chatJid, name: group.name, requiresTrigger: wantTrigger },
+    'Trigger mode toggled',
+  );
+
+  return wantTrigger
+    ? `已切换到 @触发 模式，发消息需要 ${group.trigger || DEFAULT_TRIGGER} 开头`
+    : '已切换到免@模式，所有消息都会被处理';
 }
 
 /**
@@ -282,32 +379,49 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let hadError = false;
   let outputSentToUser = false;
 
-  const output = await runAgent(group, prompt, chatJid, async (result) => {
-    // Streaming output callback — called for each agent result
-    if (result.result) {
-      const raw =
-        typeof result.result === 'string'
-          ? result.result
-          : JSON.stringify(result.result);
-      // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
-      logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
-      if (text) {
-        await channel.sendMessage(chatJid, text);
-        outputSentToUser = true;
+  // R8.1: 收集 Agent 回复文本（用于记忆更新）
+  const agentReplies: string[] = [];
+
+  // 取最后一条用户消息用于记忆召回
+  const lastUserMsg = [...missedMessages]
+    .reverse()
+    .find((m) => !m.is_bot_message && !m.is_from_me);
+  const latestUserMessage = lastUserMsg?.content;
+
+  const output = await runAgent(
+    group,
+    prompt,
+    chatJid,
+    async (result) => {
+      // Streaming output callback — called for each agent result
+      if (result.result) {
+        const raw =
+          typeof result.result === 'string'
+            ? result.result
+            : JSON.stringify(result.result);
+        // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
+        const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
+        if (text) {
+          await channel.setTyping?.(chatJid, false);
+          await channel.sendMessage(chatJid, text);
+          outputSentToUser = true;
+          agentReplies.push(text);
+        }
+        // Only reset idle timer on actual results, not session-update markers (result: null)
+        resetIdleTimer();
       }
-      // Only reset idle timer on actual results, not session-update markers (result: null)
-      resetIdleTimer();
-    }
 
-    if (result.status === 'success') {
-      queue.notifyIdle(chatJid);
-    }
+      if (result.status === 'success') {
+        queue.notifyIdle(chatJid);
+      }
 
-    if (result.status === 'error') {
-      hadError = true;
-    }
-  });
+      if (result.status === 'error') {
+        hadError = true;
+      }
+    },
+    latestUserMessage,
+  );
 
   await channel.setTyping?.(chatJid, false);
   if (idleTimer) clearTimeout(idleTimer);
@@ -332,6 +446,23 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     return false;
   }
 
+  // R8.1: 对话完成后，收集 Agent 回复 + 用户消息一起入队记忆更新
+  if (isMemoryEnabled()) {
+    const memoryMessages = [
+      ...missedMessages.map((m) => ({
+        content: m.content,
+        sender_name: m.sender_name,
+        is_bot_message: m.is_bot_message,
+        is_from_me: m.is_from_me,
+      })),
+      ...agentReplies.map((text) => ({
+        content: text,
+        is_bot_message: true,
+      })),
+    ];
+    getMemoryQueue().add(group.folder, memoryMessages, sessions[group.folder]);
+  }
+
   return true;
 }
 
@@ -340,9 +471,20 @@ async function runAgent(
   prompt: string,
   chatJid: string,
   onOutput?: (output: ContainerOutput) => Promise<void>,
+  latestUserMessage?: string,
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
   const sessionId = sessions[group.folder];
+
+  // R8.2: 启动容器前注入记忆
+  if (isMemoryEnabled()) {
+    try {
+      const groupDir = resolveGroupFolderPath(group.folder);
+      await injectMemory(group.folder, groupDir, latestUserMessage);
+    } catch (err) {
+      logger.warn({ err, group: group.name }, '记忆注入失败，继续启动容器');
+    }
+  }
 
   // Update tasks snapshot for container to read (filtered by group)
   const tasks = getAllTasks();
@@ -581,9 +723,18 @@ async function main(): Promise<void> {
 
   restoreRemoteControl();
 
+  // Initialize memory system (if enabled)
+  if (isMemoryEnabled()) {
+    getMemoryQueue();
+  }
+
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
+    // R8.4: flush pending memory updates before shutdown
+    if (isMemoryEnabled()) {
+      await getMemoryQueue().flush();
+    }
     await queue.shutdown(10000);
     for (const ch of channels) await ch.disconnect();
     process.exit(0);
@@ -643,6 +794,29 @@ async function main(): Promise<void> {
           logger.error({ err, chatJid }, 'Remote control command error'),
         );
         return;
+      }
+
+      // /trigger 和 /notrigger 指令 — 拦截并切换模式
+      if (trimmed === '/trigger' || trimmed === '/notrigger') {
+        const reply = handleTriggerToggle(
+          chatJid,
+          trimmed as '/trigger' | '/notrigger',
+        );
+        if (reply) {
+          const ch = findChannel(channels, chatJid);
+          ch?.sendMessage(chatJid, reply).catch((err) =>
+            logger.error(
+              { err, chatJid },
+              'Failed to send trigger toggle reply',
+            ),
+          );
+        }
+        return; // 不存储指令消息
+      }
+
+      // 自动注册未注册的群聊
+      if (!registeredGroups[chatJid]) {
+        autoRegisterGroup(chatJid);
       }
 
       // Sender allowlist drop mode: discard messages from denied senders before storing
