@@ -44,7 +44,12 @@ export const IPC_POLL_INTERVAL = 1000;
 export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10); // 30min default — how long to keep agent alive after last result
 export const MAX_CONCURRENT_AGENTS = Math.max(
   1,
-  parseInt(process.env.MAX_CONCURRENT_AGENTS || process.env.MAX_CONCURRENT_CONTAINERS || '5', 10) || 5,
+  parseInt(
+    process.env.MAX_CONCURRENT_AGENTS ||
+      process.env.MAX_CONCURRENT_CONTAINERS ||
+      '5',
+    10,
+  ) || 5,
 );
 
 function escapeRegex(str: string): string {
