@@ -57,7 +57,10 @@ interface ProgressStep {
 /** 构建进度卡片（schema 2.0 + collapsible_panel） */
 function buildProgressCard(steps: ProgressStep[], frame: number = 0): string {
   const spinner = SPINNER_FRAMES[frame % SPINNER_FRAMES.length];
-  const phrase = THINKING_PHRASES[Math.floor(frame / SPINNER_FRAMES.length) % THINKING_PHRASES.length];
+  const phrase =
+    THINKING_PHRASES[
+      Math.floor(frame / SPINNER_FRAMES.length) % THINKING_PHRASES.length
+    ];
 
   const elements = steps.map((step) => {
     if (step.detail) {
@@ -179,20 +182,37 @@ export class FeishuChannel implements Channel {
 
     // 获取机器人自身 open_id，用于将 @机器人 替换为 @ASSISTANT_NAME 以匹配触发词
     try {
-      const tokenResp = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ app_id: this.appId, app_secret: this.appSecret }),
-      });
-      const tokenData = await tokenResp.json() as { tenant_access_token?: string };
+      const tokenResp = await fetch(
+        'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            app_id: this.appId,
+            app_secret: this.appSecret,
+          }),
+        },
+      );
+      const tokenData = (await tokenResp.json()) as {
+        tenant_access_token?: string;
+      };
       if (tokenData.tenant_access_token) {
-        const botResp = await fetch('https://open.feishu.cn/open-apis/bot/v3/info', {
-          headers: { Authorization: `Bearer ${tokenData.tenant_access_token}` },
-        });
-        const botData = await botResp.json() as { bot?: { open_id?: string } };
+        const botResp = await fetch(
+          'https://open.feishu.cn/open-apis/bot/v3/info',
+          {
+            headers: {
+              Authorization: `Bearer ${tokenData.tenant_access_token}`,
+            },
+          },
+        );
+        const botData = (await botResp.json()) as {
+          bot?: { open_id?: string };
+        };
         this.botOpenId = botData?.bot?.open_id ?? null;
       }
-    } catch { /* 非致命 */ }
+    } catch {
+      /* 非致命 */
+    }
 
     logger.info({ botOpenId: this.botOpenId }, '飞书 WebSocket 已连接');
   }
@@ -225,9 +245,17 @@ export class FeishuChannel implements Channel {
       let detail: string | undefined;
       if (isProgressJson) {
         try {
-          const parsed = JSON.parse(text) as { title?: string; detail?: string };
-          if (parsed.title) { title = parsed.title; detail = parsed.detail; }
-        } catch { /* 降级为纯文本 */ }
+          const parsed = JSON.parse(text) as {
+            title?: string;
+            detail?: string;
+          };
+          if (parsed.title) {
+            title = parsed.title;
+            detail = parsed.detail;
+          }
+        } catch {
+          /* 降级为纯文本 */
+        }
       }
 
       const existing = this.progressCards.get(jid);
@@ -238,7 +266,9 @@ export class FeishuChannel implements Channel {
         try {
           await this.client.im.message.patch({
             path: { message_id: existing.messageId },
-            data: { content: buildProgressCard(existing.steps, existing.frame) },
+            data: {
+              content: buildProgressCard(existing.steps, existing.frame),
+            },
           });
         } catch (err) {
           logger.debug({ err }, '飞书进度卡片更新失败（非致命）');
@@ -322,7 +352,11 @@ export class FeishuChannel implements Channel {
           });
           const msgId = resp?.data?.message_id;
           if (msgId) {
-            this.progressCards.set(jid, { messageId: msgId, steps: initialSteps, frame: 0 });
+            this.progressCards.set(jid, {
+              messageId: msgId,
+              steps: initialSteps,
+              frame: 0,
+            });
           }
         }
       } else {
@@ -330,7 +364,10 @@ export class FeishuChannel implements Channel {
         const entry = this.typingReactions.get(jid);
         if (entry) {
           await this.client.im.messageReaction.delete({
-            path: { message_id: entry.messageId, reaction_id: entry.reactionId },
+            path: {
+              message_id: entry.messageId,
+              reaction_id: entry.reactionId,
+            },
           });
           this.typingReactions.delete(jid);
         }
@@ -439,7 +476,10 @@ export class FeishuChannel implements Channel {
     if (message.mentions) {
       for (const m of message.mentions) {
         const isBotMention = this.botOpenId && m.id.open_id === this.botOpenId;
-        text = text.replace(m.key, isBotMention ? `@${ASSISTANT_NAME}` : `@${m.name}`);
+        text = text.replace(
+          m.key,
+          isBotMention ? `@${ASSISTANT_NAME}` : `@${m.name}`,
+        );
       }
     }
 

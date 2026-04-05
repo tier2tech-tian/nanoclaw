@@ -267,10 +267,14 @@ export class MemoryUpdater {
     stripUploadMentions(currentMemory);
 
     if (profileChanged) {
-      saveProfile(groupFolder, {
-        user: currentMemory.user as Record<string, unknown>,
-        history: currentMemory.history as Record<string, unknown>,
-      }, userId);
+      saveProfile(
+        groupFolder,
+        {
+          user: currentMemory.user as Record<string, unknown>,
+          history: currentMemory.history as Record<string, unknown>,
+        },
+        userId,
+      );
     }
 
     // 删除被否定的 facts

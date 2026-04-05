@@ -6,12 +6,7 @@ import { ChildProcess, execFileSync, execSync, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-import {
-  DATA_DIR,
-  GROUPS_DIR,
-  IDLE_TIMEOUT,
-  TIMEZONE,
-} from './config.js';
+import { DATA_DIR, GROUPS_DIR, IDLE_TIMEOUT, TIMEZONE } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { readEnvFile } from './env.js';
@@ -35,7 +30,9 @@ const AGENT_RUNNER_DIST = path.join(
 
 // Agent 输出大小限制（10MB）
 const AGENT_MAX_OUTPUT_SIZE = parseInt(
-  process.env.AGENT_MAX_OUTPUT_SIZE || process.env.CONTAINER_MAX_OUTPUT_SIZE || '10485760',
+  process.env.AGENT_MAX_OUTPUT_SIZE ||
+    process.env.CONTAINER_MAX_OUTPUT_SIZE ||
+    '10485760',
   10,
 );
 
@@ -218,7 +215,12 @@ export function resolveWorkspacePaths(
 
 /** 准备 per-group .claude 配置目录（settings.json + skills 同步） */
 export function prepareGroupSession(groupFolder: string): string {
-  const groupSessionsDir = path.join(DATA_DIR, 'sessions', groupFolder, '.claude');
+  const groupSessionsDir = path.join(
+    DATA_DIR,
+    'sessions',
+    groupFolder,
+    '.claude',
+  );
   fs.mkdirSync(groupSessionsDir, { recursive: true });
 
   const settingsFile = path.join(groupSessionsDir, 'settings.json');
@@ -273,10 +275,14 @@ async function getCredentials(agentId?: string): Promise<{
   let anthropicApiKey: string | undefined;
   if (agentId) {
     try {
-      const out = execFileSync('onecli', ['agents', 'get-env', '--id', agentId], {
-        encoding: 'utf8',
-        timeout: 5000,
-      });
+      const out = execFileSync(
+        'onecli',
+        ['agents', 'get-env', '--id', agentId],
+        {
+          encoding: 'utf8',
+          timeout: 5000,
+        },
+      );
       anthropicApiKey = parseEnvOutput(out).ANTHROPIC_API_KEY;
     } catch {
       /* OneCLI 不可用 */
@@ -303,7 +309,10 @@ async function getFeishuToken(chatJid?: string): Promise<string | undefined> {
     const db = await import('./db.js');
     const lastSender = (db as any).getLastSenderForChat?.(chatJid);
     if (lastSender) {
-      const userToken = await feishuOauth.getFeishuUserToken(lastSender, chatJid);
+      const userToken = await feishuOauth.getFeishuUserToken(
+        lastSender,
+        chatJid,
+      );
       if (userToken) return userToken;
     }
   } catch {
@@ -313,7 +322,8 @@ async function getFeishuToken(chatJid?: string): Promise<string | undefined> {
   // Fallback: Tenant Access Token
   const feishuEnv = readEnvFile(['FEISHU_APP_ID', 'FEISHU_APP_SECRET']);
   const appId = process.env.FEISHU_APP_ID || feishuEnv.FEISHU_APP_ID;
-  const appSecret = process.env.FEISHU_APP_SECRET || feishuEnv.FEISHU_APP_SECRET;
+  const appSecret =
+    process.env.FEISHU_APP_SECRET || feishuEnv.FEISHU_APP_SECRET;
   if (appId && appSecret) {
     try {
       const resp = await fetch(
@@ -381,7 +391,10 @@ export function checkAgentRunnerDist(): void {
 }
 
 /** 杀进程组（包括 MCP server、浏览器等孙进程） */
-function killProcessTree(pid: number, signal: NodeJS.Signals = 'SIGTERM'): void {
+function killProcessTree(
+  pid: number,
+  signal: NodeJS.Signals = 'SIGTERM',
+): void {
   try {
     process.kill(-pid, signal);
   } catch {
@@ -428,7 +441,11 @@ export async function runContainerAgent(
   const agentIdentifier = isMain
     ? undefined
     : group.folder.toLowerCase().replace(/_/g, '-');
-  const localEnv = await buildLocalEnv(input, groupSessionsDir, agentIdentifier);
+  const localEnv = await buildLocalEnv(
+    input,
+    groupSessionsDir,
+    agentIdentifier,
+  );
 
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const agentName = `nanoclaw-${safeName}-${Date.now()}`;
@@ -699,7 +716,12 @@ export async function runContainerAgent(
 
         const output: ContainerOutput = JSON.parse(jsonLine);
         logger.info(
-          { group: group.name, duration, status: output.status, hasResult: !!output.result },
+          {
+            group: group.name,
+            duration,
+            status: output.status,
+            hasResult: !!output.result,
+          },
           'Agent completed',
         );
         resolve(output);
