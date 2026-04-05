@@ -19,7 +19,7 @@ const CARD_THRESHOLD = 500;
 const MD_PATTERN = /```|^##\s|^\|.*\|/m;
 const PROGRESS_EMOJI_PATTERN = /^[🔧📖✏️🔍🌐📋⚙️⏳💭✅📊]/;
 const PROGRESS_JSON_PATTERN = /^\{"title":"[🔧📖✏️🔍🌐📋⚙️⏳💭✅📊]/;
-const SPINNER_FRAMES = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'];
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const THINKING_PHRASES = ['思考中', '分析中', '处理中', '推理中'];
 
 // ---- 多媒体安全限制 ----
@@ -484,11 +484,11 @@ export class FeishuChannel implements Channel {
 
         // 发送"处理中"进度卡片
         if (!this.progressCards.has(jid)) {
-          const SPINNER_INTERVAL_MS = 3000;
+          const SPINNER_INTERVAL_MS = 1000;
           const SPINNER_MAX_DURATION_MS = 10 * 60 * 1000; // 10 分钟硬上限
 
           const now = Date.now();
-          const initialSteps: ProgressStep[] = [{ title: '⏳ 正在思考...' }];
+          const initialSteps: ProgressStep[] = [];
           const resp = await this.client.im.message.create({
             data: {
               receive_id: chatId,
