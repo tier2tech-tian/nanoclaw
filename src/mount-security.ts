@@ -21,7 +21,6 @@ let allowlistLoadError: string | null = null;
  * Default blocked patterns - paths that should never be mounted
  */
 const DEFAULT_BLOCKED_PATTERNS = [
-  '.ssh',
   '.gnupg',
   '.gpg',
   '.aws',

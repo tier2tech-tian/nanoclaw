@@ -29,6 +29,7 @@ RUN for i in 1 2 3 4 5; do \
     libxshmfence1 \
     curl \
     git \
+    openssh-client \
       && break || echo "Retry $i..."; sleep 5; \
     done && rm -rf /var/lib/apt/lists/*
 
@@ -65,6 +66,11 @@ RUN printf '#!/bin/bash\nset -e\ncd /app && npx tsc --outDir /tmp/dist 2>&1 >&2\
 
 # Set ownership to node user (non-root) for writable directories
 RUN chown -R node:node /workspace && chmod 777 /home/node
+
+# Pre-populate GitHub SSH host keys so git push doesn't prompt
+RUN mkdir -p /home/node/.ssh && \
+    ssh-keyscan github.com >> /home/node/.ssh/known_hosts 2>/dev/null && \
+    chown -R node:node /home/node/.ssh
 
 # Switch to non-root user (required for --dangerously-skip-permissions)
 USER node

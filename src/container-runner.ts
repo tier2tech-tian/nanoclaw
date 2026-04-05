@@ -3,6 +3,7 @@
  * Spawns agent execution in containers and handles IPC
  */
 import { ChildProcess, execSync, spawn } from 'child_process';
+import os from 'os';
 import fs from 'fs';
 import path from 'path';
 
@@ -342,6 +343,16 @@ function buildVolumeMounts(
     containerPath: '/app/src',
     readonly: false,
   });
+
+  // Mount host SSH keys so containers can git push
+  const hostSshDir = path.join(os.homedir(), '.ssh');
+  if (fs.existsSync(hostSshDir)) {
+    mounts.push({
+      hostPath: hostSshDir,
+      containerPath: '/home/node/.ssh',
+      readonly: true,
+    });
+  }
 
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {
