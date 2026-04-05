@@ -888,7 +888,8 @@ async function main(): Promise<void> {
   const channelOpts = {
     onMessage: (chatJid: string, msg: NewMessage) => {
       // 剥离 trigger 前缀（如 "@Andy "）以匹配 slash 命令
-      let trimmed = msg.content.trim();
+      const rawContent = msg.content.trim();
+      let trimmed = rawContent;
       const group = registeredGroups[chatJid];
       if (group) {
         const triggerPattern = getTriggerPattern(group.trigger);
@@ -988,7 +989,7 @@ async function main(): Promise<void> {
               lines.length > 0
                 ? `📋 可用账号：\n${lines.join('\n')}\n\n🔄 自动轮换: ${autoStatus}\n\n切换：/account <name>\n开关：/account auto on|off`
                 : '没有配置任何账号。用 onecli secrets create 添加。';
-            ch?.sendMessage(chatJid, reply).catch(() => {});
+            ch?.sendMessage(chatJid, reply).catch((err) => logger.error({ err }, '/account reply failed'));
           } else {
             // 切换到指定账号
 

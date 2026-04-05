@@ -7,7 +7,13 @@ import fs from 'fs';
 import path from 'path';
 
 import os from 'os';
-import { DATA_DIR, GROUPS_DIR, IDLE_TIMEOUT, ONECLI_URL, TIMEZONE } from './config.js';
+import {
+  DATA_DIR,
+  GROUPS_DIR,
+  IDLE_TIMEOUT,
+  ONECLI_URL,
+  TIMEZONE,
+} from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { readEnvFile } from './env.js';
@@ -272,7 +278,10 @@ export function parseEnvOutput(output: string): Record<string, string> {
 
 // OneCLI CA 证书临时文件路径
 const ONECLI_CA_PATH = path.join(os.tmpdir(), 'onecli-gateway-ca.pem');
-const ONECLI_COMBINED_CA_PATH = path.join(os.tmpdir(), 'onecli-combined-ca.pem');
+const ONECLI_COMBINED_CA_PATH = path.join(
+  os.tmpdir(),
+  'onecli-combined-ca.pem',
+);
 
 /**
  * 获取 OneCLI 代理配置（HTTPS_PROXY + CA 证书），用于凭证注入。
@@ -293,7 +302,9 @@ async function getOneCLIProxyEnv(): Promise<Record<string, string>> {
         : '';
       fs.writeFileSync(
         ONECLI_COMBINED_CA_PATH,
-        systemCa ? `${systemCa}\n${config.caCertificate}` : config.caCertificate,
+        systemCa
+          ? `${systemCa}\n${config.caCertificate}`
+          : config.caCertificate,
       );
     }
 
@@ -309,7 +320,10 @@ async function getOneCLIProxyEnv(): Promise<Record<string, string>> {
     logger.info('OneCLI proxy config applied for local agent');
     return env;
   } catch (err) {
-    logger.warn({ err }, 'OneCLI proxy not available — agent will have no credentials');
+    logger.warn(
+      { err },
+      'OneCLI proxy not available — agent will have no credentials',
+    );
     return {};
   }
 }
