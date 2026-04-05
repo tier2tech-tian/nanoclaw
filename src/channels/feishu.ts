@@ -68,37 +68,74 @@ interface ProgressStep {
   detail?: string;
 }
 
+/** 截断 step 标题：取第一行，最多 80 字符 */
+function truncateTitle(title: string): string {
+  const firstLine = title.split('\n')[0];
+  return firstLine.length > 80 ? firstLine.slice(0, 80) + '…' : firstLine;
+}
+
+/** 对 diff 内容着色：+ 行绿色，- 行红色 */
+function colorizeDiff(text: string): string {
+  return text
+    .replace(/^(\+\s?.*)$/gm, '<font color="green">$1</font>')
+    .replace(/^(-\s?.*)$/gm, '<font color="red">$1</font>');
+}
+
+/** 将 step 转为卡片 element */
+function stepToElement(step: ProgressStep): unknown {
+  const title = truncateTitle(step.title);
+  if (step.detail) {
+    return {
+      tag: 'collapsible_panel',
+      expanded: false,
+      background_color: 'grey',
+      header: {
+        title: { tag: 'plain_text', content: title },
+        vertical_align: 'center',
+      },
+      vertical_spacing: '2px',
+      padding: '4px 8px 4px 8px',
+      elements: [{ tag: 'markdown', content: colorizeDiff(step.detail) }],
+    };
+  }
+  return { tag: 'markdown', content: title };
+}
+
 /** 构建进度卡片（schema 2.0 + collapsible_panel） */
-function buildProgressCard(steps: ProgressStep[], frame: number = 0): string {
+function buildProgressCard(
+  steps: ProgressStep[],
+  frame: number = 0,
+  startTime?: number,
+): string {
   const spinner = SPINNER_FRAMES[frame % SPINNER_FRAMES.length];
   const phrase =
     THINKING_PHRASES[
       Math.floor(frame / SPINNER_FRAMES.length) % THINKING_PHRASES.length
     ];
 
-  const elements = steps.map((step) => {
-    if (step.detail) {
-      return {
-        tag: 'collapsible_panel',
-        expanded: false,
-        background_color: 'grey',
-        header: {
-          title: { tag: 'markdown', content: step.title },
-          vertical_align: 'center',
-        },
-        vertical_spacing: '2px',
-        padding: '4px 8px 4px 8px',
-        elements: [{ tag: 'markdown', content: step.detail }],
-      };
+  // 计时器显示
+  let timeStr = '';
+  if (startTime) {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    if (elapsed >= 60) {
+      const min = Math.floor(elapsed / 60);
+      const sec = elapsed % 60;
+      timeStr = ` (${min}m${sec}s)`;
+    } else {
+      timeStr = ` (${elapsed}s)`;
     }
-    return { tag: 'markdown', content: step.title };
-  });
+  }
+
+  const elements = steps.map(stepToElement);
 
   return JSON.stringify({
     schema: '2.0',
     header: {
       template: 'yellow',
-      title: { tag: 'plain_text', content: `${spinner} ${phrase}...` },
+      title: {
+        tag: 'plain_text',
+        content: `${spinner} ${phrase}...${timeStr}`,
+      },
     },
     body: { elements },
   });
@@ -129,21 +166,7 @@ function buildCompletedCard(
   steps: ProgressStep[],
   usage?: ContainerOutput['usage'],
 ): string {
-  const elements: unknown[] = steps.map((step) => {
-    if (step.detail) {
-      return {
-        tag: 'collapsible_panel',
-        expanded: false,
-        background_color: 'grey',
-        header: {
-          title: { tag: 'markdown', content: step.title },
-          vertical_align: 'center',
-        },
-        elements: [{ tag: 'markdown', content: step.detail }],
-      };
-    }
-    return { tag: 'markdown', content: step.title };
-  });
+  const elements: unknown[] = steps.map(stepToElement);
 
   if (usage) appendUsageFooter(elements, usage);
 
@@ -185,9 +208,13 @@ export class FeishuChannel implements Channel {
       messageId: string;
       steps: ProgressStep[];
       frame: number;
+      startTime: number;
       usage?: ContainerOutput['usage'];
     }
   >();
+
+  // Spinner 自动刷新定时器（每个 chat 一个）
+  private spinnerTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(appId: string, appSecret: string, opts: ChannelOpts) {
     this.appId = appId;
@@ -313,7 +340,11 @@ export class FeishuChannel implements Channel {
           await this.client.im.message.patch({
             path: { message_id: existing.messageId },
             data: {
-              content: buildProgressCard(existing.steps, existing.frame),
+              content: buildProgressCard(
+                existing.steps,
+                existing.frame,
+                existing.startTime,
+              ),
             },
           });
         } catch (err) {
@@ -327,6 +358,7 @@ export class FeishuChannel implements Channel {
     const progressEntry = this.progressCards.get(jid);
     const usage = progressEntry?.usage;
     if (progressEntry) {
+      this.clearSpinnerTimer(jid);
       this.progressCards.delete(jid);
       try {
         await this.client.im.message.patch({
@@ -423,6 +455,14 @@ export class FeishuChannel implements Channel {
     }
   }
 
+  private clearSpinnerTimer(jid: string): void {
+    const timer = this.spinnerTimers.get(jid);
+    if (timer) {
+      clearInterval(timer);
+      this.spinnerTimers.delete(jid);
+    }
+  }
+
   async setTyping(jid: string, isTyping: boolean): Promise<void> {
     const chatId = chatIdFromJid(jid);
     try {
@@ -442,12 +482,16 @@ export class FeishuChannel implements Channel {
 
         // 发送"处理中"进度卡片
         if (!this.progressCards.has(jid)) {
+          const SPINNER_INTERVAL_MS = 3000;
+          const SPINNER_MAX_DURATION_MS = 10 * 60 * 1000; // 10 分钟硬上限
+
+          const now = Date.now();
           const initialSteps: ProgressStep[] = [{ title: '⏳ 正在思考...' }];
           const resp = await this.client.im.message.create({
             data: {
               receive_id: chatId,
               msg_type: 'interactive',
-              content: buildProgressCard(initialSteps, 0),
+              content: buildProgressCard(initialSteps, 0, now),
             },
             params: { receive_id_type: 'chat_id' },
           });
@@ -457,10 +501,52 @@ export class FeishuChannel implements Channel {
               messageId: msgId,
               steps: initialSteps,
               frame: 0,
+              startTime: now,
             });
+
+            // 启动 spinner 自动刷新定时器
+            this.clearSpinnerTimer(jid);
+            const spinnerStartTime = now;
+            const timer = setInterval(async () => {
+              const entry = this.progressCards.get(jid);
+              if (!entry) {
+                // 卡片已被删除（完成/清理），停止定时器
+                this.clearSpinnerTimer(jid);
+                return;
+              }
+
+              // 硬上限保护
+              if (Date.now() - spinnerStartTime > SPINNER_MAX_DURATION_MS) {
+                logger.warn(
+                  { jid },
+                  'Spinner timer 达到 10 分钟上限，自动停止',
+                );
+                this.clearSpinnerTimer(jid);
+                return;
+              }
+
+              entry.frame++;
+              try {
+                await this.client.im.message.patch({
+                  path: { message_id: entry.messageId },
+                  data: {
+                    content: buildProgressCard(
+                      entry.steps,
+                      entry.frame,
+                      entry.startTime,
+                    ),
+                  },
+                });
+              } catch (err) {
+                logger.debug({ err, jid }, 'Spinner 自动刷新失败（非致命）');
+              }
+            }, SPINNER_INTERVAL_MS);
+            this.spinnerTimers.set(jid, timer);
           }
         }
       } else {
+        // 清理 spinner 定时器
+        this.clearSpinnerTimer(jid);
         // 移除 emoji reaction
         const entry = this.typingReactions.get(jid);
         if (entry) {
@@ -481,30 +567,27 @@ export class FeishuChannel implements Channel {
   async sendAuthCard(jid: string, authUrl: string): Promise<void> {
     const chatId = chatIdFromJid(jid);
     const card = JSON.stringify({
-      schema: '2.0',
+      elements: [
+        {
+          tag: 'markdown',
+          content:
+            '🔑 **需要飞书文档授权**\n\n要读取或创建飞书文档，需要你授权一次。\n授权后自动生效，无需重复操作。',
+        },
+        {
+          tag: 'action',
+          actions: [
+            {
+              tag: 'button',
+              text: { tag: 'plain_text', content: '👉 点击授权' },
+              type: 'primary',
+              multi_url: { url: authUrl },
+            },
+          ],
+        },
+      ],
       header: {
         template: 'orange',
-        title: { tag: 'plain_text', content: '🔑 需要飞书文档授权' },
-      },
-      body: {
-        elements: [
-          {
-            tag: 'markdown',
-            content:
-              '要读取或创建飞书文档，需要你授权一次。\n点击下方按钮完成授权（授权后自动生效）：',
-          },
-          {
-            tag: 'action',
-            actions: [
-              {
-                tag: 'button',
-                text: { tag: 'plain_text', content: '点击授权' },
-                type: 'primary',
-                multi_url: { url: authUrl },
-              },
-            ],
-          },
-        ],
+        title: { tag: 'plain_text', content: '飞书文档授权' },
       },
     });
     try {
@@ -512,8 +595,24 @@ export class FeishuChannel implements Channel {
         data: { receive_id: chatId, msg_type: 'interactive', content: card },
         params: { receive_id_type: 'chat_id' },
       });
+      logger.info({ jid }, '飞书授权卡片发送成功');
     } catch (err) {
-      logger.error({ err }, '飞书发送授权卡片失败');
+      // schema 1.0 卡片失败时降级为纯文本链接
+      logger.warn({ err }, '飞书授权卡片发送失败，降级为文本链接');
+      try {
+        await this.client.im.message.create({
+          data: {
+            receive_id: chatId,
+            msg_type: 'text',
+            content: JSON.stringify({
+              text: `🔑 需要飞书文档授权\n\n请点击链接完成授权：${authUrl}\n\n授权后自动生效。`,
+            }),
+          },
+          params: { receive_id_type: 'chat_id' },
+        });
+      } catch (fallbackErr) {
+        logger.error({ fallbackErr }, '飞书授权文本链接也发送失败');
+      }
     }
   }
 
