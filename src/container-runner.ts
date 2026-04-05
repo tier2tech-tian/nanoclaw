@@ -175,6 +175,15 @@ export interface ContainerOutput {
   error?: string;
   progressType?: 'tool_use' | 'tool_result' | 'thinking';
   detail?: string;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadInputTokens: number;
+    cacheCreationInputTokens: number;
+    numTurns: number;
+    durationMs: number;
+    totalCostUsd: number;
+  };
 }
 
 interface VolumeMount {
@@ -371,6 +380,7 @@ async function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
   agentIdentifier?: string,
+  chatJid?: string,
 ): Promise<string[]> {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
@@ -381,29 +391,67 @@ async function buildContainerArgs(
   let ghToken = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
   if (!ghToken) {
     try {
-      ghToken = execSync('gh auth token 2>/dev/null', { encoding: 'utf-8' }).trim();
-    } catch { /* gh not installed or not logged in */ }
+      ghToken = execSync('gh auth token 2>/dev/null', {
+        encoding: 'utf-8',
+      }).trim();
+    } catch {
+      /* gh not installed or not logged in */
+    }
   }
   if (ghToken) {
     args.push('-e', `GH_TOKEN=${ghToken}`);
     args.push('-e', `GITHUB_TOKEN=${ghToken}`);
   }
 
-  // 飞书 Tenant Access Token — 预取后注入容器，供飞书文档工具使用
-  const feishuAppId = process.env.FEISHU_APP_ID;
-  const feishuAppSecret = process.env.FEISHU_APP_SECRET;
-  if (feishuAppId && feishuAppSecret) {
+  // 飞书 Token 注入 — 优先 User Token（有文档读写权限），fallback Tenant Token
+  let feishuTokenInjected = false;
+  if (chatJid?.startsWith('fs:')) {
     try {
-      const resp = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ app_id: feishuAppId, app_secret: feishuAppSecret }),
-      });
-      const data = await resp.json() as { tenant_access_token?: string };
-      if (data.tenant_access_token) {
-        args.push('-e', `FEISHU_TENANT_TOKEN=${data.tenant_access_token}`);
+      const { getFeishuUserToken } = await import('./channels/feishu-oauth.js');
+      const { getLastSenderForChat } = await import('./db.js');
+      const lastSender = getLastSenderForChat(chatJid);
+      if (lastSender) {
+        const userToken = await getFeishuUserToken(lastSender, chatJid);
+        if (userToken) {
+          args.push('-e', `FEISHU_TENANT_TOKEN=${userToken}`);
+          feishuTokenInjected = true;
+        }
       }
-    } catch { /* 非致命 — 飞书文档工具不可用 */ }
+    } catch {
+      /* feishu-oauth 未导入或无 user token */
+    }
+  }
+
+  if (!feishuTokenInjected) {
+    // Fallback: Tenant Access Token
+    const feishuEnv = (await import('./env.js')).readEnvFile([
+      'FEISHU_APP_ID',
+      'FEISHU_APP_SECRET',
+    ]);
+    const feishuAppId = process.env.FEISHU_APP_ID || feishuEnv.FEISHU_APP_ID;
+    const feishuAppSecret =
+      process.env.FEISHU_APP_SECRET || feishuEnv.FEISHU_APP_SECRET;
+    if (feishuAppId && feishuAppSecret) {
+      try {
+        const resp = await fetch(
+          'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              app_id: feishuAppId,
+              app_secret: feishuAppSecret,
+            }),
+          },
+        );
+        const data = (await resp.json()) as { tenant_access_token?: string };
+        if (data.tenant_access_token) {
+          args.push('-e', `FEISHU_TENANT_TOKEN=${data.tenant_access_token}`);
+        }
+      } catch {
+        /* 非致命 */
+      }
+    }
   }
 
   // OneCLI gateway handles credential injection — containers never see real secrets.
@@ -469,6 +517,7 @@ export async function runContainerAgent(
     mounts,
     containerName,
     agentIdentifier,
+    input.chatJid,
   );
 
   logger.debug(

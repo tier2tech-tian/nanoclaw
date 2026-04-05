@@ -44,6 +44,16 @@ interface ContainerOutput {
   progressType?: 'tool_use' | 'tool_result' | 'thinking';
   /** 可折叠面板的展开内容（markdown 格式） */
   detail?: string;
+  /** token 用量（仅 result 消息） */
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadInputTokens: number;
+    cacheCreationInputTokens: number;
+    numTurns: number;
+    durationMs: number;
+    totalCostUsd: number;
+  };
 }
 
 interface SessionEntry {
@@ -642,6 +652,22 @@ async function runQuery(
       resultCount++;
       const textResult =
         'result' in message ? (message as { result?: string }).result : null;
+
+      // 提取 token 用量
+      const msg = message as Record<string, unknown>;
+      const rawUsage = msg.usage as Record<string, number> | undefined;
+      const usage = rawUsage
+        ? {
+            inputTokens: rawUsage.input_tokens ?? 0,
+            outputTokens: rawUsage.output_tokens ?? 0,
+            cacheReadInputTokens: rawUsage.cache_read_input_tokens ?? 0,
+            cacheCreationInputTokens: rawUsage.cache_creation_input_tokens ?? 0,
+            numTurns: (msg.num_turns as number) ?? 0,
+            durationMs: (msg.duration_ms as number) ?? 0,
+            totalCostUsd: (msg.total_cost_usd as number) ?? 0,
+          }
+        : undefined;
+
       log(
         `Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`,
       );
@@ -649,6 +675,7 @@ async function runQuery(
         status: 'success',
         result: textResult || null,
         newSessionId,
+        usage,
       });
     }
   }

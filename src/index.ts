@@ -408,6 +408,15 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         return;
       }
 
+      // 传递 usage 数据到飞书 channel（在发送文本回复之前）
+      if (result.usage && 'setUsage' in channel) {
+        (
+          channel as {
+            setUsage: (jid: string, usage: typeof result.usage) => void;
+          }
+        ).setUsage(chatJid, result.usage);
+      }
+
       // Streaming output callback — called for each agent result
       if (result.result) {
         const raw =
@@ -488,7 +497,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         is_bot_message: true,
       })),
     ];
-    getMemoryQueue().add(group.folder, memoryMessages, sessions[group.folder], memorySenderId);
+    getMemoryQueue().add(
+      group.folder,
+      memoryMessages,
+      sessions[group.folder],
+      memorySenderId,
+    );
   }
 
   return true;
@@ -516,7 +530,12 @@ async function runAgent(
   if (isMemoryEnabled()) {
     try {
       const groupDir = resolveGroupFolderPath(group.folder);
-      await injectMemory(group.folder, groupDir, latestUserMessage, memorySenderId);
+      await injectMemory(
+        group.folder,
+        groupDir,
+        latestUserMessage,
+        memorySenderId,
+      );
     } catch (err) {
       logger.warn({ err, group: group.name }, '记忆注入失败，继续启动容器');
     }
@@ -655,6 +674,23 @@ async function startMessageLoop(): Promise<void> {
     return;
   }
   messageLoopRunning = true;
+
+  // 启动飞书 OAuth 回调 server（用户点击授权卡片后的回调）
+  try {
+    const { startOAuthCallbackServer } =
+      await import('./channels/feishu-oauth.js');
+    startOAuthCallbackServer(async ({ openId, chatJid }) => {
+      const channel = findChannel(channels, chatJid);
+      if (channel) {
+        await channel.sendMessage(
+          chatJid,
+          '✅ 飞书文档授权成功！后续文档操作将使用你的权限。',
+        );
+      }
+    });
+  } catch {
+    /* 飞书未配置时忽略 */
+  }
 
   logger.info(`NanoClaw running (default trigger: ${DEFAULT_TRIGGER})`);
 
@@ -1145,6 +1181,20 @@ async function main(): Promise<void> {
       }));
       for (const group of Object.values(registeredGroups)) {
         writeTasksSnapshot(group.folder, group.isMain === true, taskRows);
+      }
+    },
+    onFeishuAuthRequest: async (chatJid, groupFolder) => {
+      const feishuMod = await import('./channels/feishu.js');
+      const feishuChannel = channels.find((c) => c.name === 'feishu') as
+        | InstanceType<typeof feishuMod.FeishuChannel>
+        | undefined;
+      if (!feishuChannel?.sendAuthCard) return;
+      const { buildAuthUrl } = await import('./channels/feishu-oauth.js');
+      const state = `${chatJid}:${groupFolder}`;
+      const authUrl = buildAuthUrl(state);
+      if (authUrl) {
+        await feishuChannel.sendAuthCard(chatJid, authUrl);
+        logger.info({ chatJid }, '飞书授权卡片已发送');
       }
     },
   });

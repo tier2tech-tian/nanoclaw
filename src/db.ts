@@ -87,6 +87,16 @@ function createSchema(database: Database.Database): void {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS feishu_tokens (
+      user_id TEXT NOT NULL,
+      chat_jid TEXT NOT NULL,
+      access_token TEXT NOT NULL,
+      refresh_token TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, chat_jid)
+    );
   `);
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)
@@ -743,6 +753,67 @@ export function setLastRotateAt(ts: number): void {
   db.prepare(
     'INSERT OR REPLACE INTO account_rotate_config (key, value) VALUES (?, ?)',
   ).run('last_rotate_at', String(ts));
+}
+
+// --- Last sender lookup ---
+
+export function getLastSenderForChat(chatJid: string): string | null {
+  const row = db
+    .prepare(
+      'SELECT sender FROM messages WHERE chat_jid = ? AND is_bot_message = 0 AND sender != ? ORDER BY timestamp DESC LIMIT 1',
+    )
+    .get(chatJid, '') as { sender: string } | undefined;
+  return row?.sender ?? null;
+}
+
+// --- Feishu tokens ---
+
+export interface FeishuTokenRecord {
+  access_token: string;
+  refresh_token: string;
+  expires_at: string;
+}
+
+export function getFeishuToken(
+  userId: string,
+  chatJid: string,
+): FeishuTokenRecord | null {
+  const row = db
+    .prepare(
+      'SELECT access_token, refresh_token, expires_at FROM feishu_tokens WHERE user_id = ? AND chat_jid = ?',
+    )
+    .get(userId, chatJid) as FeishuTokenRecord | undefined;
+  return row ?? null;
+}
+
+export function getFeishuTokenByUserId(
+  userId: string,
+): (FeishuTokenRecord & { chat_jid: string }) | null {
+  const row = db
+    .prepare(
+      'SELECT access_token, refresh_token, expires_at, chat_jid FROM feishu_tokens WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1',
+    )
+    .get(userId) as (FeishuTokenRecord & { chat_jid: string }) | undefined;
+  return row ?? null;
+}
+
+export function setFeishuToken(
+  userId: string,
+  chatJid: string,
+  accessToken: string,
+  refreshToken: string,
+  expiresAt: string,
+): void {
+  db.prepare(
+    'INSERT OR REPLACE INTO feishu_tokens (user_id, chat_jid, access_token, refresh_token, expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+  ).run(
+    userId,
+    chatJid,
+    accessToken,
+    refreshToken,
+    expiresAt,
+    new Date().toISOString(),
+  );
 }
 
 // --- JSON migration ---

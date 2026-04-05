@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockCreate = vi
   .fn()
   .mockResolvedValue({ data: { message_id: 'msg_mock' } });
+const mockPatch = vi.fn().mockResolvedValue({});
 const mockReactionCreate = vi
   .fn()
   .mockResolvedValue({ data: { reaction_id: 'react_1' } });
@@ -23,7 +24,7 @@ const mockChatList = vi.fn().mockResolvedValue({
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class MockClient {
     im = {
-      message: { create: mockCreate },
+      message: { create: mockCreate, patch: mockPatch },
       messageReaction: {
         create: mockReactionCreate,
         delete: mockReactionDelete,
@@ -48,6 +49,10 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
     LoggerLevel: { warn: 2 },
   };
 });
+
+vi.mock('../group-folder.js', () => ({
+  resolveGroupFolderPath: (folder: string) => `/tmp/groups/${folder}`,
+}));
 
 import { FeishuChannel } from './feishu.js';
 import type { ChannelOpts } from './registry.js';
@@ -175,6 +180,65 @@ describe('FeishuChannel', () => {
         'feishu',
         true,
       );
+    });
+  });
+
+  describe('extractPostContent', () => {
+    it('提取纯文本 post', () => {
+      const parsed = {
+        content: [
+          [
+            { tag: 'text', text: '你好' },
+            { tag: 'text', text: '世界' },
+          ],
+          [{ tag: 'text', text: '第二行' }],
+        ],
+      };
+      const result = channel.extractPostContent(parsed);
+      expect(result.text).toBe('你好世界\n第二行');
+      expect(result.imageKeys).toEqual([]);
+    });
+
+    it('提取 post 中的图片 key', () => {
+      const parsed = {
+        title: '测试标题',
+        content: [
+          [
+            { tag: 'text', text: '看看这张图' },
+            { tag: 'img', image_key: 'img_abc123' },
+          ],
+          [{ tag: 'img', image_key: 'img_def456' }],
+          [{ tag: 'text', text: '结束' }],
+        ],
+      };
+      const result = channel.extractPostContent(parsed);
+      expect(result.text).toBe('测试标题\n看看这张图\n结束');
+      expect(result.imageKeys).toEqual(['img_abc123', 'img_def456']);
+    });
+
+    it('提取 a 标签中的文本', () => {
+      const parsed = {
+        content: [
+          [
+            { tag: 'text', text: '点击 ' },
+            { tag: 'a', text: '这里', href: 'https://example.com' },
+          ],
+        ],
+      };
+      const result = channel.extractPostContent(parsed);
+      expect(result.text).toBe('点击 这里');
+    });
+
+    it('空 content 返回空', () => {
+      const result = channel.extractPostContent({});
+      expect(result.text).toBe('');
+      expect(result.imageKeys).toEqual([]);
+    });
+
+    it('有 title 无 content 只返回 title', () => {
+      const result = channel.extractPostContent({ title: '仅标题' });
+      expect(result.text).toBe('仅标题');
+      expect(result.imageKeys).toEqual([]);
     });
   });
 
