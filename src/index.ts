@@ -34,10 +34,6 @@ import {
   writeTasksSnapshot,
 } from './container-runner.js';
 import {
-  cleanupOrphans,
-  ensureContainerRuntimeRunning,
-} from './container-runtime.js';
-import {
   getAllChats,
   getAllRegisteredGroups,
   getAllSessions,
@@ -488,7 +484,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         is_bot_message: true,
       })),
     ];
-    getMemoryQueue().add(group.folder, memoryMessages, sessions[group.folder], memorySenderId);
+    getMemoryQueue().add(
+      group.folder,
+      memoryMessages,
+      sessions[group.folder],
+      memorySenderId,
+    );
   }
 
   return true;
@@ -516,7 +517,12 @@ async function runAgent(
   if (isMemoryEnabled()) {
     try {
       const groupDir = resolveGroupFolderPath(group.folder);
-      await injectMemory(group.folder, groupDir, latestUserMessage, memorySenderId);
+      await injectMemory(
+        group.folder,
+        groupDir,
+        latestUserMessage,
+        memorySenderId,
+      );
     } catch (err) {
       logger.warn({ err, group: group.name }, '记忆注入失败，继续启动容器');
     }
@@ -774,13 +780,7 @@ function recoverPendingMessages(): void {
   }
 }
 
-function ensureContainerSystemRunning(): void {
-  ensureContainerRuntimeRunning();
-  cleanupOrphans();
-}
-
 async function main(): Promise<void> {
-  ensureContainerSystemRunning();
   initDatabase();
   logger.info('Database initialized');
   loadState();
