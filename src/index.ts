@@ -999,8 +999,10 @@ async function main(): Promise<void> {
                     encoding: 'utf-8',
                     timeout: 5000,
                   }),
-                ) as Array<{ id: string; name: string }>;
-                assignedSecretIds = agentSecrets.map((s) => s.id);
+                ) as Array<string | { id: string }>;
+                assignedSecretIds = agentSecrets.map((s) =>
+                  typeof s === 'string' ? s : s.id,
+                );
               } catch {
                 /* no secrets assigned */
               }
