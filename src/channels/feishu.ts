@@ -32,13 +32,17 @@ function buildCard(
   headerText?: string,
   headerColor?: string,
 ): string {
-  return JSON.stringify({
+  const card: Record<string, unknown> = {
     elements: [{ tag: 'markdown', content: text }],
-    header: {
+  };
+  // 只有明确传了标题才显示 header（进度卡片等），正式回复不带标题栏
+  if (headerText) {
+    card.header = {
       template: headerColor || 'blue',
-      title: { tag: 'plain_text', content: headerText || ' ' },
-    },
-  });
+      title: { tag: 'plain_text', content: headerText },
+    };
+  }
+  return JSON.stringify(card);
 }
 
 /** 构建进度卡片（黄色标题 + 步骤列表） */
