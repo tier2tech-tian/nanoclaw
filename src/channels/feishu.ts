@@ -975,7 +975,10 @@ export class FeishuChannel implements Channel {
       '飞书收到消息事件',
     );
     // 忽略机器人自己发的消息
-    if (data.sender.sender_type === 'app') return;
+    if (data.sender.sender_type === 'app') {
+      logger.info({ chatId: data.message.chat_id }, '忽略机器人消息 (sender_type=app)');
+      return;
+    }
 
     const { message, sender } = data;
     const jid = `${JID_PREFIX}${message.chat_id}`;
@@ -987,6 +990,8 @@ export class FeishuChannel implements Channel {
 
     // 获取 group folder（图片下载需要）
     const groupFolder = this.getGroupFolder(jid);
+
+    logger.info({ jid, msgType: message.message_type, senderId }, '飞书开始解析消息内容');
 
     // 解析消息内容
     let text = '';
@@ -1045,7 +1050,10 @@ export class FeishuChannel implements Channel {
       return;
     }
 
-    if (!text.trim()) return;
+    if (!text.trim()) {
+      logger.info({ jid }, '飞书消息内容为空，跳过');
+      return;
+    }
 
     // 替换 @mention 标记为名称；@机器人 → @ASSISTANT_NAME（匹配触发词）
     if (message.mentions) {
@@ -1082,6 +1090,7 @@ export class FeishuChannel implements Channel {
       thread_id: message.root_id,
     };
 
+    logger.info({ jid, text: text.slice(0, 80) }, '飞书消息分发到 onMessage');
     this.opts.onMessage(jid, newMsg);
   }
 }

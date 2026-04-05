@@ -926,6 +926,7 @@ async function main(): Promise<void> {
       if (trimmed === '/account' || trimmed.startsWith('/account ')) {
         const arg = trimmed.slice('/account'.length).trim();
         const ch = findChannel(channels, chatJid);
+        logger.info({ chatJid, arg, hasCh: !!ch, trimmed }, '/account 命令匹配');
         try {
           if (arg === 'auto on') {
             setRotateEnabled(true);
@@ -989,7 +990,10 @@ async function main(): Promise<void> {
               lines.length > 0
                 ? `📋 可用账号：\n${lines.join('\n')}\n\n🔄 自动轮换: ${autoStatus}\n\n切换：/account <name>\n开关：/account auto on|off`
                 : '没有配置任何账号。用 onecli secrets create 添加。';
-            ch?.sendMessage(chatJid, reply).catch((err) => logger.error({ err }, '/account reply failed'));
+            logger.info({ chatJid, replyLen: reply.length }, '/account 准备发送回复');
+            ch?.sendMessage(chatJid, reply)
+              .then(() => logger.info('/account 回复已发送'))
+              .catch((err) => logger.error({ err }, '/account reply failed'));
           } else {
             // 切换到指定账号
 
