@@ -104,6 +104,26 @@ function buildProgressCard(steps: ProgressStep[], frame: number = 0): string {
   });
 }
 
+/** 向卡片 elements 追加 usage 脚注（hr + 灰色统计行） */
+function appendUsageFooter(
+  elements: unknown[],
+  usage: NonNullable<ContainerOutput['usage']>,
+): void {
+  const inp = usage.inputTokens.toLocaleString();
+  const cacheRead = usage.cacheReadInputTokens.toLocaleString();
+  const cacheCreate = usage.cacheCreationInputTokens.toLocaleString();
+  const out = usage.outputTokens.toLocaleString();
+  const turns = usage.numTurns;
+  const dur = (usage.durationMs / 1000).toFixed(1);
+  const cost = usage.totalCostUsd.toFixed(2);
+
+  elements.push({ tag: 'hr' });
+  elements.push({
+    tag: 'markdown',
+    content: `<font color="grey">↑${inp}/${cacheRead}/${cacheCreate} ↓${out} 🔄${turns} ⏱${dur}s 💰≈$${cost}</font>`,
+  });
+}
+
 /** 构建完成卡片（schema 2.0 + collapsible_panel） */
 function buildCompletedCard(
   steps: ProgressStep[],
@@ -125,22 +145,7 @@ function buildCompletedCard(
     return { tag: 'markdown', content: step.title };
   });
 
-  // token 用量脚注
-  if (usage) {
-    const inp = usage.inputTokens.toLocaleString();
-    const cacheRead = usage.cacheReadInputTokens.toLocaleString();
-    const cacheCreate = usage.cacheCreationInputTokens.toLocaleString();
-    const out = usage.outputTokens.toLocaleString();
-    const turns = usage.numTurns;
-    const dur = (usage.durationMs / 1000).toFixed(1);
-    const cost = usage.totalCostUsd.toFixed(2);
-
-    elements.push({ tag: 'hr' });
-    elements.push({
-      tag: 'markdown',
-      content: `<font color="grey">↑${inp}/${cacheRead}/${cacheCreate} ↓${out} 🔄${turns} ⏱${dur}s 💰≈$${cost}</font>`,
-    });
-  }
+  if (usage) appendUsageFooter(elements, usage);
 
   return JSON.stringify({
     schema: '2.0',
@@ -318,8 +323,9 @@ export class FeishuChannel implements Channel {
       return;
     }
 
-    // 正式回复到达：将进度卡片标记为「✅ 已完成」
+    // 正式回复到达：将进度卡片标记为「✅ 已完成」，取出 usage
     const progressEntry = this.progressCards.get(jid);
+    const usage = progressEntry?.usage;
     if (progressEntry) {
       this.progressCards.delete(jid);
       try {
@@ -351,12 +357,16 @@ export class FeishuChannel implements Channel {
         IMAGE_SEND_PATTERN.lastIndex = 0;
         const remainingText = text.replace(IMAGE_SEND_PATTERN, '').trim();
         try {
-          if (remainingText) await this.sendPlainOrCard(chatId, remainingText);
+          if (remainingText)
+            await this.sendPlainOrCard(chatId, remainingText, usage);
           for (const imgPath of imageMatches) {
             try {
               await this.sendImageMsg(chatId, imgPath, groupFolder);
             } catch (err) {
-              logger.warn({ err, path: imgPath }, '飞书图片发送失败，降级为文本');
+              logger.warn(
+                { err, path: imgPath },
+                '飞书图片发送失败，降级为文本',
+              );
               await this.sendPlainOrCard(chatId, `[图片发送失败: ${imgPath}]`);
             }
           }
@@ -369,21 +379,27 @@ export class FeishuChannel implements Channel {
     }
 
     try {
-      await this.sendPlainOrCard(chatId, text);
+      await this.sendPlainOrCard(chatId, text, usage);
     } catch (err) {
       logger.error({ err }, '飞书发送消息失败');
       throw err;
     }
   }
 
-  /** 发送纯文本或卡片消息（内部方法） */
-  private async sendPlainOrCard(chatId: string, text: string): Promise<void> {
-    if (shouldUseCard(text)) {
+  /** 发送纯文本或卡片消息（内部方法）。有 usage 时强制走卡片并追加脚注 */
+  private async sendPlainOrCard(
+    chatId: string,
+    text: string,
+    usage?: ContainerOutput['usage'],
+  ): Promise<void> {
+    if (usage || shouldUseCard(text)) {
+      const elements: unknown[] = [{ tag: 'markdown', content: text }];
+      if (usage) appendUsageFooter(elements, usage);
       await this.client.im.message.create({
         data: {
           receive_id: chatId,
           msg_type: 'interactive',
-          content: buildCard(text),
+          content: JSON.stringify({ elements }),
         },
         params: { receive_id_type: 'chat_id' },
       });
@@ -591,13 +607,19 @@ export class FeishuChannel implements Channel {
       );
 
       if (!resp.ok) {
-        logger.warn({ messageId, imageKey, status: resp.status }, '飞书图片下载 HTTP 错误');
+        logger.warn(
+          { messageId, imageKey, status: resp.status },
+          '飞书图片下载 HTTP 错误',
+        );
         return null;
       }
 
       const buf = Buffer.from(await resp.arrayBuffer());
       if (buf.length > MAX_IMAGE_SIZE) {
-        logger.warn({ messageId, imageKey, size: buf.length }, '图片超过 20MB 限制');
+        logger.warn(
+          { messageId, imageKey, size: buf.length },
+          '图片超过 20MB 限制',
+        );
         return null;
       }
 
@@ -673,7 +695,10 @@ export class FeishuChannel implements Channel {
         data?: { items?: typeof items };
       };
       if (data.code !== 0) {
-        logger.error({ messageId, code: data.code }, '飞书合并转发 API 返回错误');
+        logger.error(
+          { messageId, code: data.code },
+          '飞书合并转发 API 返回错误',
+        );
         return { text: '[合并转发消息，API 返回错误]', imagePaths: [] };
       }
       items = data.data?.items ?? [];
@@ -717,8 +742,7 @@ export class FeishuChannel implements Channel {
       }
 
       const subContent = item.body?.content ?? '{}';
-      const senderLabel =
-        item.sender?.sender_type || item.sender?.id || '未知';
+      const senderLabel = item.sender?.sender_type || item.sender?.id || '未知';
 
       // 按类型解析子消息
       let subText = '';
@@ -767,10 +791,7 @@ export class FeishuChannel implements Channel {
     }
 
     return {
-      text:
-        texts.length > 0
-          ? `[转发消息]\n${texts.join('\n')}`
-          : '[转发消息]',
+      text: texts.length > 0 ? `[转发消息]\n${texts.join('\n')}` : '[转发消息]',
       imagePaths,
     };
   }
