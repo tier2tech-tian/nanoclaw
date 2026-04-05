@@ -887,8 +887,15 @@ async function main(): Promise<void> {
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: (chatJid: string, msg: NewMessage) => {
+      // 剥离 trigger 前缀（如 "@Andy "）以匹配 slash 命令
+      let trimmed = msg.content.trim();
+      const group = registeredGroups[chatJid];
+      if (group) {
+        const triggerPattern = getTriggerPattern(group.trigger);
+        trimmed = trimmed.replace(triggerPattern, '').trim();
+      }
+
       // Remote control commands — intercept before storage
-      const trimmed = msg.content.trim();
       if (trimmed === '/remote-control' || trimmed === '/remote-control-end') {
         handleRemoteControl(trimmed, chatJid, msg).catch((err) =>
           logger.error({ err, chatJid }, 'Remote control command error'),
