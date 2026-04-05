@@ -168,9 +168,9 @@ export interface ContainerInput {
 }
 
 export interface ContainerOutput {
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'progress';
   result: string | null;
-  newSessionId?: string;
+  newSessionId?: string | null;
   error?: string;
 }
 

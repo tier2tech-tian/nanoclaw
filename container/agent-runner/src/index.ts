@@ -503,6 +503,35 @@ async function runQuery(
       lastAssistantUuid = (message as { uuid: string }).uuid;
     }
 
+    // 工具调用进度输出 — 让宿主机能显示进度卡片
+    if (message.type === 'assistant' && 'content' in message) {
+      const content = (message as { content?: Array<{ type: string; name?: string; input?: unknown }> }).content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === 'tool_use' && block.name) {
+            const emoji = block.name === 'Bash' ? '🔧' :
+                          block.name === 'Read' ? '📖' :
+                          block.name === 'Write' || block.name === 'Edit' ? '✏️' :
+                          block.name === 'WebSearch' ? '🌐' :
+                          block.name === 'WebFetch' ? '🌐' :
+                          block.name === 'ListDir' ? '📋' : '⚙️';
+            const inputStr = typeof block.input === 'object' && block.input !== null
+              ? (block.input as Record<string, unknown>).command as string ||
+                (block.input as Record<string, unknown>).file_path as string ||
+                (block.input as Record<string, unknown>).query as string ||
+                block.name
+              : block.name;
+            const shortInput = typeof inputStr === 'string' ? inputStr.slice(0, 60) : block.name;
+            writeOutput({
+              status: 'progress',
+              result: `${emoji} ${block.name}: ${shortInput}`,
+              newSessionId: null,
+            });
+          }
+        }
+      }
+    }
+
     if (message.type === 'system' && message.subtype === 'init') {
       newSessionId = message.session_id;
       log(`Session initialized: ${newSessionId}`);

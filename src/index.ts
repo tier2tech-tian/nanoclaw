@@ -398,6 +398,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     prompt,
     chatJid,
     async (result) => {
+      // 进度消息 — 转发给 channel 显示进度卡片
+      if (result.status === 'progress' && result.result) {
+        await channel.sendMessage(chatJid, result.result);
+        return;
+      }
+
       // Streaming output callback — called for each agent result
       if (result.result) {
         const raw =

@@ -180,7 +180,10 @@ export class FeishuChannel implements Channel {
         await this.client.im.message.delete({
           path: { message_id: progressEntry.messageId },
         });
-        logger.debug({ jid, messageId: progressEntry.messageId }, '飞书进度卡片已删除');
+        logger.debug(
+          { jid, messageId: progressEntry.messageId },
+          '飞书进度卡片已删除',
+        );
       } catch (err) {
         logger.debug({ err }, '飞书进度卡片删除失败（非致命）');
       }
