@@ -36,9 +36,9 @@ interface ContainerInput {
 }
 
 interface ContainerOutput {
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'progress';
   result: string | null;
-  newSessionId?: string;
+  newSessionId?: string | null;
   error?: string;
 }
 
@@ -379,7 +379,7 @@ async function runQuery(
   sdkEnv: Record<string, string | undefined>,
   resumeAt?: string,
 ): Promise<{
-  newSessionId?: string;
+  newSessionId?: string | null;
   lastAssistantUuid?: string;
   closedDuringQuery: boolean;
 }> {
