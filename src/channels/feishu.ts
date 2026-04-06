@@ -696,7 +696,7 @@ export class FeishuChannel implements Channel {
 
         // 发送"处理中"进度卡片
         if (!this.progressCards.has(jid)) {
-          const SPINNER_INTERVAL_MS = 5000; // 5s
+          const SPINNER_INTERVAL_MS = 1000; // 1s（patch 耗时约 300ms，递归 setTimeout 不会并发）
           const SPINNER_MAX_DURATION_MS = 10 * 60 * 1000; // 10 分钟硬上限
 
           const now = Date.now();
