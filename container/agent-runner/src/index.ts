@@ -573,14 +573,17 @@ async function runQuery(
     if (message.type === 'assistant') {
       const raw = message as Record<string, unknown>;
       const innerMsg = raw.message as Record<string, unknown> | undefined;
-      // SDK assistant 消息的 usage 可能在 message.message.usage 或 message.usage
-      const msgUsage = (innerMsg?.usage ?? raw.usage) as Record<string, number> | undefined;
-      if (msgUsage) {
-        lastAssistantUsage = {
-          inputTokens: msgUsage.input_tokens ?? 0,
-          outputTokens: msgUsage.output_tokens ?? 0,
-        };
-        log(`[assistant-usage] input=${lastAssistantUsage.inputTokens} output=${lastAssistantUsage.outputTokens}`);
+      // 打印 assistant 消息顶层和 inner 的所有 key，定位 usage 字段位置
+      // SDK assistant 消息的 usage 在 message.message.usage
+      const rawMsgUsage = innerMsg?.usage as Record<string, unknown> | undefined;
+      if (rawMsgUsage) {
+        log(`[assistant-usage-raw] ${JSON.stringify(rawMsgUsage)}`);
+        // Anthropic API usage 字段：input_tokens, output_tokens
+        // 或可能是 SDK 包装后的字段名
+        const inputT = (rawMsgUsage.input_tokens ?? rawMsgUsage.inputTokens ?? 0) as number;
+        const outputT = (rawMsgUsage.output_tokens ?? rawMsgUsage.outputTokens ?? 0) as number;
+        lastAssistantUsage = { inputTokens: inputT, outputTokens: outputT };
+        log(`[assistant-usage] input=${inputT} output=${outputT}`);
       }
     }
 

@@ -455,6 +455,53 @@ function killProcessTree(
   }
 }
 
+/**
+ * 启动时清理上次运行遗留的孤儿 agent 进程。
+ * Docker 时代用 `docker stop` 清理孤儿容器，迁移到本地子进程后需要用 pkill。
+ */
+export function cleanupOrphanAgents(): void {
+  try {
+    const { execSync } = require('child_process') as typeof import('child_process');
+    // 找到所有 agent-runner 进程（排除当前主进程的子进程）
+    const mainPid = process.pid;
+    const output = execSync(
+      `pgrep -f "agent-runner/dist/index.js" 2>/dev/null || true`,
+      { encoding: 'utf-8', timeout: 5000 },
+    ).trim();
+    if (!output) {
+      logger.debug('No orphan agent processes found');
+      return;
+    }
+    const pids = output.split('\n').map(Number).filter(Boolean);
+    let killed = 0;
+    for (const pid of pids) {
+      try {
+        // 检查是否是当前进程的子进程（不杀自己的子进程）
+        const ppid = parseInt(
+          execSync(`ps -o ppid= -p ${pid} 2>/dev/null || echo 0`, { encoding: 'utf-8' }).trim(),
+          10,
+        );
+        if (ppid === mainPid) continue; // 当前主进程的子进程，跳过
+        // 杀掉进程组
+        try { process.kill(-pid, 'SIGTERM'); } catch { try { process.kill(pid, 'SIGTERM'); } catch { /* already dead */ } }
+        killed++;
+      } catch { /* 忽略单个进程的错误 */ }
+    }
+    if (killed > 0) {
+      logger.info({ killed, total: pids.length }, 'Cleaned up orphan agent processes');
+      // 等 2 秒后强杀残留
+      setTimeout(() => {
+        for (const pid of pids) {
+          try { process.kill(-pid, 'SIGKILL'); } catch { /* already dead */ }
+          try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ }
+        }
+      }, 2000);
+    }
+  } catch (err) {
+    logger.warn({ err }, 'Failed to cleanup orphan agents');
+  }
+}
+
 // ---- 主函数 ----
 
 export async function runContainerAgent(

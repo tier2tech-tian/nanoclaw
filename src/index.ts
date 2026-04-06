@@ -760,7 +760,15 @@ async function startMessageLoop(): Promise<void> {
           );
           const messagesToSend =
             allPending.length > 0 ? allPending : groupMessages;
-          logger.info({ chatJid, allPendingLen: allPending.length, groupMessagesLen: groupMessages.length, cursor: getOrRecoverCursor(chatJid) }, 'Message loop: preparing to send/enqueue');
+          logger.info(
+            {
+              chatJid,
+              allPendingLen: allPending.length,
+              groupMessagesLen: groupMessages.length,
+              cursor: getOrRecoverCursor(chatJid),
+            },
+            'Message loop: preparing to send/enqueue',
+          );
           const formatted = formatMessages(messagesToSend, TIMEZONE);
 
           if (queue.sendMessage(chatJid, formatted)) {
@@ -813,6 +821,10 @@ function recoverPendingMessages(): void {
 }
 
 async function main(): Promise<void> {
+  // 清理上次运行遗留的孤儿 agent 进程
+  const { cleanupOrphanAgents } = await import('./container-runner.js');
+  cleanupOrphanAgents();
+
   initDatabase();
   logger.info('Database initialized');
   loadState();
@@ -833,11 +845,12 @@ async function main(): Promise<void> {
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
-    // R8.4: flush pending memory updates before shutdown
+    // 先杀所有 agent 子进程（5 秒宽限期）
+    await queue.shutdown(5000);
+    // 再 flush 记忆
     if (isMemoryEnabled()) {
       await getMemoryQueue().flush();
     }
-    await queue.shutdown(10000);
     for (const ch of channels) await ch.disconnect();
     process.exit(0);
   };
@@ -906,19 +919,31 @@ async function main(): Promise<void> {
           const arg = trimmed.slice(4).trim();
           if (!arg || arg === 'status') {
             const cur = grp.customCwd || '(默认: groups/' + grp.folder + ')';
-            ch?.sendMessage(chatJid, `[cwd] 当前工作目录: ${cur}`).catch(() => {});
+            ch?.sendMessage(chatJid, `[cwd] 当前工作目录: ${cur}`).catch(
+              () => {},
+            );
           } else if (arg === 'reset') {
             delete grp.customCwd;
             setRegisteredGroup(chatJid, grp);
-            ch?.sendMessage(chatJid, '[cwd] 已重置为默认目录，下次对话生效').catch(() => {});
+            ch?.sendMessage(
+              chatJid,
+              '[cwd] 已重置为默认目录，下次对话生效',
+            ).catch(() => {});
           } else {
-            const resolved = path.resolve(arg.replace(/^~/, process.env.HOME || '~'));
+            const resolved = path.resolve(
+              arg.replace(/^~/, process.env.HOME || '~'),
+            );
             if (!fs.existsSync(resolved)) {
-              ch?.sendMessage(chatJid, `[cwd] 目录不存在: ${resolved}`).catch(() => {});
+              ch?.sendMessage(chatJid, `[cwd] 目录不存在: ${resolved}`).catch(
+                () => {},
+              );
             } else {
               grp.customCwd = resolved;
               setRegisteredGroup(chatJid, grp);
-              ch?.sendMessage(chatJid, `[cwd] 已设置为 ${resolved}，下次对话生效`).catch(() => {});
+              ch?.sendMessage(
+                chatJid,
+                `[cwd] 已设置为 ${resolved}，下次对话生效`,
+              ).catch(() => {});
             }
           }
         }

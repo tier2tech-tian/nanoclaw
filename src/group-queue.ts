@@ -66,7 +66,14 @@ export class GroupQueue {
 
     if (state.active) {
       state.pendingMessages = true;
-      logger.info({ groupJid, groupFolder: state.groupFolder, idleWaiting: state.idleWaiting }, 'Container active, message queued');
+      logger.info(
+        {
+          groupJid,
+          groupFolder: state.groupFolder,
+          idleWaiting: state.idleWaiting,
+        },
+        'Container active, message queued',
+      );
       return;
     }
 
@@ -139,7 +146,15 @@ export class GroupQueue {
     state.process = proc;
     state.containerName = containerName;
     if (groupFolder) state.groupFolder = groupFolder;
-    logger.info({ groupJid, containerName, groupFolder: state.groupFolder, active: state.active }, 'registerProcess');
+    logger.info(
+      {
+        groupJid,
+        containerName,
+        groupFolder: state.groupFolder,
+        active: state.active,
+      },
+      'registerProcess',
+    );
   }
 
   /**
@@ -161,7 +176,15 @@ export class GroupQueue {
   sendMessage(groupJid: string, text: string): boolean {
     const state = this.getGroup(groupJid);
     if (!state.active || !state.groupFolder || state.isTaskContainer) {
-      logger.info({ groupJid, active: state.active, groupFolder: state.groupFolder, isTaskContainer: state.isTaskContainer }, 'queue.sendMessage rejected');
+      logger.info(
+        {
+          groupJid,
+          active: state.active,
+          groupFolder: state.groupFolder,
+          isTaskContainer: state.isTaskContainer,
+        },
+        'queue.sendMessage rejected',
+      );
       return false;
     }
     state.idleWaiting = false; // Agent is about to receive work, no longer idle
@@ -347,22 +370,36 @@ export class GroupQueue {
     }
   }
 
-  async shutdown(_gracePeriodMs: number): Promise<void> {
+  async shutdown(gracePeriodMs: number): Promise<void> {
     this.shuttingDown = true;
 
-    // Count active containers but don't kill them — they'll finish on their own
-    // via idle timeout or container timeout. The --rm flag cleans them up on exit.
-    // This prevents WhatsApp reconnection restarts from killing working agents.
-    const activeContainers: string[] = [];
-    for (const [_jid, state] of this.groups) {
-      if (state.process && !state.process.killed && state.containerName) {
-        activeContainers.push(state.containerName);
+    const killPromises: Promise<void>[] = [];
+    for (const [jid, state] of this.groups) {
+      if (state.process && !state.process.killed && state.process.pid) {
+        const pid = state.process.pid;
+        const name = state.containerName || jid;
+        logger.info({ jid, pid, name }, 'Killing agent process on shutdown');
+        killPromises.push(
+          new Promise<void>((resolve) => {
+            try { process.kill(-pid, 'SIGTERM'); } catch { try { process.kill(pid, 'SIGTERM'); } catch { /* already dead */ } }
+            const forceKill = setTimeout(() => {
+              try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ } }
+              resolve();
+            }, gracePeriodMs);
+            state.process!.once('close', () => {
+              clearTimeout(forceKill);
+              resolve();
+            });
+          }),
+        );
       }
     }
 
-    logger.info(
-      { activeCount: this.activeCount, detachedContainers: activeContainers },
-      'GroupQueue shutting down (containers detached, not killed)',
-    );
+    if (killPromises.length > 0) {
+      await Promise.all(killPromises);
+      logger.info({ killed: killPromises.length }, 'All agent processes terminated');
+    } else {
+      logger.info('No active agent processes to kill');
+    }
   }
 }
