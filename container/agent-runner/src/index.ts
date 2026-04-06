@@ -575,15 +575,16 @@ async function runQuery(
       const innerMsg = raw.message as Record<string, unknown> | undefined;
       // 打印 assistant 消息顶层和 inner 的所有 key，定位 usage 字段位置
       // SDK assistant 消息的 usage 在 message.message.usage
-      const rawMsgUsage = innerMsg?.usage as Record<string, unknown> | undefined;
+      const rawMsgUsage = innerMsg?.usage as Record<string, number> | undefined;
       if (rawMsgUsage) {
-        log(`[assistant-usage-raw] ${JSON.stringify(rawMsgUsage)}`);
-        // Anthropic API usage 字段：input_tokens, output_tokens
-        // 或可能是 SDK 包装后的字段名
-        const inputT = (rawMsgUsage.input_tokens ?? rawMsgUsage.inputTokens ?? 0) as number;
-        const outputT = (rawMsgUsage.output_tokens ?? rawMsgUsage.outputTokens ?? 0) as number;
-        lastAssistantUsage = { inputTokens: inputT, outputTokens: outputT };
-        log(`[assistant-usage] input=${inputT} output=${outputT}`);
+        // Anthropic API 的 input_tokens 只是新增（非缓存）部分
+        // 完整 context = input_tokens + cache_creation_input_tokens + cache_read_input_tokens
+        const totalContext =
+          (rawMsgUsage.input_tokens ?? 0) +
+          (rawMsgUsage.cache_creation_input_tokens ?? 0) +
+          (rawMsgUsage.cache_read_input_tokens ?? 0);
+        const outputT = rawMsgUsage.output_tokens ?? 0;
+        lastAssistantUsage = { inputTokens: totalContext, outputTokens: outputT };
       }
     }
 
@@ -760,9 +761,8 @@ async function runQuery(
             durationMs: (msg.duration_ms as number) ?? 0,
             totalCostUsd: (msg.total_cost_usd as number) ?? 0,
             modelContextWindows,
-            lastTurnContext: lastAssistantUsage
-              ? lastAssistantUsage.inputTokens + lastAssistantUsage.outputTokens
-              : undefined,
+            // lastAssistantUsage.inputTokens 已经是完整 context（input + cache_creation + cache_read）
+            lastTurnContext: lastAssistantUsage?.inputTokens,
           }
         : undefined;
 
