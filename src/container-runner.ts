@@ -173,6 +173,7 @@ export interface ContainerInput {
   /** 由 runContainerAgent 内部填充，调用方无需设置 */
   workspacePaths?: {
     group: string;
+    queryCwd?: string; // Custom cwd for query(), falls back to group
     project?: string;
     global?: string;
     ipc: string;
@@ -209,6 +210,7 @@ export interface ContainerOutput {
 
 export interface WorkspacePaths {
   group: string;
+  queryCwd?: string;
   project?: string;
   global?: string;
   ipc: string;
@@ -223,6 +225,7 @@ export function resolveWorkspacePaths(
   const projectRoot = process.cwd();
   return {
     group: resolveGroupFolderPath(group.folder),
+    queryCwd: group.customCwd || undefined,
     project: isMain ? projectRoot : undefined,
     global: path.join(GROUPS_DIR, 'global'),
     ipc: resolveGroupIpcPath(group.folder),

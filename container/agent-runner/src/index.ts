@@ -35,6 +35,7 @@ interface ContainerInput {
   script?: string;
   workspacePaths: {
     group: string;
+    queryCwd?: string;
     project?: string;
     global?: string;
     ipc: string;
@@ -88,6 +89,7 @@ const IPC_POLL_MS = 500;
 // 工作目录路径 — 在 stdin 解析后初始化
 let PATHS: {
   group: string;
+  queryCwd?: string;
   project?: string;
   global?: string;
   ipc: string;
@@ -476,7 +478,7 @@ async function runQuery(
   for await (const message of query({
     prompt: stream,
     options: {
-      cwd: PATHS.group,
+      cwd: PATHS.queryCwd || PATHS.group,
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
@@ -569,13 +571,16 @@ async function runQuery(
 
     // 记录最后一次 assistant 消息的 usage（用于 context window 占用率计算）
     if (message.type === 'assistant') {
-      const innerMsg = (message as Record<string, unknown>).message as Record<string, unknown> | undefined;
-      const msgUsage = innerMsg?.usage as Record<string, number> | undefined;
+      const raw = message as Record<string, unknown>;
+      const innerMsg = raw.message as Record<string, unknown> | undefined;
+      // SDK assistant 消息的 usage 可能在 message.message.usage 或 message.usage
+      const msgUsage = (innerMsg?.usage ?? raw.usage) as Record<string, number> | undefined;
       if (msgUsage) {
         lastAssistantUsage = {
           inputTokens: msgUsage.input_tokens ?? 0,
           outputTokens: msgUsage.output_tokens ?? 0,
         };
+        log(`[assistant-usage] input=${lastAssistantUsage.inputTokens} output=${lastAssistantUsage.outputTokens}`);
       }
     }
 
@@ -845,6 +850,7 @@ async function main(): Promise<void> {
     const wp = containerInput.workspacePaths;
     PATHS = {
       group: wp.group,
+      queryCwd: wp.queryCwd,
       project: wp.project,
       global: wp.global,
       ipc: wp.ipc,

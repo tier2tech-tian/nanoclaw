@@ -66,7 +66,7 @@ export class GroupQueue {
 
     if (state.active) {
       state.pendingMessages = true;
-      logger.debug({ groupJid }, 'Container active, message queued');
+      logger.info({ groupJid, groupFolder: state.groupFolder, idleWaiting: state.idleWaiting }, 'Container active, message queued');
       return;
     }
 
@@ -139,6 +139,7 @@ export class GroupQueue {
     state.process = proc;
     state.containerName = containerName;
     if (groupFolder) state.groupFolder = groupFolder;
+    logger.info({ groupJid, containerName, groupFolder: state.groupFolder, active: state.active }, 'registerProcess');
   }
 
   /**
@@ -159,8 +160,10 @@ export class GroupQueue {
    */
   sendMessage(groupJid: string, text: string): boolean {
     const state = this.getGroup(groupJid);
-    if (!state.active || !state.groupFolder || state.isTaskContainer)
+    if (!state.active || !state.groupFolder || state.isTaskContainer) {
+      logger.info({ groupJid, active: state.active, groupFolder: state.groupFolder, isTaskContainer: state.isTaskContainer }, 'queue.sendMessage rejected');
       return false;
+    }
     state.idleWaiting = false; // Agent is about to receive work, no longer idle
 
     const inputDir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');

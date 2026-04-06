@@ -40,6 +40,7 @@ export interface RegisteredGroup {
   containerConfig?: ContainerConfig;
   requiresTrigger?: boolean; // Default: true for groups, false for solo chats
   isMain?: boolean; // True for the main control group (no trigger, elevated privileges)
+  customCwd?: string; // Custom cwd for Claude Code query(), set via /cwd command
 }
 
 export interface NewMessage {

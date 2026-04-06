@@ -760,6 +760,7 @@ async function startMessageLoop(): Promise<void> {
           );
           const messagesToSend =
             allPending.length > 0 ? allPending : groupMessages;
+          logger.info({ chatJid, allPendingLen: allPending.length, groupMessagesLen: groupMessages.length, cursor: getOrRecoverCursor(chatJid) }, 'Message loop: preparing to send/enqueue');
           const formatted = formatMessages(messagesToSend, TIMEZONE);
 
           if (queue.sendMessage(chatJid, formatted)) {
@@ -897,6 +898,33 @@ async function main(): Promise<void> {
         trimmed = trimmed.replace(triggerPattern, '').trim();
       }
 
+      // /cwd 命令 — 设置 Claude Code 的工作目录
+      if (trimmed === '/cwd' || trimmed.startsWith('/cwd ')) {
+        const ch = findChannel(channels, chatJid);
+        const grp = registeredGroups[chatJid];
+        if (grp) {
+          const arg = trimmed.slice(4).trim();
+          if (!arg || arg === 'status') {
+            const cur = grp.customCwd || '(默认: groups/' + grp.folder + ')';
+            ch?.sendMessage(chatJid, `[cwd] 当前工作目录: ${cur}`).catch(() => {});
+          } else if (arg === 'reset') {
+            delete grp.customCwd;
+            setRegisteredGroup(chatJid, grp);
+            ch?.sendMessage(chatJid, '[cwd] 已重置为默认目录，下次对话生效').catch(() => {});
+          } else {
+            const resolved = path.resolve(arg.replace(/^~/, process.env.HOME || '~'));
+            if (!fs.existsSync(resolved)) {
+              ch?.sendMessage(chatJid, `[cwd] 目录不存在: ${resolved}`).catch(() => {});
+            } else {
+              grp.customCwd = resolved;
+              setRegisteredGroup(chatJid, grp);
+              ch?.sendMessage(chatJid, `[cwd] 已设置为 ${resolved}，下次对话生效`).catch(() => {});
+            }
+          }
+        }
+        return;
+      }
+
       // Remote control commands — intercept before storage
       if (trimmed === '/remote-control' || trimmed === '/remote-control-end') {
         handleRemoteControl(trimmed, chatJid, msg).catch((err) =>
@@ -918,6 +946,8 @@ async function main(): Promise<void> {
           '/account auto on|off — 开关自动轮换（429 时自动切换）',
           '/trigger — 开启 @触发模式（群聊需 @机器人才响应）',
           '/notrigger — 关闭 @触发模式（群聊中所有消息都响应）',
+          '/cwd <path> — 设置 Claude Code 工作目录（下次对话生效）',
+          '/cwd reset — 重置为默认工作目录',
           '/remote-control — 启动 Claude Code 远程控制会话',
           '/remote-control-end — 结束远程控制会话',
         ].join('\n');
@@ -1129,6 +1159,7 @@ async function main(): Promise<void> {
           '/account auto on|off — 开关自动轮换（429 时自动切换）',
           '/trigger — 开启 @触发模式',
           '/notrigger — 关闭 @触发模式',
+          '/cwd <path> — 设置 Claude Code 工作目录',
           '/remote-control — 启动 Claude Code 远程控制会话',
           '/remote-control-end — 结束远程控制会话',
         ].join('\n');
