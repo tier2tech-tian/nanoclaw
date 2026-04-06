@@ -34,10 +34,6 @@ import {
   writeTasksSnapshot,
 } from './container-runner.js';
 import {
-  cleanupOrphans,
-  ensureContainerRuntimeRunning,
-} from './container-runtime.js';
-import {
   getAllChats,
   getAllRegisteredGroups,
   getAllSessions,
@@ -72,6 +68,7 @@ import {
   loadSenderAllowlist,
   shouldDropMessage,
 } from './sender-allowlist.js';
+import { startSessionCleanup } from './session-cleanup.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
@@ -814,13 +811,7 @@ function recoverPendingMessages(): void {
   }
 }
 
-function ensureContainerSystemRunning(): void {
-  ensureContainerRuntimeRunning();
-  cleanupOrphans();
-}
-
 async function main(): Promise<void> {
-  ensureContainerSystemRunning();
   initDatabase();
   logger.info('Database initialized');
   loadState();
@@ -897,11 +888,42 @@ async function main(): Promise<void> {
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: (chatJid: string, msg: NewMessage) => {
+      // 剥离 trigger 前缀（如 "@Andy "）以匹配 slash 命令
+      const rawContent = msg.content.trim();
+      let trimmed = rawContent;
+      const group = registeredGroups[chatJid];
+      if (group) {
+        const triggerPattern = getTriggerPattern(group.trigger);
+        trimmed = trimmed.replace(triggerPattern, '').trim();
+      }
+
       // Remote control commands — intercept before storage
-      const trimmed = msg.content.trim();
       if (trimmed === '/remote-control' || trimmed === '/remote-control-end') {
         handleRemoteControl(trimmed, chatJid, msg).catch((err) =>
           logger.error({ err, chatJid }, 'Remote control command error'),
+        );
+        return;
+      }
+
+      // /help 指令 — 列出所有可用命令
+      if (trimmed === '/help') {
+        const ch = findChannel(channels, chatJid);
+        const help = [
+          '可用命令：',
+          '',
+          '/help — 显示此帮助',
+          '/clear — 清除当前 session，开始新对话（记忆保留）',
+          '/account — 列出所有 Anthropic 账号及当前绑定',
+          '/account <name> — 切换到指定账号',
+          '/account auto on|off — 开关自动轮换（429 时自动切换）',
+          '/trigger — 开启 @触发模式（群聊需 @机器人才响应）',
+          '/notrigger — 关闭 @触发模式（群聊中所有消息都响应）',
+          '/remote-control — 启动 Claude Code 远程控制会话',
+          '/remote-control-end — 结束远程控制会话',
+          '/llmlog on|off|status — 开关 LLM 完整请求日志（会话级，重启后重置）',
+        ].join('\n');
+        ch?.sendMessage(chatJid, help).catch((err) =>
+          logger.error({ err }, '/help reply failed'),
         );
         return;
       }
@@ -912,11 +934,13 @@ async function main(): Promise<void> {
         if (group) {
           delete sessions[group.folder];
           deleteSession(group.folder);
+          // /clear 时同步重置 llmlog 开关
+          try { fs.unlinkSync(path.join(GROUPS_DIR, group.folder, '.llmlog_enabled')); } catch { /* ignore */ }
           logger.info({ group: group.folder }, '/clear: session 已清除');
           const ch = findChannel(channels, chatJid);
           ch?.sendMessage(
             chatJid,
-            '✅ 对话已清除，下次消息将开始新 session。记忆保留。',
+            '对话已清除，下次消息将开始新 session。记忆保留。',
           ).catch((err) =>
             logger.error({ err }, 'Failed to send /clear reply'),
           );
@@ -928,6 +952,10 @@ async function main(): Promise<void> {
       if (trimmed === '/account' || trimmed.startsWith('/account ')) {
         const arg = trimmed.slice('/account'.length).trim();
         const ch = findChannel(channels, chatJid);
+        logger.info(
+          { chatJid, arg, hasCh: !!ch, trimmed },
+          '/account 命令匹配',
+        );
         try {
           if (arg === 'auto on') {
             setRotateEnabled(true);
@@ -975,8 +1003,10 @@ async function main(): Promise<void> {
                     encoding: 'utf-8',
                     timeout: 5000,
                   }),
-                ) as Array<{ id: string; name: string }>;
-                assignedSecretIds = agentSecrets.map((s) => s.id);
+                ) as Array<string | { id: string }>;
+                assignedSecretIds = agentSecrets.map((s) =>
+                  typeof s === 'string' ? s : s.id,
+                );
               } catch {
                 /* no secrets assigned */
               }
@@ -989,9 +1019,15 @@ async function main(): Promise<void> {
             });
             const reply =
               lines.length > 0
-                ? `📋 可用账号：\n${lines.join('\n')}\n\n🔄 自动轮换: ${autoStatus}\n\n切换：/account <name>\n开关：/account auto on|off`
+                ? `可用账号：\n${lines.join('\n')}\n\n自动轮换: ${autoStatus}\n\n切换：/account <name>\n开关：/account auto on|off`
                 : '没有配置任何账号。用 onecli secrets create 添加。';
-            ch?.sendMessage(chatJid, reply).catch(() => {});
+            logger.info(
+              { chatJid, replyLen: reply.length },
+              '/account 准备发送回复',
+            );
+            ch?.sendMessage(chatJid, reply)
+              .then(() => logger.info('/account 回复已发送'))
+              .catch((err) => logger.error({ err }, '/account reply failed'));
           } else {
             // 切换到指定账号
 
@@ -1080,6 +1116,64 @@ async function main(): Promise<void> {
           );
         }
         return; // 不存储指令消息
+      }
+
+      // /llmlog 指令 — 开关 LLM 请求日志（编排层直接处理，不进 LLM）
+      if (
+        trimmed === '/llmlog' ||
+        trimmed === '/llmlog on' ||
+        trimmed === '/llmlog off' ||
+        trimmed === '/llmlog status'
+      ) {
+        const ch = findChannel(channels, chatJid);
+        const grp = registeredGroups[chatJid];
+        if (grp) {
+          const flagFile = path.join(GROUPS_DIR, grp.folder, '.llmlog_enabled');
+          const logDir = path.join(GROUPS_DIR, grp.folder, 'llmlogs');
+          let reply: string;
+          if (trimmed === '/llmlog on') {
+            fs.mkdirSync(path.dirname(flagFile), { recursive: true });
+            fs.writeFileSync(flagFile, '');
+            reply = `[llmlog] 已开启，API 请求将保存到 groups/${grp.folder}/llmlogs/`;
+          } else if (trimmed === '/llmlog off') {
+            try { fs.unlinkSync(flagFile); } catch { /* ignore */ }
+            reply = '[llmlog] 已关闭';
+          } else {
+            // status
+            const isOn = fs.existsSync(flagFile);
+            let count = 0;
+            try { count = fs.readdirSync(logDir).length; } catch { /* ignore */ }
+            reply = `[llmlog] 当前${isOn ? '开启' : '关闭'}，已保存 ${count} 条日志`;
+          }
+          ch?.sendMessage(chatJid, reply).catch((err) =>
+            logger.error({ err }, '/llmlog reply failed'),
+          );
+        }
+        return;
+      }
+
+      // 未知 / 命令 — 拦截并返回错误提示，不进 LLM
+      if (trimmed.startsWith('/') && !trimmed.startsWith('/ ')) {
+        const ch = findChannel(channels, chatJid);
+        const unknownCmd = trimmed.split(/\s/)[0];
+        const help = [
+          `❓ 未知命令 "${unknownCmd}"，可用命令：`,
+          '',
+          '/help — 显示此帮助',
+          '/clear — 清除当前 session，开始新对话（记忆保留）',
+          '/account — 列出所有 Anthropic 账号及当前绑定',
+          '/account <name> — 切换到指定账号',
+          '/account auto on|off — 开关自动轮换（429 时自动切换）',
+          '/trigger — 开启 @触发模式',
+          '/notrigger — 关闭 @触发模式',
+          '/llmlog on|off|status — 开关 LLM 完整请求日志',
+          '/remote-control — 启动 Claude Code 远程控制会话',
+          '/remote-control-end — 结束远程控制会话',
+        ].join('\n');
+        ch?.sendMessage(chatJid, help).catch((err) =>
+          logger.error({ err }, 'unknown command reply failed'),
+        );
+        return;
       }
 
       // 自动注册未注册的群聊
@@ -1202,6 +1296,7 @@ async function main(): Promise<void> {
       }
     },
   });
+  startSessionCleanup();
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
   startMessageLoop().catch((err) => {

@@ -33,6 +33,13 @@ interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   script?: string;
+  workspacePaths: {
+    group: string;
+    project?: string;
+    global?: string;
+    ipc: string;
+    extra?: string;
+  };
 }
 
 interface ContainerOutput {
@@ -53,6 +60,8 @@ interface ContainerOutput {
     numTurns: number;
     durationMs: number;
     totalCostUsd: number;
+    /** 各模型的实际 context window 大小（tokens），key 为模型名 */
+    modelContextWindows?: Record<string, number>;
   };
 }
 
@@ -74,9 +83,20 @@ interface SDKUserMessage {
   session_id: string;
 }
 
-const IPC_INPUT_DIR = '/workspace/ipc/input';
-const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
+
+// 工作目录路径 — 在 stdin 解析后初始化
+let PATHS: {
+  group: string;
+  project?: string;
+  global?: string;
+  ipc: string;
+  extra?: string;
+  ipcInput: string;
+  ipcClose: string;
+  conversations: string;
+  globalClaudeMd?: string;
+};
 
 /**
  * Push-based async iterable for streaming user messages to the SDK.
@@ -196,7 +216,7 @@ function createPreCompactHook(assistantName?: string): HookCallback {
       const summary = getSessionSummary(sessionId, transcriptPath);
       const name = summary ? sanitizeFilename(summary) : generateFallbackName();
 
-      const conversationsDir = '/workspace/group/conversations';
+      const conversationsDir = PATHS.conversations;
       fs.mkdirSync(conversationsDir, { recursive: true });
 
       const date = new Date().toISOString().split('T')[0];
@@ -307,9 +327,9 @@ function formatTranscriptMarkdown(
  * Check for _close sentinel.
  */
 function shouldClose(): boolean {
-  if (fs.existsSync(IPC_INPUT_CLOSE_SENTINEL)) {
+  if (fs.existsSync(PATHS.ipcClose)) {
     try {
-      fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL);
+      fs.unlinkSync(PATHS.ipcClose);
     } catch {
       /* ignore */
     }
@@ -324,15 +344,15 @@ function shouldClose(): boolean {
  */
 function drainIpcInput(): string[] {
   try {
-    fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
+    fs.mkdirSync(PATHS.ipcInput, { recursive: true });
     const files = fs
-      .readdirSync(IPC_INPUT_DIR)
+      .readdirSync(PATHS.ipcInput)
       .filter((f) => f.endsWith('.json'))
       .sort();
 
     const messages: string[] = [];
     for (const file of files) {
-      const filePath = path.join(IPC_INPUT_DIR, file);
+      const filePath = path.join(PATHS.ipcInput, file);
       try {
         const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
         fs.unlinkSync(filePath);
@@ -427,17 +447,17 @@ async function runQuery(
   let resultCount = 0;
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
-  const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
+  const globalClaudeMdPath = PATHS.globalClaudeMd;
   let globalClaudeMd: string | undefined;
-  if (!containerInput.isMain && fs.existsSync(globalClaudeMdPath)) {
+  if (!containerInput.isMain && globalClaudeMdPath && fs.existsSync(globalClaudeMdPath)) {
     globalClaudeMd = fs.readFileSync(globalClaudeMdPath, 'utf-8');
   }
 
-  // Discover additional directories mounted at /workspace/extra/*
+  // Discover additional directories at extra workspace path
   // These are passed to the SDK so their CLAUDE.md files are loaded automatically
   const extraDirs: string[] = [];
-  const extraBase = '/workspace/extra';
-  if (fs.existsSync(extraBase)) {
+  const extraBase = PATHS.extra;
+  if (extraBase && fs.existsSync(extraBase)) {
     for (const entry of fs.readdirSync(extraBase)) {
       const fullPath = path.join(extraBase, entry);
       if (fs.statSync(fullPath).isDirectory()) {
@@ -452,7 +472,7 @@ async function runQuery(
   for await (const message of query({
     prompt: stream,
     options: {
-      cwd: '/workspace/group',
+      cwd: PATHS.group,
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
@@ -496,6 +516,7 @@ async function runQuery(
             NANOCLAW_CHAT_JID: containerInput.chatJid,
             NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
+            NANOCLAW_IPC_DIR: PATHS.ipc,
           },
         },
       },
@@ -547,7 +568,9 @@ async function runQuery(
             if (input) {
               if (block.name === 'Edit' && input.old_string && input.new_string) {
                 const file = (input.file_path as string || '').split('/').pop() || 'file';
-                detail = `**${file}**\n\`\`\`diff\n- ${(input.old_string as string).slice(0, 300)}\n+ ${(input.new_string as string).slice(0, 300)}\n\`\`\``;
+                const oldLines = (input.old_string as string).slice(0, 300).split('\n').map((l: string) => `- ${l}`).join('\n');
+                const newLines = (input.new_string as string).slice(0, 300).split('\n').map((l: string) => `+ ${l}`).join('\n');
+                detail = `**${file}**\n${oldLines}\n${newLines}`;
               } else if (block.name === 'Bash' && input.command) {
                 detail = `\`\`\`bash\n${(input.command as string).slice(0, 500)}\n\`\`\``;
               } else if (block.name === 'Write' && input.file_path) {
@@ -656,6 +679,17 @@ async function runQuery(
       // 提取 token 用量
       const msg = message as Record<string, unknown>;
       const rawUsage = msg.usage as Record<string, number> | undefined;
+      // 提取各模型的 contextWindow（SDK 返回 modelUsage: Record<string, ModelUsage>）
+      const rawModelUsage = msg.modelUsage as
+        | Record<string, { contextWindow?: number }>
+        | undefined;
+      const modelContextWindows = rawModelUsage
+        ? Object.fromEntries(
+            Object.entries(rawModelUsage)
+              .filter(([, v]) => v.contextWindow != null)
+              .map(([k, v]) => [k, v.contextWindow as number]),
+          )
+        : undefined;
       const usage = rawUsage
         ? {
             inputTokens: rawUsage.input_tokens ?? 0,
@@ -665,6 +699,7 @@ async function runQuery(
             numTurns: (msg.num_turns as number) ?? 0,
             durationMs: (msg.duration_ms as number) ?? 0,
             totalCostUsd: (msg.total_cost_usd as number) ?? 0,
+            modelContextWindows,
           }
         : undefined;
 
@@ -749,11 +784,21 @@ async function main(): Promise<void> {
   try {
     const stdinData = await readStdin();
     containerInput = JSON.parse(stdinData);
-    try {
-      fs.unlinkSync('/tmp/input.json');
-    } catch {
-      /* may not exist */
-    }
+
+    // 初始化工作目录路径
+    const wp = containerInput.workspacePaths;
+    PATHS = {
+      group: wp.group,
+      project: wp.project,
+      global: wp.global,
+      ipc: wp.ipc,
+      extra: wp.extra,
+      ipcInput: path.join(wp.ipc, 'input'),
+      ipcClose: path.join(wp.ipc, 'input', '_close'),
+      conversations: path.join(wp.group, 'conversations'),
+      globalClaudeMd: wp.global ? path.join(wp.global, 'CLAUDE.md') : undefined,
+    };
+
     log(`Received input for group: ${containerInput.groupFolder}`);
   } catch (err) {
     writeOutput({
@@ -766,20 +811,120 @@ async function main(): Promise<void> {
 
   // Credentials are injected by the host's credential proxy via ANTHROPIC_BASE_URL.
   // No real secrets exist in the container environment.
-  const sdkEnv: Record<string, string | undefined> = { ...process.env };
+  const sdkEnv: Record<string, string | undefined> = {
+    ...process.env,
+    CLAUDE_CODE_AUTO_COMPACT_WINDOW: '165000',
+  };
 
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const mcpServerPath = path.join(__dirname, 'ipc-mcp-stdio.js');
 
   let sessionId = containerInput.sessionId;
-  fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
+  fs.mkdirSync(PATHS.ipcInput, { recursive: true });
 
   // Clean up stale _close sentinel from previous container runs
   try {
-    fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL);
+    fs.unlinkSync(PATHS.ipcClose);
   } catch {
     /* ignore */
   }
+
+  // LLM 请求日志：flag 文件由编排层管理（/llmlog on/off 或 /clear），这里不重置
+  const llmlogFlagFile = path.join(PATHS.group, '.llmlog_enabled');
+  const llmlogDir = path.join(PATHS.group, 'llmlogs');
+
+  // 拦截全局 fetch，当 .llmlog_enabled 存在时记录 Anthropic API 请求和响应
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async function llmlogFetch(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+    const isAnthropicApi = url.includes('anthropic.com') || url.includes('/v1/messages');
+
+    // 检查是否启用了日志（每次请求都检查，支持动态开关）
+    let loggingEnabled = false;
+    if (isAnthropicApi) {
+      try {
+        fs.accessSync(llmlogFlagFile);
+        loggingEnabled = true;
+      } catch {
+        /* 标志文件不存在，日志关闭 */
+      }
+    }
+
+    if (!loggingEnabled) {
+      return originalFetch(input, init);
+    }
+
+    // 读取请求体
+    let requestBody: unknown = undefined;
+    if (init?.body) {
+      try {
+        requestBody = JSON.parse(init.body as string);
+      } catch {
+        requestBody = String(init.body);
+      }
+    }
+
+    const requestTime = new Date().toISOString();
+    const logId = requestTime.replace(/[:.]/g, '-');
+
+    // 执行原始请求
+    const response = await originalFetch(input, init);
+
+    // 克隆响应以读取内容（原始 response 继续返回给调用方）
+    const cloned = response.clone();
+    const contentType = cloned.headers.get('content-type') || '';
+
+    let responseBody: unknown;
+    if (contentType.includes('text/event-stream')) {
+      // 流式响应：收集所有 SSE 事件
+      const chunks: string[] = [];
+      try {
+        const text = await cloned.text();
+        chunks.push(text);
+      } catch {
+        chunks.push('<stream read error>');
+      }
+      responseBody = chunks.join('');
+    } else {
+      try {
+        responseBody = await cloned.json();
+      } catch {
+        try {
+          responseBody = await cloned.text();
+        } catch {
+          responseBody = '<read error>';
+        }
+      }
+    }
+
+    // 保存日志
+    try {
+      fs.mkdirSync(llmlogDir, { recursive: true });
+      const logEntry = {
+        time: requestTime,
+        url,
+        method: init?.method || 'POST',
+        requestHeaders: Object.fromEntries(
+          Object.entries((init?.headers as Record<string, string>) || {}).map(
+            ([k, v]) => [k, k.toLowerCase() === 'x-api-key' || k.toLowerCase() === 'authorization' ? '[REDACTED]' : v],
+          ),
+        ),
+        request: requestBody,
+        responseStatus: response.status,
+        response: responseBody,
+      };
+      const logFile = path.join(llmlogDir, `${logId}.json`);
+      fs.writeFileSync(logFile, JSON.stringify(logEntry, null, 2), 'utf-8');
+      log(`[llmlog] Saved: ${logFile}`);
+    } catch (err) {
+      log(`[llmlog] Failed to save log: ${err}`);
+    }
+
+    return response;
+  };
 
   // Build initial prompt (drain any pending IPC messages too)
   let prompt = containerInput.prompt;
