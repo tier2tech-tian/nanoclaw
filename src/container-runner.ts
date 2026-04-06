@@ -200,6 +200,8 @@ export interface ContainerOutput {
     totalCostUsd: number;
     /** 各模型的实际 context window 大小（tokens），key 为模型名 */
     modelContextWindows?: Record<string, number>;
+    /** 最后一轮 API 调用的实际 context 大小（input + output tokens） */
+    lastTurnContext?: number;
   };
 }
 

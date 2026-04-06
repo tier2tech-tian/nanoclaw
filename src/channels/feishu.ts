@@ -247,11 +247,10 @@ function appendUsageFooter(
     }
   }
 
-  // 计算 context window 占用率（最后一轮发送的完整 context）
-  const totalContextTokens =
-    usage.inputTokens +
-    usage.cacheReadInputTokens +
-    usage.cacheCreationInputTokens;
+  // 计算 context window 占用率
+  // 优先使用最后一轮 API 调用的实际 context 大小，fallback 到累计值
+  const totalContextTokens = usage.lastTurnContext
+    ?? (usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens);
   const ctxPct = Math.round((totalContextTokens / maxContextTokens) * 100);
   const ctxBar = ctxPct >= 80 ? '🔴' : ctxPct >= 50 ? '🟡' : '🟢';
   const maxK =

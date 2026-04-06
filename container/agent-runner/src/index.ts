@@ -445,6 +445,7 @@ async function runQuery(
   let lastAssistantUuid: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
+  let lastAssistantUsage: { inputTokens: number; outputTokens: number } | undefined;
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
   const globalClaudeMdPath = PATHS.globalClaudeMd;
@@ -564,6 +565,18 @@ async function runQuery(
 
     if (message.type === 'assistant' && 'uuid' in message) {
       lastAssistantUuid = (message as { uuid: string }).uuid;
+    }
+
+    // 记录最后一次 assistant 消息的 usage（用于 context window 占用率计算）
+    if (message.type === 'assistant') {
+      const innerMsg = (message as Record<string, unknown>).message as Record<string, unknown> | undefined;
+      const msgUsage = innerMsg?.usage as Record<string, number> | undefined;
+      if (msgUsage) {
+        lastAssistantUsage = {
+          inputTokens: msgUsage.input_tokens ?? 0,
+          outputTokens: msgUsage.output_tokens ?? 0,
+        };
+      }
     }
 
     // 工具调用进度输出 — 让宿主机能显示进度卡片
@@ -739,6 +752,9 @@ async function runQuery(
             durationMs: (msg.duration_ms as number) ?? 0,
             totalCostUsd: (msg.total_cost_usd as number) ?? 0,
             modelContextWindows,
+            lastTurnContext: lastAssistantUsage
+              ? lastAssistantUsage.inputTokens + lastAssistantUsage.outputTokens
+              : undefined,
           }
         : undefined;
 
