@@ -588,18 +588,23 @@ async function runQuery(
             });
           }
 
-          // 推理文本
+          // 推理文本 — 仅当同一 assistant 消息中有 tool_use 块时才视为思考过程发出 💭
+          // 若 assistant 消息只含 text（无 tool_use），说明这是最终回答，
+          // 会通过 result 消息正式发出，此处跳过以避免重复。
           if (block.type === 'text' && block.text) {
-            const trimmed = block.text.trim();
-            if (trimmed.length > 5) {
-              const short = trimmed.slice(0, 80) + (trimmed.length > 80 ? '...' : '');
-              writeOutput({
-                status: 'progress',
-                result: `💭 ${short}`,
-                progressType: 'thinking',
-                detail: trimmed.length > 80 ? trimmed : undefined,
-                newSessionId: undefined,
-              });
+            const hasToolUse = content.some(b => b.type === 'tool_use');
+            if (hasToolUse) {
+              const trimmed = block.text.trim();
+              if (trimmed.length > 5) {
+                const short = trimmed.slice(0, 80) + (trimmed.length > 80 ? '...' : '');
+                writeOutput({
+                  status: 'progress',
+                  result: `💭 ${short}`,
+                  progressType: 'thinking',
+                  detail: trimmed.length > 80 ? trimmed : undefined,
+                  newSessionId: undefined,
+                });
+              }
             }
           }
         }
