@@ -328,6 +328,8 @@ export class FeishuChannel implements Channel {
   private spinnerTimers = new Map<string, NodeJS.Timeout>();
   // 停止标记：clearSpinnerTimer 设置后，正在运行的 callback 检测到后不再调度下一轮
   private spinnerStopped = new Set<string>();
+  // 存储 scheduleSpinner 闭包，供 resetSpinnerTimer 重新启动定时器
+  private spinnerSchedulers = new Map<string, () => void>();
 
   constructor(appId: string, appSecret: string, opts: ChannelOpts) {
     this.appId = appId;
@@ -465,7 +467,25 @@ export class FeishuChannel implements Channel {
         if (existing.steps.length > 12) existing.steps.shift();
         // 同步到进度查看页面（无上限，页面能看到完整历史）
         upsertSession(existing.sessionId, existing.steps, existing.startTime);
-        // 不在此处立即 patch：由 spinner 定时器统一渲染，避免并发写同一条消息
+        // 新步骤到来：立即 patch 卡片实现实时推送，同时重置 spinner 定时器避免并发
+        existing.frame++;
+        this.client.im.message
+          .patch({
+            path: { message_id: existing.messageId },
+            data: {
+              content: buildProgressCard(
+                existing.steps,
+                existing.frame,
+                existing.startTime,
+                existing.sessionId,
+              ),
+            },
+          })
+          .catch((err) =>
+            logger.debug({ err, jid }, '进度步骤实时 patch 失败（非致命）'),
+          );
+        // 重置 spinner 定时器：从现在起重新计时，避免 spinner 和实时 patch 并发
+        this.resetSpinnerTimer(jid);
       }
       return;
     }
@@ -640,6 +660,19 @@ export class FeishuChannel implements Channel {
       clearTimeout(timer);
       this.spinnerTimers.delete(jid);
     }
+    this.spinnerSchedulers.delete(jid);
+  }
+
+  /** 重置 spinner 定时器：取消当前计时，调用存储的 scheduleSpinner 重新开始 */
+  private resetSpinnerTimer(jid: string): void {
+    const timer = this.spinnerTimers.get(jid);
+    if (timer) {
+      clearTimeout(timer);
+      this.spinnerTimers.delete(jid);
+    }
+    // 调用存储的 scheduleSpinner 闭包重新启动定时器
+    const scheduler = this.spinnerSchedulers.get(jid);
+    if (scheduler) scheduler();
   }
 
   async setTyping(jid: string, isTyping: boolean): Promise<void> {
@@ -743,6 +776,7 @@ export class FeishuChannel implements Channel {
               }, SPINNER_INTERVAL_MS);
               this.spinnerTimers.set(jid, t);
             };
+            this.spinnerSchedulers.set(jid, scheduleSpinner);
             scheduleSpinner();
           }
         }

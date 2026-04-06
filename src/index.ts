@@ -920,7 +920,6 @@ async function main(): Promise<void> {
           '/notrigger — 关闭 @触发模式（群聊中所有消息都响应）',
           '/remote-control — 启动 Claude Code 远程控制会话',
           '/remote-control-end — 结束远程控制会话',
-          '/llmlog on|off|status — 开关 LLM 完整请求日志（会话级，重启后重置）',
         ].join('\n');
         ch?.sendMessage(chatJid, help).catch((err) =>
           logger.error({ err }, '/help reply failed'),
@@ -934,14 +933,6 @@ async function main(): Promise<void> {
         if (group) {
           delete sessions[group.folder];
           deleteSession(group.folder);
-          // /clear 时同步重置 llmlog 开关
-          try {
-            fs.unlinkSync(
-              path.join(GROUPS_DIR, group.folder, '.llmlog_enabled'),
-            );
-          } catch {
-            /* ignore */
-          }
           logger.info({ group: group.folder }, '/clear: session 已清除');
           const ch = findChannel(channels, chatJid);
           ch?.sendMessage(
@@ -1124,48 +1115,6 @@ async function main(): Promise<void> {
         return; // 不存储指令消息
       }
 
-      // /llmlog 指令 — 开关 LLM 请求日志（编排层直接处理，不进 LLM）
-      if (
-        trimmed === '/llmlog' ||
-        trimmed === '/llmlog on' ||
-        trimmed === '/llmlog off' ||
-        trimmed === '/llmlog status'
-      ) {
-        const ch = findChannel(channels, chatJid);
-        const grp = registeredGroups[chatJid];
-        if (grp) {
-          const flagFile = path.join(GROUPS_DIR, grp.folder, '.llmlog_enabled');
-          const logDir = path.join(GROUPS_DIR, grp.folder, 'llmlogs');
-          let reply: string;
-          if (trimmed === '/llmlog on') {
-            fs.mkdirSync(path.dirname(flagFile), { recursive: true });
-            fs.writeFileSync(flagFile, '');
-            reply = `[llmlog] 已开启，API 请求将保存到 groups/${grp.folder}/llmlogs/`;
-          } else if (trimmed === '/llmlog off') {
-            try {
-              fs.unlinkSync(flagFile);
-            } catch {
-              /* ignore */
-            }
-            reply = '[llmlog] 已关闭';
-          } else {
-            // status
-            const isOn = fs.existsSync(flagFile);
-            let count = 0;
-            try {
-              count = fs.readdirSync(logDir).length;
-            } catch {
-              /* ignore */
-            }
-            reply = `[llmlog] 当前${isOn ? '开启' : '关闭'}，已保存 ${count} 条日志`;
-          }
-          ch?.sendMessage(chatJid, reply).catch((err) =>
-            logger.error({ err }, '/llmlog reply failed'),
-          );
-        }
-        return;
-      }
-
       // 未知 / 命令 — 拦截并返回错误提示，不进 LLM
       if (trimmed.startsWith('/') && !trimmed.startsWith('/ ')) {
         const ch = findChannel(channels, chatJid);
@@ -1180,7 +1129,6 @@ async function main(): Promise<void> {
           '/account auto on|off — 开关自动轮换（429 时自动切换）',
           '/trigger — 开启 @触发模式',
           '/notrigger — 关闭 @触发模式',
-          '/llmlog on|off|status — 开关 LLM 完整请求日志',
           '/remote-control — 启动 Claude Code 远程控制会话',
           '/remote-control-end — 结束远程控制会话',
         ].join('\n');

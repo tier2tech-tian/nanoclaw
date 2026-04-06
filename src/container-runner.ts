@@ -564,7 +564,15 @@ export async function runContainerAgent(
             const gap = ((now - lastOutputTime) / 1000).toFixed(1);
             lastOutputTime = now;
             hadStreamingOutput = true;
-            logger.debug({ group: group.name, status: parsed.status, gap: `${gap}s`, resultLen: parsed.result?.length }, 'Agent output received');
+            logger.debug(
+              {
+                group: group.name,
+                status: parsed.status,
+                gap: `${gap}s`,
+                resultLen: parsed.result?.length,
+              },
+              'Agent output received',
+            );
             resetTimeout();
             outputChain = outputChain.then(() => onOutput(parsed));
           } catch (err) {
@@ -603,7 +611,10 @@ export async function runContainerAgent(
     const configTimeout = group.containerConfig?.timeout || AGENT_TIMEOUT;
     const timeoutMs = Math.max(configTimeout, IDLE_TIMEOUT + 30_000);
 
-    logger.info({ group: group.name, pid: child.pid, timeoutMs }, 'Agent process started, timeout set');
+    logger.info(
+      { group: group.name, pid: child.pid, timeoutMs },
+      'Agent process started, timeout set',
+    );
 
     const killOnTimeout = () => {
       timedOut = true;
@@ -631,7 +642,18 @@ export async function runContainerAgent(
       clearTimeout(timeout);
       const duration = Date.now() - startTime;
       const sinceLastOutput = ((Date.now() - lastOutputTime) / 1000).toFixed(1);
-      logger.info({ group: group.name, pid: child.pid, code, duration, hadStreamingOutput, sinceLastOutput: `${sinceLastOutput}s`, timedOut }, 'Agent process exited');
+      logger.info(
+        {
+          group: group.name,
+          pid: child.pid,
+          code,
+          duration,
+          hadStreamingOutput,
+          sinceLastOutput: `${sinceLastOutput}s`,
+          timedOut,
+        },
+        'Agent process exited',
+      );
 
       if (timedOut) {
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
