@@ -138,9 +138,7 @@ function formatElapsed(startTime: number): string {
  * 复用于进度卡片和完成卡片。
  */
 function buildTitleRow(leftText: string, rightUrl?: string): unknown[] {
-  const rightContent = rightUrl
-    ? `[📋 过程记录](${rightUrl})`
-    : '\u200b'; // 无链接时用零宽字符占位，保持列结构合法
+  const rightContent = rightUrl ? `[📋 过程记录](${rightUrl})` : '\u200b'; // 无链接时用零宽字符占位，保持列结构合法
 
   return [
     {
@@ -185,7 +183,12 @@ function buildProgressCard(
   const stepElements =
     steps.length > 0
       ? steps.map(stepToElement)
-      : [{ tag: 'markdown', content: '<font color="grey">正在等待响应...</font>' }];
+      : [
+          {
+            tag: 'markdown',
+            content: '<font color="grey">正在等待响应...</font>',
+          },
+        ];
 
   const elements: unknown[] = [
     ...buildTitleRow(titleText, progressUrl),
@@ -201,7 +204,7 @@ function buildProgressCard(
 
 /** 各模型 context window 的兜底值（当 SDK 未返回时使用） */
 const CLAUDE_CONTEXT_WINDOW_FALLBACK: Record<string, number> = {
-  'claude-opus-4': 1_000_000,   // opus-4-5, opus-4-6, opus-4.x 全系
+  'claude-opus-4': 1_000_000, // opus-4-5, opus-4-6, opus-4.x 全系
   'claude-sonnet-4': 200_000,
   'claude-haiku-4': 200_000,
   'claude-3-5-sonnet': 200_000,
@@ -251,9 +254,10 @@ function appendUsageFooter(
     usage.cacheCreationInputTokens;
   const ctxPct = Math.round((totalContextTokens / maxContextTokens) * 100);
   const ctxBar = ctxPct >= 80 ? '🔴' : ctxPct >= 50 ? '🟡' : '🟢';
-  const maxK = maxContextTokens >= 1_000_000
-    ? `${maxContextTokens / 1_000_000}M`
-    : `${maxContextTokens / 1_000}k`;
+  const maxK =
+    maxContextTokens >= 1_000_000
+      ? `${maxContextTokens / 1_000_000}M`
+      : `${maxContextTokens / 1_000}k`;
 
   elements.push({ tag: 'hr' });
   elements.push({
@@ -445,13 +449,7 @@ export class FeishuChannel implements Channel {
 
       const existing = this.progressCards.get(jid);
       if (existing) {
-        existing.steps.push({ title, detail });
-        if (existing.steps.length > 12) existing.steps.shift();
-        // 同步到进度查看页面（无上限，页面能看到完整历史）
-        upsertSession(existing.sessionId, existing.steps, existing.startTime);
-        // 不在此处立即 patch：由 spinner 定时器统一渲染，避免并发写同一条消息
-
-        // 💭 消息额外作为普通消息发出（优先用 detail 完整内容，去掉 💭 前缀）
+        // 💭 消息：只单独发出，不加入进度卡片步骤（避免重复显示）
         if (title.startsWith('💭')) {
           const fullText = (detail ?? title).replace(/^💭\s*/, '').trim();
           if (fullText) {
@@ -460,7 +458,14 @@ export class FeishuChannel implements Channel {
               logger.debug({ err }, '💭 消息发送失败'),
             );
           }
+          return;
         }
+
+        existing.steps.push({ title, detail });
+        if (existing.steps.length > 12) existing.steps.shift();
+        // 同步到进度查看页面（无上限，页面能看到完整历史）
+        upsertSession(existing.sessionId, existing.steps, existing.startTime);
+        // 不在此处立即 patch：由 spinner 定时器统一渲染，避免并发写同一条消息
       }
       return;
     }
@@ -488,7 +493,12 @@ export class FeishuChannel implements Channel {
           await this.client.im.message.patch({
             path: { message_id: progressEntry.messageId },
             data: {
-              content: buildCompletedCard(progressEntry.steps, undefined, progressEntry.startTime, progressEntry.sessionId),
+              content: buildCompletedCard(
+                progressEntry.steps,
+                undefined,
+                progressEntry.startTime,
+                progressEntry.sessionId,
+              ),
             },
           });
         }
@@ -536,7 +546,10 @@ export class FeishuChannel implements Channel {
           try {
             await this.sendFileMsg(chatId, filePath, groupFolder);
           } catch (err) {
-            logger.warn({ err, path: filePath }, '飞书文件发送失败，降级为文本');
+            logger.warn(
+              { err, path: filePath },
+              '飞书文件发送失败，降级为文本',
+            );
             await this.sendPlainOrCard(chatId, `[文件发送失败: ${filePath}]`);
           }
         }
@@ -557,7 +570,10 @@ export class FeishuChannel implements Channel {
           try {
             await this.sendFileMsg(chatId, filePath, groupFolder);
           } catch (err) {
-            logger.warn({ err, path: filePath }, '飞书文件发送失败，降级为文本');
+            logger.warn(
+              { err, path: filePath },
+              '飞书文件发送失败，降级为文本',
+            );
             await this.sendPlainOrCard(chatId, `[文件发送失败: ${filePath}]`);
           }
         }
@@ -1141,7 +1157,10 @@ export class FeishuChannel implements Channel {
     groupFolder: string,
   ): Promise<void> {
     const relativePath = containerPath.replace(/^\/workspace\/group\//, '');
-    const hostPath = path.join(resolveGroupFolderPath(groupFolder), relativePath);
+    const hostPath = path.join(
+      resolveGroupFolderPath(groupFolder),
+      relativePath,
+    );
 
     if (!fs.existsSync(hostPath)) {
       throw new Error(`文件不存在: ${hostPath}`);
@@ -1159,14 +1178,20 @@ export class FeishuChannel implements Channel {
     formData.append('file_name', filename);
     formData.append('file', new Blob([fs.readFileSync(hostPath)]), filename);
 
-    const uploadResp = await fetch('https://open.feishu.cn/open-apis/im/v1/files', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: formData,
-    });
-    const uploadData = (await uploadResp.json()) as { data?: { file_key?: string } };
+    const uploadResp = await fetch(
+      'https://open.feishu.cn/open-apis/im/v1/files',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      },
+    );
+    const uploadData = (await uploadResp.json()) as {
+      data?: { file_key?: string };
+    };
     const fileKey = uploadData?.data?.file_key;
-    if (!fileKey) throw new Error(`文件上传失败：${JSON.stringify(uploadData)}`);
+    if (!fileKey)
+      throw new Error(`文件上传失败：${JSON.stringify(uploadData)}`);
 
     // 发送文件消息
     await this.client.im.message.create({

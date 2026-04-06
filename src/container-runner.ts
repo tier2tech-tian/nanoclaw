@@ -244,6 +244,7 @@ export function prepareGroupSession(groupFolder: string): string {
       settingsFile,
       JSON.stringify(
         {
+          model: 'claude-opus-4-6',
           env: {
             CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
             CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
@@ -559,7 +560,11 @@ export async function runContainerAgent(
             if (parsed.newSessionId) {
               newSessionId = parsed.newSessionId;
             }
+            const now = Date.now();
+            const gap = ((now - lastOutputTime) / 1000).toFixed(1);
+            lastOutputTime = now;
             hadStreamingOutput = true;
+            logger.debug({ group: group.name, status: parsed.status, gap: `${gap}s`, resultLen: parsed.result?.length }, 'Agent output received');
             resetTimeout();
             outputChain = outputChain.then(() => onOutput(parsed));
           } catch (err) {
@@ -594,8 +599,11 @@ export async function runContainerAgent(
 
     let timedOut = false;
     let hadStreamingOutput = false;
+    let lastOutputTime = startTime;
     const configTimeout = group.containerConfig?.timeout || AGENT_TIMEOUT;
     const timeoutMs = Math.max(configTimeout, IDLE_TIMEOUT + 30_000);
+
+    logger.info({ group: group.name, pid: child.pid, timeoutMs }, 'Agent process started, timeout set');
 
     const killOnTimeout = () => {
       timedOut = true;
@@ -622,6 +630,8 @@ export async function runContainerAgent(
     child.on('close', (code) => {
       clearTimeout(timeout);
       const duration = Date.now() - startTime;
+      const sinceLastOutput = ((Date.now() - lastOutputTime) / 1000).toFixed(1);
+      logger.info({ group: group.name, pid: child.pid, code, duration, hadStreamingOutput, sinceLastOutput: `${sinceLastOutput}s`, timedOut }, 'Agent process exited');
 
       if (timedOut) {
         const ts = new Date().toISOString().replace(/[:.]/g, '-');

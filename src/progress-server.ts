@@ -208,7 +208,9 @@ export function startProgressServer(): void {
     }
     if (isJson) {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ steps: session.steps, completed: session.completed }));
+      res.end(
+        JSON.stringify({ steps: session.steps, completed: session.completed }),
+      );
       return;
     }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });

@@ -935,7 +935,13 @@ async function main(): Promise<void> {
           delete sessions[group.folder];
           deleteSession(group.folder);
           // /clear 时同步重置 llmlog 开关
-          try { fs.unlinkSync(path.join(GROUPS_DIR, group.folder, '.llmlog_enabled')); } catch { /* ignore */ }
+          try {
+            fs.unlinkSync(
+              path.join(GROUPS_DIR, group.folder, '.llmlog_enabled'),
+            );
+          } catch {
+            /* ignore */
+          }
           logger.info({ group: group.folder }, '/clear: session 已清除');
           const ch = findChannel(channels, chatJid);
           ch?.sendMessage(
@@ -1136,13 +1142,21 @@ async function main(): Promise<void> {
             fs.writeFileSync(flagFile, '');
             reply = `[llmlog] 已开启，API 请求将保存到 groups/${grp.folder}/llmlogs/`;
           } else if (trimmed === '/llmlog off') {
-            try { fs.unlinkSync(flagFile); } catch { /* ignore */ }
+            try {
+              fs.unlinkSync(flagFile);
+            } catch {
+              /* ignore */
+            }
             reply = '[llmlog] 已关闭';
           } else {
             // status
             const isOn = fs.existsSync(flagFile);
             let count = 0;
-            try { count = fs.readdirSync(logDir).length; } catch { /* ignore */ }
+            try {
+              count = fs.readdirSync(logDir).length;
+            } catch {
+              /* ignore */
+            }
             reply = `[llmlog] 当前${isOn ? '开启' : '关闭'}，已保存 ${count} 条日志`;
           }
           ch?.sendMessage(chatJid, reply).catch((err) =>

@@ -469,6 +469,9 @@ async function runQuery(
     log(`Additional directories: ${extraDirs.join(', ')}`);
   }
 
+  const queryStartTime = Date.now();
+  log(`[query-start] sessionId=${sessionId || 'new'}, resumeAt=${resumeAt || 'latest'}`);
+
   for await (const message of query({
     prompt: stream,
     options: {
@@ -532,7 +535,32 @@ async function runQuery(
       message.type === 'system'
         ? `system/${(message as { subtype?: string }).subtype}`
         : message.type;
-    log(`[msg #${messageCount}] type=${msgType}`);
+    const elapsed = ((Date.now() - queryStartTime) / 1000).toFixed(1);
+    log(`[msg #${messageCount}] type=${msgType} +${elapsed}s`);
+
+    // API 重试事件
+    if (message.type === 'system' && (message as { subtype?: string }).subtype === 'api_retry') {
+      const retry = message as { attempt?: number; max_retries?: number; retry_delay_ms?: number; error_status?: number | null; error?: string };
+      log(`[api_retry] attempt=${retry.attempt}/${retry.max_retries} delay=${retry.retry_delay_ms}ms status=${retry.error_status} error=${retry.error || 'unknown'}`);
+    }
+
+    // 流式事件（大量，只记类型）
+    if (message.type === 'stream_event') {
+      const se = message as { event?: { type?: string } };
+      log(`[stream_event] event_type=${se.event?.type || 'unknown'}`);
+    }
+
+    // 认证状态
+    if (message.type === 'auth_status') {
+      const auth = message as { isAuthenticating?: boolean; error?: string };
+      log(`[auth_status] authenticating=${auth.isAuthenticating} error=${auth.error || 'none'}`);
+    }
+
+    // 限流事件
+    if (message.type === 'rate_limit') {
+      const rl = message as Record<string, unknown>;
+      log(`[rate_limit] ${JSON.stringify(rl).slice(0, 200)}`);
+    }
 
     if (message.type === 'assistant' && 'uuid' in message) {
       lastAssistantUuid = (message as { uuid: string }).uuid;
@@ -688,6 +716,12 @@ async function runQuery(
       const rawModelUsage = msg.modelUsage as
         | Record<string, { contextWindow?: number }>
         | undefined;
+      // 调试：打印 modelUsage 原始内容，确认模型名和 contextWindow 字段
+      if (rawModelUsage) {
+        log(`[DEBUG] modelUsage keys: ${JSON.stringify(Object.entries(rawModelUsage).map(([k, v]) => ({ model: k, contextWindow: v.contextWindow })))}`);
+      } else {
+        log('[DEBUG] modelUsage is undefined');
+      }
       const modelContextWindows = rawModelUsage
         ? Object.fromEntries(
             Object.entries(rawModelUsage)
@@ -721,8 +755,9 @@ async function runQuery(
   }
 
   ipcPolling = false;
+  const totalElapsed = ((Date.now() - queryStartTime) / 1000).toFixed(1);
   log(
-    `Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`,
+    `Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}, totalTime: ${totalElapsed}s`,
   );
   return { newSessionId, lastAssistantUuid, closedDuringQuery };
 }
