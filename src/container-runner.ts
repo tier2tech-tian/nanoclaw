@@ -186,6 +186,9 @@ export interface ContainerOutput {
   newSessionId?: string | null;
   error?: string;
   progressType?: 'tool_use' | 'tool_result' | 'thinking';
+  /** 步骤标题（进度推送用） */
+  title?: string;
+  /** 可折叠面板的展开内容（markdown 格式） */
   detail?: string;
   usage?: {
     inputTokens: number;
@@ -195,6 +198,8 @@ export interface ContainerOutput {
     numTurns: number;
     durationMs: number;
     totalCostUsd: number;
+    /** 各模型的实际 context window 大小（tokens），key 为模型名 */
+    modelContextWindows?: Record<string, number>;
   };
 }
 
