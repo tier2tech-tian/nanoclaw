@@ -41,8 +41,7 @@ const IMAGE_SEND_PATTERN =
   /(?:\[(?:图片|image):\s*(\/[^\]\s]+)\]|!\[.*?\]\((\/[^\s)]+)\))/gi;
 
 // 发送文件路径检测模式：[文件: path]、[file: path]
-const FILE_SEND_PATTERN =
-  /\[(?:文件|file):\s*(\/[^\]\s]+)\]/gi;
+const FILE_SEND_PATTERN = /\[(?:文件|file):\s*(\/[^\]\s]+)\]/gi;
 
 /** 根据扩展名推断飞书文件类型 */
 function feishuFileType(filename: string): string {
@@ -962,7 +961,10 @@ export class FeishuChannel implements Channel {
       }
 
       fs.writeFileSync(filePath, buf);
-      logger.info({ messageId, imageKey, hostPath: filePath }, '飞书图片下载成功');
+      logger.info(
+        { messageId, imageKey, hostPath: filePath },
+        '飞书图片下载成功',
+      );
       return filePath;
     } catch (err) {
       logger.error({ err, messageId, imageKey }, '飞书图片下载失败');

@@ -18,6 +18,15 @@ Your output is sent to the user or group.
 
 You also have `mcp__nanoclaw__send_message` which sends a message immediately while you're still working. This is useful when you want to acknowledge a request before starting longer work.
 
+### 发送文件和图片
+
+你可以在回复中使用以下格式，编排层会自动上传到飞书发送给用户：
+
+- **发送文件**: `[文件: /绝对路径/文件名.pdf]` 或 `[file: /绝对路径/文件名.pdf]`
+- **发送图片**: `[图片: /绝对路径/图片.png]` 或 `![描述](/绝对路径/图片.png)`
+
+示例：生成报告后写入文件，然后在回复中引用路径即可发送。
+
 ### Internal thoughts
 
 If part of your output is internal reasoning rather than something for the user, wrap it in `<internal>` tags:
