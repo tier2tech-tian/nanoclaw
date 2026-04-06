@@ -67,7 +67,9 @@ function escapeRegex(str: string): string {
 }
 
 export function buildTriggerPattern(trigger: string): RegExp {
-  return new RegExp(`^${escapeRegex(trigger.trim())}\\b`, 'i');
+  const escaped = escapeRegex(trigger.trim());
+  // \b 不支持中文等非 ASCII 字符，改用前瞻：后面是空白、标点或结尾
+  return new RegExp(`^${escaped}(?=[\\s\\p{P}]|$)`, 'iu');
 }
 
 export const DEFAULT_TRIGGER = `@${ASSISTANT_NAME}`;
