@@ -36,12 +36,13 @@ const MAX_MERGE_DEPTH = 1;
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
 
 // 发送图片路径检测模式：[图片: path]、[image: path]、![alt](path)
+// 支持 /workspace/group/ 容器路径和宿主机绝对路径
 const IMAGE_SEND_PATTERN =
-  /(?:\[(?:图片|image):\s*(\/workspace\/group\/[^\]\s]+)\]|!\[.*?\]\((\/workspace\/group\/[^\s)]+)\))/gi;
+  /(?:\[(?:图片|image):\s*(\/[^\]\s]+)\]|!\[.*?\]\((\/[^\s)]+)\))/gi;
 
 // 发送文件路径检测模式：[文件: path]、[file: path]
 const FILE_SEND_PATTERN =
-  /\[(?:文件|file):\s*(\/workspace\/group\/[^\]\s]+)\]/gi;
+  /\[(?:文件|file):\s*(\/[^\]\s]+)\]/gi;
 
 /** 根据扩展名推断飞书文件类型 */
 function feishuFileType(filename: string): string {
@@ -921,7 +922,7 @@ export class FeishuChannel implements Channel {
     }
   }
 
-  /** 下载飞书图片到 group 目录，返回容器内路径 */
+  /** 下载飞书图片到 group 目录，返回宿主机绝对路径 */
   private async downloadImage(
     messageId: string,
     imageKey: string,
@@ -961,9 +962,8 @@ export class FeishuChannel implements Channel {
       }
 
       fs.writeFileSync(filePath, buf);
-      const containerPath = `/workspace/group/images/${filename}`;
-      logger.info({ messageId, imageKey, containerPath }, '飞书图片下载成功');
-      return containerPath;
+      logger.info({ messageId, imageKey, hostPath: filePath }, '飞书图片下载成功');
+      return filePath;
     } catch (err) {
       logger.error({ err, messageId, imageKey }, '飞书图片下载失败');
       return null;
@@ -1186,17 +1186,21 @@ export class FeishuChannel implements Channel {
     });
   }
 
-  /** 上传并发送文件消息 */
+  /** 上传并发送文件消息（支持容器路径 /workspace/group/ 和宿主机绝对路径） */
   private async sendFileMsg(
     chatId: string,
-    containerPath: string,
+    inputPath: string,
     groupFolder: string,
   ): Promise<void> {
-    const relativePath = containerPath.replace(/^\/workspace\/group\//, '');
-    const hostPath = path.join(
-      resolveGroupFolderPath(groupFolder),
-      relativePath,
-    );
+    let hostPath: string;
+    if (inputPath.startsWith('/workspace/group/')) {
+      // 兼容旧的容器路径写法
+      const relativePath = inputPath.replace(/^\/workspace\/group\//, '');
+      hostPath = path.join(resolveGroupFolderPath(groupFolder), relativePath);
+    } else {
+      // 宿主机绝对路径直接用
+      hostPath = inputPath;
+    }
 
     if (!fs.existsSync(hostPath)) {
       throw new Error(`文件不存在: ${hostPath}`);

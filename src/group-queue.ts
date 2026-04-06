@@ -381,9 +381,25 @@ export class GroupQueue {
         logger.info({ jid, pid, name }, 'Killing agent process on shutdown');
         killPromises.push(
           new Promise<void>((resolve) => {
-            try { process.kill(-pid, 'SIGTERM'); } catch { try { process.kill(pid, 'SIGTERM'); } catch { /* already dead */ } }
+            try {
+              process.kill(-pid, 'SIGTERM');
+            } catch {
+              try {
+                process.kill(pid, 'SIGTERM');
+              } catch {
+                /* already dead */
+              }
+            }
             const forceKill = setTimeout(() => {
-              try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ } }
+              try {
+                process.kill(-pid, 'SIGKILL');
+              } catch {
+                try {
+                  process.kill(pid, 'SIGKILL');
+                } catch {
+                  /* already dead */
+                }
+              }
               resolve();
             }, gracePeriodMs);
             state.process!.once('close', () => {
@@ -397,7 +413,10 @@ export class GroupQueue {
 
     if (killPromises.length > 0) {
       await Promise.all(killPromises);
-      logger.info({ killed: killPromises.length }, 'All agent processes terminated');
+      logger.info(
+        { killed: killPromises.length },
+        'All agent processes terminated',
+      );
     } else {
       logger.info('No active agent processes to kill');
     }
