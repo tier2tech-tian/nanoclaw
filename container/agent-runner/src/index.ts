@@ -60,6 +60,8 @@ interface ContainerOutput {
     numTurns: number;
     durationMs: number;
     totalCostUsd: number;
+    /** 各模型的实际 context window 大小（tokens），key 为模型名 */
+    modelContextWindows?: Record<string, number>;
   };
 }
 
@@ -566,7 +568,9 @@ async function runQuery(
             if (input) {
               if (block.name === 'Edit' && input.old_string && input.new_string) {
                 const file = (input.file_path as string || '').split('/').pop() || 'file';
-                detail = `**${file}**\n\`\`\`diff\n- ${(input.old_string as string).slice(0, 300)}\n+ ${(input.new_string as string).slice(0, 300)}\n\`\`\``;
+                const oldLines = (input.old_string as string).slice(0, 300).split('\n').map((l: string) => `- ${l}`).join('\n');
+                const newLines = (input.new_string as string).slice(0, 300).split('\n').map((l: string) => `+ ${l}`).join('\n');
+                detail = `**${file}**\n${oldLines}\n${newLines}`;
               } else if (block.name === 'Bash' && input.command) {
                 detail = `\`\`\`bash\n${(input.command as string).slice(0, 500)}\n\`\`\``;
               } else if (block.name === 'Write' && input.file_path) {
@@ -675,6 +679,17 @@ async function runQuery(
       // 提取 token 用量
       const msg = message as Record<string, unknown>;
       const rawUsage = msg.usage as Record<string, number> | undefined;
+      // 提取各模型的 contextWindow（SDK 返回 modelUsage: Record<string, ModelUsage>）
+      const rawModelUsage = msg.modelUsage as
+        | Record<string, { contextWindow?: number }>
+        | undefined;
+      const modelContextWindows = rawModelUsage
+        ? Object.fromEntries(
+            Object.entries(rawModelUsage)
+              .filter(([, v]) => v.contextWindow != null)
+              .map(([k, v]) => [k, v.contextWindow as number]),
+          )
+        : undefined;
       const usage = rawUsage
         ? {
             inputTokens: rawUsage.input_tokens ?? 0,
@@ -684,6 +699,7 @@ async function runQuery(
             numTurns: (msg.num_turns as number) ?? 0,
             durationMs: (msg.duration_ms as number) ?? 0,
             totalCostUsd: (msg.total_cost_usd as number) ?? 0,
+            modelContextWindows,
           }
         : undefined;
 
@@ -809,6 +825,103 @@ async function main(): Promise<void> {
   } catch {
     /* ignore */
   }
+
+  // LLM 请求日志：flag 文件由编排层管理（/llmlog on/off 或 /clear），这里不重置
+  const llmlogFlagFile = path.join(PATHS.group, '.llmlog_enabled');
+  const llmlogDir = path.join(PATHS.group, 'llmlogs');
+
+  // 拦截全局 fetch，当 .llmlog_enabled 存在时记录 Anthropic API 请求和响应
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async function llmlogFetch(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+    const isAnthropicApi = url.includes('anthropic.com') || url.includes('/v1/messages');
+
+    // 检查是否启用了日志（每次请求都检查，支持动态开关）
+    let loggingEnabled = false;
+    if (isAnthropicApi) {
+      try {
+        fs.accessSync(llmlogFlagFile);
+        loggingEnabled = true;
+      } catch {
+        /* 标志文件不存在，日志关闭 */
+      }
+    }
+
+    if (!loggingEnabled) {
+      return originalFetch(input, init);
+    }
+
+    // 读取请求体
+    let requestBody: unknown = undefined;
+    if (init?.body) {
+      try {
+        requestBody = JSON.parse(init.body as string);
+      } catch {
+        requestBody = String(init.body);
+      }
+    }
+
+    const requestTime = new Date().toISOString();
+    const logId = requestTime.replace(/[:.]/g, '-');
+
+    // 执行原始请求
+    const response = await originalFetch(input, init);
+
+    // 克隆响应以读取内容（原始 response 继续返回给调用方）
+    const cloned = response.clone();
+    const contentType = cloned.headers.get('content-type') || '';
+
+    let responseBody: unknown;
+    if (contentType.includes('text/event-stream')) {
+      // 流式响应：收集所有 SSE 事件
+      const chunks: string[] = [];
+      try {
+        const text = await cloned.text();
+        chunks.push(text);
+      } catch {
+        chunks.push('<stream read error>');
+      }
+      responseBody = chunks.join('');
+    } else {
+      try {
+        responseBody = await cloned.json();
+      } catch {
+        try {
+          responseBody = await cloned.text();
+        } catch {
+          responseBody = '<read error>';
+        }
+      }
+    }
+
+    // 保存日志
+    try {
+      fs.mkdirSync(llmlogDir, { recursive: true });
+      const logEntry = {
+        time: requestTime,
+        url,
+        method: init?.method || 'POST',
+        requestHeaders: Object.fromEntries(
+          Object.entries((init?.headers as Record<string, string>) || {}).map(
+            ([k, v]) => [k, k.toLowerCase() === 'x-api-key' || k.toLowerCase() === 'authorization' ? '[REDACTED]' : v],
+          ),
+        ),
+        request: requestBody,
+        responseStatus: response.status,
+        response: responseBody,
+      };
+      const logFile = path.join(llmlogDir, `${logId}.json`);
+      fs.writeFileSync(logFile, JSON.stringify(logEntry, null, 2), 'utf-8');
+      log(`[llmlog] Saved: ${logFile}`);
+    } catch (err) {
+      log(`[llmlog] Failed to save log: ${err}`);
+    }
+
+    return response;
+  };
 
   // Build initial prompt (drain any pending IPC messages too)
   let prompt = containerInput.prompt;

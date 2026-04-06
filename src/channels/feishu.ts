@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import * as lark from '@larksuiteoapi/node-sdk';
@@ -7,6 +8,13 @@ import type { ContainerOutput } from '../container-runner.js';
 import { readEnvFile } from '../env.js';
 import { resolveGroupFolderPath } from '../group-folder.js';
 import { logger } from '../logger.js';
+import {
+  startProgressServer,
+  getProgressUrl,
+  upsertSession,
+  completeSession,
+  deleteSession,
+} from '../progress-server.js';
 import { Channel, NewMessage } from '../types.js';
 
 import { registerChannel, ChannelOpts } from './registry.js';
@@ -16,10 +24,9 @@ import { registerChannel, ChannelOpts } from './registry.js';
 const JID_PREFIX = 'fs:';
 const TYPING_EMOJI = 'OnIt'; // 飞书内置 emoji key
 const CARD_THRESHOLD = 500;
-const MD_PATTERN = /```|^##\s|^\|.*\|/m;
+const MD_PATTERN = /```|\*\*|^##?\s|^\|.*\||\*[^*\s]|^[-*+]\s|^>\s/m;
 const PROGRESS_EMOJI_PATTERN = /^[🔧📖✏️🔍🌐📋⚙️⏳💭✅📊]/;
 const PROGRESS_JSON_PATTERN = /^\{"title":"[🔧📖✏️🔍🌐📋⚙️⏳💭✅📊]/;
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const THINKING_PHRASES = ['思考中', '分析中', '处理中', '推理中'];
 
 // ---- 多媒体安全限制 ----
@@ -31,6 +38,19 @@ const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
 // 发送图片路径检测模式：[图片: path]、[image: path]、![alt](path)
 const IMAGE_SEND_PATTERN =
   /(?:\[(?:图片|image):\s*(\/workspace\/group\/[^\]\s]+)\]|!\[.*?\]\((\/workspace\/group\/[^\s)]+)\))/gi;
+
+// 发送文件路径检测模式：[文件: path]、[file: path]
+const FILE_SEND_PATTERN =
+  /\[(?:文件|file):\s*(\/workspace\/group\/[^\]\s]+)\]/gi;
+
+/** 根据扩展名推断飞书文件类型 */
+function feishuFileType(filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  if (ext === '.pdf') return 'pdf';
+  if (['.mp4', '.mov', '.avi'].includes(ext)) return 'mp4';
+  if (['.opus', '.ogg'].includes(ext)) return 'opus';
+  return 'stream'; // 通用二进制，支持 txt/md/zip 等所有文件
+}
 
 // ---- 工具函数 ----
 
@@ -101,46 +121,94 @@ function stepToElement(step: ProgressStep): unknown {
   return { tag: 'markdown', content: title };
 }
 
-/** 构建进度卡片（schema 2.0 + collapsible_panel） */
+/** 格式化耗时字符串 */
+function formatElapsed(startTime: number): string {
+  const ms = Date.now() - startTime;
+  if (ms >= 60_000) {
+    const min = Math.floor(ms / 60_000);
+    const sec = Math.floor((ms % 60_000) / 1000);
+    return `(${min}m${sec}s)`;
+  }
+  return `(${Math.floor(ms / 1000)}s)`;
+}
+
+/**
+ * 标题行组件：左侧标题文字 + 右侧可选链接，同行布局。
+ * 后跟一条 hr 分割线，与内容区隔开。
+ * 复用于进度卡片和完成卡片。
+ */
+function buildTitleRow(leftText: string, rightUrl?: string): unknown[] {
+  const rightContent = rightUrl
+    ? `[📋 过程记录](${rightUrl})`
+    : '\u200b'; // 无链接时用零宽字符占位，保持列结构合法
+
+  return [
+    {
+      tag: 'column_set',
+      flex_mode: 'stretch',
+      background_style: 'default',
+      columns: [
+        {
+          tag: 'column',
+          width: 'weighted',
+          weight: 1,
+          elements: [{ tag: 'markdown', content: leftText }],
+        },
+        {
+          tag: 'column',
+          width: 'auto',
+          elements: [{ tag: 'markdown', content: rightContent }],
+        },
+      ],
+    },
+    { tag: 'hr' },
+  ];
+}
+
+/** 构建进度卡片（schema 2.0，无原生 header） */
 function buildProgressCard(
   steps: ProgressStep[],
   frame: number = 0,
   startTime?: number,
+  sessionId?: string,
 ): string {
-  const spinner = SPINNER_FRAMES[frame % SPINNER_FRAMES.length];
+  // 短语轮换（每轮 THINKING_PHRASES.length 帧切换一次）
   const phrase =
     THINKING_PHRASES[
-      Math.floor(frame / SPINNER_FRAMES.length) % THINKING_PHRASES.length
+      Math.floor(frame / THINKING_PHRASES.length) % THINKING_PHRASES.length
     ];
+  const timeStr = startTime ? ` ${formatElapsed(startTime)}` : '';
+  const titleText = `**✨ ${phrase}...${timeStr}**`;
+  const progressUrl = sessionId ? getProgressUrl(sessionId) : undefined;
 
-  // 计时器显示
-  let timeStr = '';
-  if (startTime) {
-    const elapsed = Math.floor((Date.now() - startTime) / 1000);
-    if (elapsed >= 60) {
-      const min = Math.floor(elapsed / 60);
-      const sec = elapsed % 60;
-      timeStr = ` (${min}m${sec}s)`;
-    } else {
-      timeStr = ` (${elapsed}s)`;
-    }
-  }
+  // 没有步骤时显示占位文字，避免卡片内容区域为空
+  const stepElements =
+    steps.length > 0
+      ? steps.map(stepToElement)
+      : [{ tag: 'markdown', content: '<font color="grey">正在等待响应...</font>' }];
 
-  const elements = steps.map(stepToElement);
+  const elements: unknown[] = [
+    ...buildTitleRow(titleText, progressUrl),
+    ...stepElements,
+  ];
 
   return JSON.stringify({
     schema: '2.0',
     config: { update_multi: true },
-    header: {
-      template: 'yellow',
-      title: {
-        tag: 'plain_text',
-        content: `${spinner} ${phrase}...${timeStr}`,
-      },
-    },
     body: { elements },
   });
 }
+
+/** 各模型 context window 的兜底值（当 SDK 未返回时使用） */
+const CLAUDE_CONTEXT_WINDOW_FALLBACK: Record<string, number> = {
+  'claude-opus-4': 1_000_000,   // opus-4-5, opus-4-6, opus-4.x 全系
+  'claude-sonnet-4': 200_000,
+  'claude-haiku-4': 200_000,
+  'claude-3-5-sonnet': 200_000,
+  'claude-3-5-haiku': 200_000,
+  'claude-3-opus': 200_000,
+};
+const DEFAULT_CONTEXT_WINDOW = 200_000;
 
 /** 向卡片 elements 追加 usage 脚注（hr + 灰色统计行） */
 function appendUsageFooter(
@@ -155,29 +223,65 @@ function appendUsageFooter(
   const dur = (usage.durationMs / 1000).toFixed(1);
   const cost = usage.totalCostUsd.toFixed(2);
 
+  // 获取实际 context window 大小：SDK 值与兜底表取最大值（SDK 有时返回偏小的值）
+  let maxContextTokens = DEFAULT_CONTEXT_WINDOW;
+  const modelNames = Object.keys(usage.modelContextWindows ?? {});
+
+  // SDK 返回值
+  if (usage.modelContextWindows) {
+    const windows = Object.values(usage.modelContextWindows);
+    if (windows.length > 0) {
+      maxContextTokens = Math.max(...windows);
+    }
+  }
+
+  // 兜底表：对每个模型名查表，取更大值（修正 SDK 返回偏小的情况）
+  for (const [fallbackModel, fallbackWindow] of Object.entries(
+    CLAUDE_CONTEXT_WINDOW_FALLBACK,
+  )) {
+    if (modelNames.some((k) => k.includes(fallbackModel))) {
+      maxContextTokens = Math.max(maxContextTokens, fallbackWindow);
+    }
+  }
+
+  // 计算 context window 占用率（最后一轮发送的完整 context）
+  const totalContextTokens =
+    usage.inputTokens +
+    usage.cacheReadInputTokens +
+    usage.cacheCreationInputTokens;
+  const ctxPct = Math.round((totalContextTokens / maxContextTokens) * 100);
+  const ctxBar = ctxPct >= 80 ? '🔴' : ctxPct >= 50 ? '🟡' : '🟢';
+  const maxK = maxContextTokens >= 1_000_000
+    ? `${maxContextTokens / 1_000_000}M`
+    : `${maxContextTokens / 1_000}k`;
+
   elements.push({ tag: 'hr' });
   elements.push({
     tag: 'markdown',
-    content: `<font color="grey">↑${inp}/${cacheRead}/${cacheCreate} ↓${out} 🔄${turns} ⏱${dur}s 💰≈$${cost}</font>`,
+    content: `<font color="grey">↑${inp}/${cacheRead}/${cacheCreate} ↓${out} 🔄${turns} ⏱${dur}s 💰≈$${cost} ${ctxBar}ctx${ctxPct}%/${maxK}</font>`,
   });
 }
 
-/** 构建完成卡片（schema 2.0 + collapsible_panel） */
+/** 构建完成卡片（schema 2.0，无原生 header） */
 function buildCompletedCard(
   steps: ProgressStep[],
   usage?: ContainerOutput['usage'],
+  startTime?: number,
+  sessionId?: string,
 ): string {
-  const elements: unknown[] = steps.map(stepToElement);
+  const timeStr = startTime ? ` ${formatElapsed(startTime)}` : '';
+  const titleText = `**✓ 已完成${timeStr}**`;
+  const progressUrl = sessionId ? getProgressUrl(sessionId) : undefined;
 
+  const elements: unknown[] = [
+    ...buildTitleRow(titleText, progressUrl),
+    ...steps.map(stepToElement),
+  ];
   if (usage) appendUsageFooter(elements, usage);
 
   return JSON.stringify({
     schema: '2.0',
     config: { update_multi: true },
-    header: {
-      template: 'green',
-      title: { tag: 'plain_text', content: '✅ 已完成' },
-    },
     body: { elements },
   });
 }
@@ -208,6 +312,7 @@ export class FeishuChannel implements Channel {
     string,
     {
       messageId: string;
+      sessionId: string;
       steps: ProgressStep[];
       frame: number;
       startTime: number;
@@ -217,6 +322,8 @@ export class FeishuChannel implements Channel {
 
   // Spinner 自动刷新定时器（每个 chat 一个）
   private spinnerTimers = new Map<string, NodeJS.Timeout>();
+  // 停止标记：clearSpinnerTimer 设置后，正在运行的 callback 检测到后不再调度下一轮
+  private spinnerStopped = new Set<string>();
 
   constructor(appId: string, appSecret: string, opts: ChannelOpts) {
     this.appId = appId;
@@ -232,6 +339,9 @@ export class FeishuChannel implements Channel {
   // ---- Channel 接口 ----
 
   async connect(): Promise<void> {
+    // 启动进度查看 HTTP 服务（幂等，多次调用无副作用）
+    startProgressServer();
+
     const dispatcher = new lark.EventDispatcher({}).register({
       'im.message.receive_v1': (data) => {
         this.handleMessage(data).catch((err) => {
@@ -337,41 +447,51 @@ export class FeishuChannel implements Channel {
       if (existing) {
         existing.steps.push({ title, detail });
         if (existing.steps.length > 12) existing.steps.shift();
-        existing.frame++;
-        try {
-          await this.client.im.message.patch({
-            path: { message_id: existing.messageId },
-            data: {
-              content: buildProgressCard(
-                existing.steps,
-                existing.frame,
-                existing.startTime,
-              ),
-            },
-          });
-        } catch (err) {
-          logger.debug({ err }, '飞书进度卡片更新失败（非致命）');
+        // 同步到进度查看页面（无上限，页面能看到完整历史）
+        upsertSession(existing.sessionId, existing.steps, existing.startTime);
+        // 不在此处立即 patch：由 spinner 定时器统一渲染，避免并发写同一条消息
+
+        // 💭 消息额外作为普通消息发出（优先用 detail 完整内容，去掉 💭 前缀）
+        if (title.startsWith('💭')) {
+          const fullText = (detail ?? title).replace(/^💭\s*/, '').trim();
+          if (fullText) {
+            const chatId = chatIdFromJid(jid);
+            this.sendPlainOrCard(chatId, fullText).catch((err) =>
+              logger.debug({ err }, '💭 消息发送失败'),
+            );
+          }
         }
       }
       return;
     }
 
-    // 正式回复到达：将进度卡片标记为「✅ 已完成」，取出 usage
+    // 正式回复到达：处理进度卡片
     const progressEntry = this.progressCards.get(jid);
     const usage = progressEntry?.usage;
     if (progressEntry) {
       this.clearSpinnerTimer(jid);
       this.progressCards.delete(jid);
       try {
-        await this.client.im.message.patch({
-          path: { message_id: progressEntry.messageId },
-          data: {
-            content: buildCompletedCard(
-              progressEntry.steps,
-              progressEntry.usage,
-            ),
-          },
-        });
+        // 判断是否有真正的工具调用步骤（💭 开头的是模型推理文本，不算工具调用）
+        const hasToolSteps = progressEntry.steps.some(
+          (s) => !s.title.startsWith('💭'),
+        );
+        if (!hasToolSteps) {
+          // 纯思考/简单对话（无工具调用）：撤回进度卡片，避免显示多余的"✅ 已完成"
+          deleteSession(progressEntry.sessionId);
+          await this.client.im.message.delete({
+            path: { message_id: progressEntry.messageId },
+          });
+        } else {
+          // 有工具调用步骤：转为完成卡片（不带 usage 脚注，usage 已在正文回复卡片里显示）
+          completeSession(progressEntry.sessionId);
+          await this.client.im.message.patch({
+            path: { message_id: progressEntry.messageId },
+            data: {
+              content: buildCompletedCard(progressEntry.steps, undefined, progressEntry.startTime, progressEntry.sessionId),
+            },
+          });
+        }
       } catch (err) {
         logger.debug({ err }, '飞书进度卡片更新失败（非致命）');
       }
@@ -385,30 +505,66 @@ export class FeishuChannel implements Channel {
       imageMatches.push(m[1] || m[2]);
     }
 
-    if (imageMatches.length > 0) {
-      const groupFolder = this.getGroupFolder(jid);
-      if (groupFolder) {
-        IMAGE_SEND_PATTERN.lastIndex = 0;
-        const remainingText = text.replace(IMAGE_SEND_PATTERN, '').trim();
-        try {
-          if (remainingText)
-            await this.sendPlainOrCard(chatId, remainingText, usage);
-          for (const imgPath of imageMatches) {
-            try {
-              await this.sendImageMsg(chatId, imgPath, groupFolder);
-            } catch (err) {
-              logger.warn(
-                { err, path: imgPath },
-                '飞书图片发送失败，降级为文本',
-              );
-              await this.sendPlainOrCard(chatId, `[图片发送失败: ${imgPath}]`);
-            }
+    // 检测文件路径
+    const fileMatches: string[] = [];
+    FILE_SEND_PATTERN.lastIndex = 0;
+    while ((m = FILE_SEND_PATTERN.exec(text)) !== null) {
+      fileMatches.push(m[1]);
+    }
+
+    const groupFolder = this.getGroupFolder(jid);
+
+    if (imageMatches.length > 0 && groupFolder) {
+      IMAGE_SEND_PATTERN.lastIndex = 0;
+      FILE_SEND_PATTERN.lastIndex = 0;
+      const remainingText = text
+        .replace(IMAGE_SEND_PATTERN, '')
+        .replace(FILE_SEND_PATTERN, '')
+        .trim();
+      try {
+        if (remainingText)
+          await this.sendPlainOrCard(chatId, remainingText, usage);
+        for (const imgPath of imageMatches) {
+          try {
+            await this.sendImageMsg(chatId, imgPath, groupFolder);
+          } catch (err) {
+            logger.warn({ err, path: imgPath }, '飞书图片发送失败，降级为文本');
+            await this.sendPlainOrCard(chatId, `[图片发送失败: ${imgPath}]`);
           }
-          return;
-        } catch (err) {
-          logger.error({ err }, '飞书发送消息失败');
-          throw err;
         }
+        for (const filePath of fileMatches) {
+          try {
+            await this.sendFileMsg(chatId, filePath, groupFolder);
+          } catch (err) {
+            logger.warn({ err, path: filePath }, '飞书文件发送失败，降级为文本');
+            await this.sendPlainOrCard(chatId, `[文件发送失败: ${filePath}]`);
+          }
+        }
+        return;
+      } catch (err) {
+        logger.error({ err }, '飞书发送消息失败');
+        throw err;
+      }
+    }
+
+    if (fileMatches.length > 0 && groupFolder) {
+      FILE_SEND_PATTERN.lastIndex = 0;
+      const remainingText = text.replace(FILE_SEND_PATTERN, '').trim();
+      try {
+        if (remainingText)
+          await this.sendPlainOrCard(chatId, remainingText, usage);
+        for (const filePath of fileMatches) {
+          try {
+            await this.sendFileMsg(chatId, filePath, groupFolder);
+          } catch (err) {
+            logger.warn({ err, path: filePath }, '飞书文件发送失败，降级为文本');
+            await this.sendPlainOrCard(chatId, `[文件发送失败: ${filePath}]`);
+          }
+        }
+        return;
+      } catch (err) {
+        logger.error({ err }, '飞书发送消息失败');
+        throw err;
       }
     }
 
@@ -433,7 +589,11 @@ export class FeishuChannel implements Channel {
         data: {
           receive_id: chatId,
           msg_type: 'interactive',
-          content: JSON.stringify({ elements }),
+          content: JSON.stringify({
+            schema: '2.0',
+            config: { update_multi: true },
+            body: { elements },
+          }),
         },
         params: { receive_id_type: 'chat_id' },
       });
@@ -458,9 +618,10 @@ export class FeishuChannel implements Channel {
   }
 
   private clearSpinnerTimer(jid: string): void {
+    this.spinnerStopped.add(jid); // 防止正在运行的 callback 再次调度
     const timer = this.spinnerTimers.get(jid);
     if (timer) {
-      clearInterval(timer);
+      clearTimeout(timer);
       this.spinnerTimers.delete(jid);
     }
   }
@@ -484,16 +645,19 @@ export class FeishuChannel implements Channel {
 
         // 发送"处理中"进度卡片
         if (!this.progressCards.has(jid)) {
-          const SPINNER_INTERVAL_MS = 1000;
+          const SPINNER_INTERVAL_MS = 5000; // 5s
           const SPINNER_MAX_DURATION_MS = 10 * 60 * 1000; // 10 分钟硬上限
 
           const now = Date.now();
+          this.spinnerStopped.delete(jid); // 新卡片启动，清除上次的停止标记
+          const sessionId = crypto.randomBytes(8).toString('hex');
           const initialSteps: ProgressStep[] = [];
+          upsertSession(sessionId, initialSteps, now);
           const resp = await this.client.im.message.create({
             data: {
               receive_id: chatId,
               msg_type: 'interactive',
-              content: buildProgressCard(initialSteps, 0, now),
+              content: buildProgressCard(initialSteps, 0, now, sessionId),
             },
             params: { receive_id_type: 'chat_id' },
           });
@@ -501,49 +665,69 @@ export class FeishuChannel implements Channel {
           if (msgId) {
             this.progressCards.set(jid, {
               messageId: msgId,
+              sessionId,
               steps: initialSteps,
               frame: 0,
               startTime: now,
             });
 
-            // 启动 spinner 自动刷新定时器
+            // 启动 spinner 自动刷新定时器（递归 setTimeout：等上次 patch 完成再调度下次，避免并发）
+            // 注意：clearSpinnerTimer 会设置 spinnerStopped，所以之后必须 delete 抵消，否则新 timer 立刻被拦截
             this.clearSpinnerTimer(jid);
+            this.spinnerStopped.delete(jid);
             const spinnerStartTime = now;
-            const timer = setInterval(async () => {
-              const entry = this.progressCards.get(jid);
-              if (!entry) {
-                // 卡片已被删除（完成/清理），停止定时器
-                this.clearSpinnerTimer(jid);
-                return;
-              }
+            const scheduleSpinner = (): void => {
+              const t = setTimeout(async () => {
+                // 检查停止标记（clearSpinnerTimer 可能在此 callback 运行期间被调用）
+                if (this.spinnerStopped.has(jid)) {
+                  this.spinnerTimers.delete(jid);
+                  return;
+                }
 
-              // 硬上限保护
-              if (Date.now() - spinnerStartTime > SPINNER_MAX_DURATION_MS) {
-                logger.warn(
-                  { jid },
-                  'Spinner timer 达到 10 分钟上限，自动停止',
-                );
-                this.clearSpinnerTimer(jid);
-                return;
-              }
+                const entry = this.progressCards.get(jid);
+                if (!entry) {
+                  // 卡片已被删除（完成/清理），停止
+                  this.spinnerTimers.delete(jid);
+                  return;
+                }
 
-              entry.frame++;
-              try {
-                await this.client.im.message.patch({
-                  path: { message_id: entry.messageId },
-                  data: {
-                    content: buildProgressCard(
-                      entry.steps,
-                      entry.frame,
-                      entry.startTime,
-                    ),
-                  },
-                });
-              } catch (err) {
-                logger.debug({ err, jid }, 'Spinner 自动刷新失败（非致命）');
-              }
-            }, SPINNER_INTERVAL_MS);
-            this.spinnerTimers.set(jid, timer);
+                // 硬上限保护
+                if (Date.now() - spinnerStartTime > SPINNER_MAX_DURATION_MS) {
+                  logger.warn(
+                    { jid },
+                    'Spinner timer 达到 10 分钟上限，自动停止',
+                  );
+                  this.spinnerTimers.delete(jid);
+                  return;
+                }
+
+                entry.frame++;
+                try {
+                  await this.client.im.message.patch({
+                    path: { message_id: entry.messageId },
+                    data: {
+                      content: buildProgressCard(
+                        entry.steps,
+                        entry.frame,
+                        entry.startTime,
+                        entry.sessionId,
+                      ),
+                    },
+                  });
+                } catch (err) {
+                  logger.debug({ err, jid }, 'Spinner 自动刷新失败（非致命）');
+                }
+
+                // 本次完成后才调度下一次（再次检查停止标记）
+                if (!this.spinnerStopped.has(jid)) {
+                  scheduleSpinner();
+                } else {
+                  this.spinnerTimers.delete(jid);
+                }
+              }, SPINNER_INTERVAL_MS);
+              this.spinnerTimers.set(jid, t);
+            };
+            scheduleSpinner();
           }
         }
       } else {
@@ -950,6 +1134,51 @@ export class FeishuChannel implements Channel {
     });
   }
 
+  /** 上传并发送文件消息 */
+  private async sendFileMsg(
+    chatId: string,
+    containerPath: string,
+    groupFolder: string,
+  ): Promise<void> {
+    const relativePath = containerPath.replace(/^\/workspace\/group\//, '');
+    const hostPath = path.join(resolveGroupFolderPath(groupFolder), relativePath);
+
+    if (!fs.existsSync(hostPath)) {
+      throw new Error(`文件不存在: ${hostPath}`);
+    }
+
+    const token = await this.getTenantAccessToken();
+    if (!token) throw new Error('获取 tenant_access_token 失败');
+
+    const filename = path.basename(hostPath);
+    const fileType = feishuFileType(filename);
+
+    // 上传文件
+    const formData = new FormData();
+    formData.append('file_type', fileType);
+    formData.append('file_name', filename);
+    formData.append('file', new Blob([fs.readFileSync(hostPath)]), filename);
+
+    const uploadResp = await fetch('https://open.feishu.cn/open-apis/im/v1/files', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    const uploadData = (await uploadResp.json()) as { data?: { file_key?: string } };
+    const fileKey = uploadData?.data?.file_key;
+    if (!fileKey) throw new Error(`文件上传失败：${JSON.stringify(uploadData)}`);
+
+    // 发送文件消息
+    await this.client.im.message.create({
+      data: {
+        receive_id: chatId,
+        msg_type: 'file',
+        content: JSON.stringify({ file_key: fileKey }),
+      },
+      params: { receive_id_type: 'chat_id' },
+    });
+  }
+
   private async handleMessage(data: {
     sender: {
       sender_id?: { union_id?: string; user_id?: string; open_id?: string };
@@ -976,7 +1205,10 @@ export class FeishuChannel implements Channel {
     );
     // 忽略机器人自己发的消息
     if (data.sender.sender_type === 'app') {
-      logger.info({ chatId: data.message.chat_id }, '忽略机器人消息 (sender_type=app)');
+      logger.info(
+        { chatId: data.message.chat_id },
+        '忽略机器人消息 (sender_type=app)',
+      );
       return;
     }
 
@@ -991,7 +1223,10 @@ export class FeishuChannel implements Channel {
     // 获取 group folder（图片下载需要）
     const groupFolder = this.getGroupFolder(jid);
 
-    logger.info({ jid, msgType: message.message_type, senderId }, '飞书开始解析消息内容');
+    logger.info(
+      { jid, msgType: message.message_type, senderId },
+      '飞书开始解析消息内容',
+    );
 
     // 解析消息内容
     let text = '';
