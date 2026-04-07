@@ -170,6 +170,8 @@ export interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   script?: string;
+  /** 单次模型覆盖（如 claude-sonnet-4-5），不持久化 */
+  model?: string;
   /** 由 runContainerAgent 内部填充，调用方无需设置 */
   workspacePaths?: {
     group: string;

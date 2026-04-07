@@ -575,16 +575,26 @@ async function runAgent(
       }
     : undefined;
 
+  // 快速模式前缀检测：「!」开头 → 用 Sonnet（单次生效，不持久化）
+  let effectivePrompt = prompt;
+  let perMessageModel: string | undefined;
+  if (/^!{1,2}\s/.test(prompt)) {
+    effectivePrompt = prompt.replace(/^!{1,2}\s*/, '');
+    perMessageModel = 'claude-sonnet-4-5';
+    logger.info({ chatJid, model: perMessageModel }, '快速模式触发');
+  }
+
   try {
     const output = await runContainerAgent(
       group,
       {
-        prompt,
+        prompt: effectivePrompt,
         sessionId,
         groupFolder: group.folder,
         chatJid,
         isMain,
         assistantName: ASSISTANT_NAME,
+        model: perMessageModel,
       },
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),
@@ -973,6 +983,7 @@ async function main(): Promise<void> {
           '/notrigger — 关闭 @触发模式（群聊中所有消息都响应）',
           '/cwd <path> — 设置 Claude Code 工作目录（下次对话生效）',
           '/cwd reset — 重置为默认工作目录',
+          '! <消息> — 单次使用快速模式（Sonnet），不影响下一条',
           '/remote-control — 启动 Claude Code 远程控制会话',
           '/remote-control-end — 结束远程控制会话',
         ].join('\n');
@@ -1185,6 +1196,7 @@ async function main(): Promise<void> {
           '/trigger — 开启 @触发模式',
           '/notrigger — 关闭 @触发模式',
           '/cwd <path> — 设置 Claude Code 工作目录',
+          '! <消息> — 单次快速模式（Sonnet）',
           '/remote-control — 启动 Claude Code 远程控制会话',
           '/remote-control-end — 结束远程控制会话',
         ].join('\n');

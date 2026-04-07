@@ -33,6 +33,7 @@ interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   script?: string;
+  model?: string;
   workspacePaths: {
     group: string;
     queryCwd?: string;
@@ -482,6 +483,7 @@ async function runQuery(
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
+      ...(containerInput.model ? { model: containerInput.model } : {}),
       systemPrompt: globalClaudeMd
         ? {
             type: 'preset' as const,
