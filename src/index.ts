@@ -578,8 +578,8 @@ async function runAgent(
   // 快速模式前缀检测：「!」开头 → 用 Sonnet（单次生效，不持久化）
   let effectivePrompt = prompt;
   let perMessageModel: string | undefined;
-  if (/^!{1,2}\s/.test(prompt)) {
-    effectivePrompt = prompt.replace(/^!{1,2}\s*/, '');
+  if (/^[!！]{1,2}\s?/.test(prompt) && prompt.length > 2) {
+    effectivePrompt = prompt.replace(/^[!！]{1,2}\s*/, '');
     perMessageModel = 'claude-sonnet-4-6';
     logger.info({ chatJid, model: perMessageModel }, '快速模式触发');
   }
