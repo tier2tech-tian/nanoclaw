@@ -349,13 +349,38 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (!hasTrigger) return true;
   }
 
-  // 快速模式前缀检测：最后一条消息以「!」/「！」开头 → Sonnet（单次生效）
-  let perMessageModel: string | undefined;
+  // 模型/思考前缀检测（最后一条消息，单次生效）
+  // ! 或 ！ + 空格 → Sonnet 无思考（最快）
+  // !! 或 ！！ + 空格 → Sonnet 深度思考
+  // - + 空格 → 默认模型 无思考
+  // + + 空格 → Opus 4.6 深度思考
+  let modelOverride:
+    | { model?: string; thinking?: 'adaptive' | 'disabled' }
+    | undefined;
   const lastMsg = missedMessages[missedMessages.length - 1];
-  if (lastMsg && /^[!！]{1,2}\s?/.test(lastMsg.content.trim()) && lastMsg.content.trim().length > 2) {
-    lastMsg.content = lastMsg.content.trim().replace(/^[!！]{1,2}\s*/, '');
-    perMessageModel = 'claude-sonnet-4-6';
-    logger.info({ chatJid, model: perMessageModel }, '快速模式触发');
+  if (lastMsg) {
+    const trimmed = lastMsg.content.trim();
+    if (/^[!！]{2}\s/.test(trimmed)) {
+      // !! → Sonnet + adaptive thinking
+      lastMsg.content = trimmed.replace(/^[!！]{2}\s*/, '');
+      modelOverride = { model: 'claude-sonnet-4-6', thinking: 'adaptive' };
+      logger.info({ chatJid, ...modelOverride }, '模式切换: Sonnet 深度思考');
+    } else if (/^[!！]\s/.test(trimmed)) {
+      // ! → Sonnet + no thinking
+      lastMsg.content = trimmed.replace(/^[!！]\s*/, '');
+      modelOverride = { model: 'claude-sonnet-4-6', thinking: 'disabled' };
+      logger.info({ chatJid, ...modelOverride }, '模式切换: Sonnet 快速');
+    } else if (/^\+\s/.test(trimmed)) {
+      // + → Opus 4.6 + adaptive thinking
+      lastMsg.content = trimmed.replace(/^\+\s*/, '');
+      modelOverride = { model: 'claude-opus-4-6', thinking: 'adaptive' };
+      logger.info({ chatJid, ...modelOverride }, '模式切换: Opus 深度思考');
+    } else if (/^~\s/.test(trimmed)) {
+      // ~ → default model + no thinking
+      lastMsg.content = trimmed.replace(/^~\s*/, '');
+      modelOverride = { thinking: 'disabled' };
+      logger.info({ chatJid, ...modelOverride }, '模式切换: 关闭思考');
+    }
   }
 
   const prompt = formatMessages(missedMessages, TIMEZONE);
@@ -453,7 +478,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     latestUserMessage,
     memorySenderId,
     undefined, // isRetry
-    perMessageModel,
+    modelOverride,
   );
 
   await channel.setTyping?.(chatJid, false);
@@ -530,7 +555,7 @@ async function runAgent(
   latestUserMessage?: string,
   memorySenderId?: string,
   isRetry?: boolean,
-  perMessageModel?: string,
+  modelOverride?: { model?: string; thinking?: 'adaptive' | 'disabled' },
 ): Promise<RunAgentResult> {
   const isMain = group.isMain === true;
   const sessionId = sessions[group.folder];
@@ -597,7 +622,7 @@ async function runAgent(
         chatJid,
         isMain,
         assistantName: ASSISTANT_NAME,
-        model: perMessageModel,
+        modelOverride,
       },
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),
@@ -657,7 +682,7 @@ async function runAgent(
             latestUserMessage,
             memorySenderId,
             true,
-            perMessageModel,
+            modelOverride,
           ).then((retryResult) => ({
             ...retryResult,
             rotatedTo: rotateResult.newSecretName,
@@ -705,6 +730,56 @@ async function startMessageLoop(): Promise<void> {
     });
   } catch (err) {
     logger.warn({ err }, '飞书 OAuth server 启动失败');
+  }
+
+  // Debug API — 方便测试模型切换等
+  try {
+    const { startDebugApi } = await import('./debug-api.js');
+    startDebugApi({
+      sendTestMessage: async (jid: string, text: string) => {
+        // 模拟消息存入 DB 并触发处理
+        const id = `debug-${Date.now()}`;
+        storeMessage({
+          id,
+          chat_jid: jid,
+          sender: 'debug',
+          sender_name: 'Debug',
+          content: text,
+          timestamp: new Date().toISOString(),
+          is_from_me: true,
+          is_bot_message: false,
+        });
+        queue.enqueueMessageCheck(jid);
+        return `message stored and enqueued: ${id}`;
+      },
+      getStatus: () => ({
+        pid: process.pid,
+        uptime: process.uptime(),
+        groups: Object.keys(registeredGroups),
+        activeAgents: Array.from(
+          (
+            queue as unknown as {
+              groups: Map<
+                string,
+                {
+                  active: boolean;
+                  groupFolder: string | null;
+                  containerName: string | null;
+                }
+              >;
+            }
+          ).groups.entries(),
+        )
+          .filter(([, s]) => s.active)
+          .map(([jid, s]) => ({
+            jid,
+            folder: s.groupFolder,
+            container: s.containerName,
+          })),
+      }),
+    });
+  } catch {
+    /* debug api 启动失败不影响主流程 */
   }
 
   logger.info(`NanoClaw running (default trigger: ${DEFAULT_TRIGGER})`);
@@ -783,9 +858,39 @@ async function startMessageLoop(): Promise<void> {
             },
             'Message loop: preparing to send/enqueue',
           );
+          // 检测 piped 消息的模型前缀
+          let pipeModelOverride:
+            | { model?: string; thinking?: 'adaptive' | 'disabled' }
+            | undefined;
+          const pipeLastMsg = messagesToSend[messagesToSend.length - 1];
+          if (pipeLastMsg) {
+            const t = pipeLastMsg.content.trim();
+            if (/^[!！]{2}\s/.test(t)) {
+              pipeLastMsg.content = t.replace(/^[!！]{2}\s*/, '');
+              pipeModelOverride = {
+                model: 'claude-sonnet-4-6',
+                thinking: 'adaptive',
+              };
+            } else if (/^[!！]\s/.test(t)) {
+              pipeLastMsg.content = t.replace(/^[!！]\s*/, '');
+              pipeModelOverride = {
+                model: 'claude-sonnet-4-6',
+                thinking: 'disabled',
+              };
+            } else if (/^\+\s/.test(t)) {
+              pipeLastMsg.content = t.replace(/^\+\s*/, '');
+              pipeModelOverride = {
+                model: 'claude-opus-4-6',
+                thinking: 'adaptive',
+              };
+            } else if (/^~\s/.test(t)) {
+              pipeLastMsg.content = t.replace(/^~\s*/, '');
+              pipeModelOverride = { thinking: 'disabled' };
+            }
+          }
           const formatted = formatMessages(messagesToSend, TIMEZONE);
 
-          if (queue.sendMessage(chatJid, formatted)) {
+          if (queue.sendMessage(chatJid, formatted, pipeModelOverride)) {
             logger.debug(
               { chatJid, count: messagesToSend.length },
               'Piped messages to active container',
@@ -987,7 +1092,10 @@ async function main(): Promise<void> {
           '/notrigger — 关闭 @触发模式（群聊中所有消息都响应）',
           '/cwd <path> — 设置 Claude Code 工作目录（下次对话生效）',
           '/cwd reset — 重置为默认工作目录',
-          '! <消息> — 单次使用快速模式（Sonnet），不影响下一条',
+          '! <消息> — Sonnet 快速（无思考）',
+          '!! <消息> — Sonnet 深度思考',
+          '~ <消息> — 关闭思考（默认模型）',
+          '+ <消息> — Opus 4.6 深度思考',
           '/remote-control — 启动 Claude Code 远程控制会话',
           '/remote-control-end — 结束远程控制会话',
         ].join('\n');

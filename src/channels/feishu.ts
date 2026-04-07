@@ -71,7 +71,7 @@ function buildCard(
   headerColor?: string,
 ): string {
   const card: Record<string, unknown> = {
-    elements: [{ tag: 'markdown', content: text }],
+    elements: [{ tag: 'markdown', content: text, text_size: 'heading' }],
   };
   // 只有明确传了标题才显示 header（进度卡片等），正式回复不带标题栏
   if (headerText) {
@@ -264,7 +264,7 @@ function appendUsageFooter(
   elements.push({ tag: 'hr' });
   elements.push({
     tag: 'markdown',
-    content: `<font color="grey">↑${inp}/${cacheRead}/${cacheCreate} ↓${out} 🔄${turns} ⏱${dur}s 💰≈$${cost} ${ctxBar}ctx${ctxPct}%/${maxK}</font>`,
+    content: `<font color="grey">↑${inp}/${cacheRead}/${cacheCreate} ↓${out} 🔄${turns} ⏱${dur}s 💰≈$${cost} ${ctxBar}ctx${ctxPct}%/${maxK} 🤖${usage.model ? usage.model.replace(/^claude-/, '') : 'unknown'}</font>`,
   });
 }
 
@@ -351,8 +351,8 @@ export class FeishuChannel implements Channel {
     startProgressServer();
 
     const dispatcher = new lark.EventDispatcher({}).register({
-      'im.message.receive_v1': (data) => {
-        this.handleMessage(data).catch((err) => {
+      'im.message.receive_v1': (data: any) => {
+        this.handleMessage(data).catch((err: any) => {
           logger.error({ err }, '飞书消息处理失败');
         });
       },
@@ -483,7 +483,7 @@ export class FeishuChannel implements Channel {
               ),
             },
           })
-          .catch((err) =>
+          .catch((err: any) =>
             logger.debug({ err, jid }, '进度步骤实时 patch 失败（非致命）'),
           );
         // 重置 spinner 定时器：从现在起重新计时，避免 spinner 和实时 patch 并发
@@ -621,7 +621,7 @@ export class FeishuChannel implements Channel {
     usage?: ContainerOutput['usage'],
   ): Promise<void> {
     if (usage || shouldUseCard(text)) {
-      const elements: unknown[] = [{ tag: 'markdown', content: text }];
+      const elements: unknown[] = [{ tag: 'markdown', content: text, text_size: 'heading' }];
       if (usage) appendUsageFooter(elements, usage);
       await this.client.im.message.create({
         data: {
@@ -697,7 +697,7 @@ export class FeishuChannel implements Channel {
         // 发送"处理中"进度卡片
         if (!this.progressCards.has(jid)) {
           const SPINNER_INTERVAL_MS = 1000; // 1s（patch 耗时约 300ms，递归 setTimeout 不会并发）
-          const SPINNER_MAX_DURATION_MS = 10 * 60 * 1000; // 10 分钟硬上限
+          const SPINNER_MAX_DURATION_MS = 30 * 60 * 1000; // 30 分钟硬上限
 
           const now = Date.now();
           this.spinnerStopped.delete(jid); // 新卡片启动，清除上次的停止标记

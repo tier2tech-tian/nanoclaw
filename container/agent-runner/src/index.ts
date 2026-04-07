@@ -33,7 +33,10 @@ interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   script?: string;
-  model?: string;
+  modelOverride?: {
+    model?: string;
+    thinking?: 'adaptive' | 'disabled';
+  };
   workspacePaths: {
     group: string;
     queryCwd?: string;
@@ -64,6 +67,7 @@ interface ContainerOutput {
     totalCostUsd: number;
     /** 各模型的实际 context window 大小（tokens），key 为模型名 */
     modelContextWindows?: Record<string, number>;
+    model?: string;
   };
 }
 
@@ -341,11 +345,15 @@ function shouldClose(): boolean {
   return false;
 }
 
+interface IpcMessage {
+  text: string;
+  modelOverride?: { model?: string; thinking?: 'adaptive' | 'disabled' };
+}
+
 /**
  * Drain all pending IPC input messages.
- * Returns messages found, or empty array.
  */
-function drainIpcInput(): string[] {
+function drainIpcInput(): IpcMessage[] {
   try {
     fs.mkdirSync(PATHS.ipcInput, { recursive: true });
     const files = fs
@@ -353,14 +361,14 @@ function drainIpcInput(): string[] {
       .filter((f) => f.endsWith('.json'))
       .sort();
 
-    const messages: string[] = [];
+    const messages: IpcMessage[] = [];
     for (const file of files) {
       const filePath = path.join(PATHS.ipcInput, file);
       try {
         const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
         fs.unlinkSync(filePath);
         if (data.type === 'message' && data.text) {
-          messages.push(data.text);
+          messages.push({ text: data.text, modelOverride: data.modelOverride });
         }
       } catch (err) {
         log(
@@ -382,9 +390,8 @@ function drainIpcInput(): string[] {
 
 /**
  * Wait for a new IPC message or _close sentinel.
- * Returns the messages as a single string, or null if _close.
  */
-function waitForIpcMessage(): Promise<string | null> {
+function waitForIpcMessage(): Promise<IpcMessage | null> {
   return new Promise((resolve) => {
     const poll = () => {
       if (shouldClose()) {
@@ -393,7 +400,12 @@ function waitForIpcMessage(): Promise<string | null> {
       }
       const messages = drainIpcInput();
       if (messages.length > 0) {
-        resolve(messages.join('\n'));
+        // 合并多条消息文本，modelOverride 取最后一条的
+        const combined: IpcMessage = {
+          text: messages.map(m => m.text).join('\n'),
+          modelOverride: messages[messages.length - 1].modelOverride,
+        };
+        resolve(combined);
         return;
       }
       setTimeout(poll, IPC_POLL_MS);
@@ -426,6 +438,9 @@ async function runQuery(
   // Poll IPC for follow-up messages and _close sentinel during the query
   let ipcPolling = true;
   let closedDuringQuery = false;
+  // q 引用在 query() 创建后赋值，pollIpc 中用于 setModel
+  let queryRef: Awaited<ReturnType<typeof query>> | null = null;
+
   const pollIpcDuringQuery = () => {
     if (!ipcPolling) return;
     if (shouldClose()) {
@@ -436,9 +451,27 @@ async function runQuery(
       return;
     }
     const messages = drainIpcInput();
-    for (const text of messages) {
-      log(`Piping IPC message into active query (${text.length} chars)`);
-      stream.push(text);
+    for (const msg of messages) {
+      log(`Piping IPC message into active query (${msg.text.length} chars)${msg.modelOverride ? ` modelOverride=${JSON.stringify(msg.modelOverride)}` : ''}`);
+      // 在 push 消息前切模型（stream.push 后 SDK 会立即开始处理）
+      if (queryRef) {
+        const targetModel = msg.modelOverride?.model || defaultModel;
+        queryRef.setModel(targetModel).then(() => {
+          log(`[model-override] piped setModel(${targetModel})${msg.modelOverride?.model ? ' (override)' : ' (default)'}`);
+        }).catch((err: unknown) => {
+          log(`[model-override] piped setModel FAILED: ${err instanceof Error ? err.message : String(err)}`);
+        });
+        if (msg.modelOverride?.thinking === 'disabled') {
+          (queryRef as any).applyFlagSettings({ thinking: { type: 'disabled' } } as Record<string, unknown>).then(() => {
+            log('[model-override] piped thinking disabled (applyFlagSettings)');
+          }).catch(() => {});
+        } else {
+          (queryRef as any).applyFlagSettings({ thinking: { type: 'adaptive' } } as Record<string, unknown>).then(() => {
+            log('[model-override] piped thinking adaptive (applyFlagSettings)');
+          }).catch(() => {});
+        }
+      }
+      stream.push(msg.text);
     }
     setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
   };
@@ -446,6 +479,7 @@ async function runQuery(
 
   let newSessionId: string | undefined;
   let lastAssistantUuid: string | undefined;
+  let lastAssistantModel: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
   let lastAssistantUsage: { inputTokens: number; outputTokens: number } | undefined;
@@ -474,16 +508,16 @@ async function runQuery(
   }
 
   const queryStartTime = Date.now();
-  log(`[query-start] sessionId=${sessionId || 'new'}, resumeAt=${resumeAt || 'latest'}`);
+  const override = containerInput.modelOverride;
+  log(`[query-start] sessionId=${sessionId || 'new'}, resumeAt=${resumeAt || 'latest'}, modelOverride=${override ? JSON.stringify(override) : 'none'}`);
 
-  for await (const message of query({
+  const q = query({
     prompt: stream,
     options: {
       cwd: PATHS.queryCwd || PATHS.group,
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
-      ...(containerInput.model ? { model: containerInput.model } : {}),
       systemPrompt: globalClaudeMd
         ? {
             type: 'preset' as const,
@@ -534,7 +568,43 @@ async function runQuery(
         ],
       },
     },
-  })) {
+  });
+  queryRef = q; // pollIpcDuringQuery 用于 setModel
+
+  // 应用模型/思考覆盖：有 override → 切换；无 override → 用 settings.json 默认模型显式恢复
+  // 读取 settings.json 中的默认模型（setModel(undefined) 可能不可靠）
+  let defaultModel = 'claude-opus-4-6';
+  try {
+    const settingsPath = path.join(PATHS.group, '..', '..', 'data', 'sessions', containerInput.groupFolder, '.claude', 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      if (settings.model) defaultModel = settings.model;
+    }
+  } catch { /* 使用硬编码默认值 */ }
+
+  const targetModel = override?.model || defaultModel;
+  try {
+    log(`[model-override] calling setModel(${targetModel})...`);
+    await q.setModel(targetModel);
+    log(`[model-override] setModel(${targetModel}) done${override?.model ? ' (override)' : ' (default)'}`);
+  } catch (err) {
+    log(`[model-override] setModel FAILED: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
+    if (override?.thinking === 'disabled') {
+      log('[model-override] applying thinking: disabled...');
+      await (q as any).applyFlagSettings({ thinking: { type: 'disabled' } } as Record<string, unknown>);
+      log('[model-override] thinking disabled');
+    } else {
+      log('[model-override] applying thinking: adaptive...');
+      await (q as any).applyFlagSettings({ thinking: { type: 'adaptive' } } as Record<string, unknown>);
+      log('[model-override] thinking adaptive');
+    }
+  } catch (err) {
+    log(`[model-override] applyFlagSettings FAILED: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  for await (const message of q) {
     messageCount++;
     const msgType =
       message.type === 'system'
@@ -562,7 +632,7 @@ async function runQuery(
     }
 
     // 限流事件
-    if (message.type === 'rate_limit') {
+    if (message.type === 'rate_limit_event') {
       const rl = message as Record<string, unknown>;
       log(`[rate_limit] ${JSON.stringify(rl).slice(0, 200)}`);
     }
@@ -571,10 +641,15 @@ async function runQuery(
       lastAssistantUuid = (message as { uuid: string }).uuid;
     }
 
-    // 记录最后一次 assistant 消息的 usage（用于 context window 占用率计算）
+    // 记录最后一次 assistant 消息的 model 和 usage
     if (message.type === 'assistant') {
       const raw = message as Record<string, unknown>;
       const innerMsg = raw.message as Record<string, unknown> | undefined;
+      // BetaMessage.model 是实际 API 调用使用的模型名
+      const assistantModel = innerMsg?.model as string | undefined;
+      if (assistantModel) {
+        lastAssistantModel = assistantModel;
+      }
       // 打印 assistant 消息顶层和 inner 的所有 key，定位 usage 字段位置
       // SDK assistant 消息的 usage 在 message.message.usage
       const rawMsgUsage = innerMsg?.usage as Record<string, number> | undefined;
@@ -763,13 +838,14 @@ async function runQuery(
             durationMs: (msg.duration_ms as number) ?? 0,
             totalCostUsd: (msg.total_cost_usd as number) ?? 0,
             modelContextWindows,
+            model: lastAssistantModel || (rawModelUsage ? Object.keys(rawModelUsage).pop() : undefined),
             // lastAssistantUsage.inputTokens 已经是完整 context（input + cache_creation + cache_read）
             lastTurnContext: lastAssistantUsage?.inputTokens,
           }
         : undefined;
 
       log(
-        `Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`,
+        `[result] #${resultCount} model=${lastAssistantModel || 'unknown'} input=${rawUsage?.input_tokens ?? '?'} output=${rawUsage?.output_tokens ?? '?'} turns=${(msg.num_turns as number) ?? '?'} cost=$${((msg.total_cost_usd as number) ?? 0).toFixed(3)}`,
       );
       writeOutput({
         status: 'success',
@@ -904,7 +980,7 @@ async function main(): Promise<void> {
   const pending = drainIpcInput();
   if (pending.length > 0) {
     log(`Draining ${pending.length} pending IPC messages into initial prompt`);
-    prompt += '\n' + pending.join('\n');
+    prompt += '\n' + pending.map(m => m.text).join('\n');
   }
 
   // Script phase: run script before waking agent
@@ -972,8 +1048,15 @@ async function main(): Promise<void> {
         break;
       }
 
-      log(`Got new message (${nextMessage.length} chars), starting new query`);
-      prompt = nextMessage;
+      log(`Got new message (${nextMessage.text.length} chars), starting new query`);
+      prompt = nextMessage.text;
+      // 应用 IPC 消息中的 modelOverride（下次 runQuery 会用）
+      if (nextMessage.modelOverride) {
+        containerInput.modelOverride = nextMessage.modelOverride;
+        log(`[ipc] modelOverride: ${JSON.stringify(nextMessage.modelOverride)}`);
+      } else {
+        containerInput.modelOverride = undefined;
+      }
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);

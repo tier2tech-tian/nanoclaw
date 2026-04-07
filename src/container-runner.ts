@@ -170,8 +170,11 @@ export interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   script?: string;
-  /** 单次模型覆盖（如 claude-sonnet-4-5），不持久化 */
-  model?: string;
+  /** 单次模型/思考模式覆盖，不持久化 */
+  modelOverride?: {
+    model?: string;
+    thinking?: 'adaptive' | 'disabled';
+  };
   /** 由 runContainerAgent 内部填充，调用方无需设置 */
   workspacePaths?: {
     group: string;
@@ -203,6 +206,7 @@ export interface ContainerOutput {
     totalCostUsd: number;
     /** 各模型的实际 context window 大小（tokens），key 为模型名 */
     modelContextWindows?: Record<string, number>;
+    model?: string;
     /** 最后一轮 API 调用的实际 context 大小（input + output tokens） */
     lastTurnContext?: number;
   };
@@ -667,7 +671,18 @@ export async function runContainerAgent(
       const chunk = data.toString();
       const lines = chunk.trim().split('\n');
       for (const line of lines) {
-        if (line) logger.debug({ agent: group.folder }, line);
+        if (line) {
+          // model-override 和 query-start 日志用 info 级别确保可见
+          if (
+            line.includes('[model-override]') ||
+            line.includes('[query-start]') ||
+            line.includes('[result]')
+          ) {
+            logger.info({ agent: group.folder }, line);
+          } else {
+            logger.debug({ agent: group.folder }, line);
+          }
+        }
       }
       if (stderrTruncated) return;
       const remaining = AGENT_MAX_OUTPUT_SIZE - stderr.length;
