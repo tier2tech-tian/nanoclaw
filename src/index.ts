@@ -349,6 +349,15 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (!hasTrigger) return true;
   }
 
+  // 快速模式前缀检测：最后一条消息以「!」/「！」开头 → Sonnet（单次生效）
+  let perMessageModel: string | undefined;
+  const lastMsg = missedMessages[missedMessages.length - 1];
+  if (lastMsg && /^[!！]{1,2}\s?/.test(lastMsg.content.trim()) && lastMsg.content.trim().length > 2) {
+    lastMsg.content = lastMsg.content.trim().replace(/^[!！]{1,2}\s*/, '');
+    perMessageModel = 'claude-sonnet-4-6';
+    logger.info({ chatJid, model: perMessageModel }, '快速模式触发');
+  }
+
   const prompt = formatMessages(missedMessages, TIMEZONE);
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
@@ -443,6 +452,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     },
     latestUserMessage,
     memorySenderId,
+    undefined, // isRetry
+    perMessageModel,
   );
 
   await channel.setTyping?.(chatJid, false);
@@ -519,6 +530,7 @@ async function runAgent(
   latestUserMessage?: string,
   memorySenderId?: string,
   isRetry?: boolean,
+  perMessageModel?: string,
 ): Promise<RunAgentResult> {
   const isMain = group.isMain === true;
   const sessionId = sessions[group.folder];
@@ -575,20 +587,11 @@ async function runAgent(
       }
     : undefined;
 
-  // 快速模式前缀检测：「!」开头 → 用 Sonnet（单次生效，不持久化）
-  let effectivePrompt = prompt;
-  let perMessageModel: string | undefined;
-  if (/^[!！]{1,2}\s?/.test(prompt) && prompt.length > 2) {
-    effectivePrompt = prompt.replace(/^[!！]{1,2}\s*/, '');
-    perMessageModel = 'claude-sonnet-4-6';
-    logger.info({ chatJid, model: perMessageModel }, '快速模式触发');
-  }
-
   try {
     const output = await runContainerAgent(
       group,
       {
-        prompt: effectivePrompt,
+        prompt,
         sessionId,
         groupFolder: group.folder,
         chatJid,
@@ -654,6 +657,7 @@ async function runAgent(
             latestUserMessage,
             memorySenderId,
             true,
+            perMessageModel,
           ).then((retryResult) => ({
             ...retryResult,
             rotatedTo: rotateResult.newSecretName,
