@@ -170,11 +170,9 @@ function buildProgressCard(
   startTime?: number,
   sessionId?: string,
 ): string {
-  // 短语轮换（每轮 THINKING_PHRASES.length 帧切换一次）
-  const phrase =
-    THINKING_PHRASES[
-      Math.floor(frame / THINKING_PHRASES.length) % THINKING_PHRASES.length
-    ];
+  // 短语轮换：按时间（每 5 秒切换一次），不按 frame，避免 tool_call 密集时切换过快
+  const elapsedSec = startTime ? Math.floor((Date.now() - startTime) / 5000) : frame;
+  const phrase = THINKING_PHRASES[elapsedSec % THINKING_PHRASES.length];
   const timeStr = startTime ? ` ${formatElapsed(startTime)}` : '';
   const titleText = `**✨ ${phrase}...${timeStr}**`;
   const progressUrl = sessionId ? getProgressUrl(sessionId) : undefined;
@@ -621,7 +619,9 @@ export class FeishuChannel implements Channel {
     usage?: ContainerOutput['usage'],
   ): Promise<void> {
     if (usage || shouldUseCard(text)) {
-      const elements: unknown[] = [{ tag: 'markdown', content: text, text_size: 'heading' }];
+      const elements: unknown[] = [
+        { tag: 'markdown', content: text, text_size: 'heading' },
+      ];
       if (usage) appendUsageFooter(elements, usage);
       await this.client.im.message.create({
         data: {
@@ -697,7 +697,7 @@ export class FeishuChannel implements Channel {
         // 发送"处理中"进度卡片
         if (!this.progressCards.has(jid)) {
           const SPINNER_INTERVAL_MS = 1000; // 1s（patch 耗时约 300ms，递归 setTimeout 不会并发）
-          const SPINNER_MAX_DURATION_MS = 30 * 60 * 1000; // 30 分钟硬上限
+          const SPINNER_MAX_DURATION_MS = 60 * 60 * 1000; // 60 分钟硬上限
 
           const now = Date.now();
           this.spinnerStopped.delete(jid); // 新卡片启动，清除上次的停止标记
