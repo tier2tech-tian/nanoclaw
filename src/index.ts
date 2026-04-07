@@ -580,7 +580,7 @@ async function runAgent(
   let perMessageModel: string | undefined;
   if (/^!{1,2}\s/.test(prompt)) {
     effectivePrompt = prompt.replace(/^!{1,2}\s*/, '');
-    perMessageModel = 'claude-sonnet-4-5';
+    perMessageModel = 'claude-sonnet-4-6';
     logger.info({ chatJid, model: perMessageModel }, '快速模式触发');
   }
 
