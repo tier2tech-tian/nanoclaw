@@ -1,11 +1,18 @@
 /**
  * 进度查看 HTTP 服务
  * 为飞书进度卡片的"查看详情"按钮提供局域网可访问的页面
+ *
+ * 持久化：所有 session 的步骤都写入 SQLite (store/progress.db)，
+ * 进程重启后链接仍可访问。
  */
 import http from 'http';
 import os from 'os';
+import path from 'path';
+import fs from 'fs';
+import Database from 'better-sqlite3';
 
 import { logger } from './logger.js';
+import { STORE_DIR } from './config.js';
 
 export const PROGRESS_SERVER_PORT = parseInt(
   process.env.PROGRESS_SERVER_PORT || '3457',
@@ -23,6 +30,52 @@ interface ProgressSession {
   completed: boolean;
 }
 
+// ---- SQLite 持久化 ----
+
+let db: Database.Database;
+
+function initProgressDb(): void {
+  const dbPath = path.join(STORE_DIR, 'progress.db');
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  db = new Database(dbPath);
+  db.pragma('journal_mode = WAL');
+  db.exec(`CREATE TABLE IF NOT EXISTS progress_sessions (
+    id TEXT PRIMARY KEY,
+    steps TEXT NOT NULL DEFAULT '[]',
+    start_time INTEGER NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+}
+
+function dbGet(sessionId: string): ProgressSession | null {
+  if (!db) initProgressDb();
+  const row = db.prepare('SELECT steps, start_time, completed FROM progress_sessions WHERE id = ?').get(sessionId) as
+    | { steps: string; start_time: number; completed: number }
+    | undefined;
+  if (!row) return null;
+  return {
+    steps: JSON.parse(row.steps),
+    startTime: row.start_time,
+    completed: row.completed === 1,
+  };
+}
+
+function dbUpsert(sessionId: string, session: ProgressSession): void {
+  if (!db) initProgressDb();
+  db.prepare(
+    `INSERT INTO progress_sessions (id, steps, start_time, completed, updated_at)
+     VALUES (?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(id) DO UPDATE SET steps=excluded.steps, completed=excluded.completed, updated_at=datetime('now')`,
+  ).run(sessionId, JSON.stringify(session.steps), session.startTime, session.completed ? 1 : 0);
+}
+
+function dbDelete(sessionId: string): void {
+  if (!db) initProgressDb();
+  db.prepare('DELETE FROM progress_sessions WHERE id = ?').run(sessionId);
+}
+
+// 内存缓存用于热路径（频繁 patch 时不必每次读 DB）
 const sessions = new Map<string, ProgressSession>();
 let server: http.Server | null = null;
 let _lanIp = '127.0.0.1';
@@ -54,18 +107,28 @@ export function upsertSession(
   } else {
     sessions.set(sessionId, { steps: [...steps], startTime, completed: false });
   }
+  // 持久化到 SQLite
+  dbUpsert(sessionId, sessions.get(sessionId)!);
 }
 
 export function completeSession(sessionId: string): void {
   const s = sessions.get(sessionId);
   if (s) {
     s.completed = true;
-    // 完成后永久保留（服务重启后失效，内存不持久化）
+    dbUpsert(sessionId, s);
+  } else {
+    // 内存没有但 DB 可能有（进程重启后）
+    const fromDb = dbGet(sessionId);
+    if (fromDb) {
+      fromDb.completed = true;
+      dbUpsert(sessionId, fromDb);
+    }
   }
 }
 
 export function deleteSession(sessionId: string): void {
   sessions.delete(sessionId);
+  dbDelete(sessionId);
 }
 
 // ---- HTML 渲染 ----
@@ -181,6 +244,7 @@ if(!initDone){
 
 export function startProgressServer(): void {
   if (server) return;
+  initProgressDb();
   _lanIp = getLanIp();
 
   server = http.createServer((req, res) => {
@@ -193,7 +257,7 @@ export function startProgressServer(): void {
       res.end('Not found');
       return;
     }
-    const session = sessions.get(match[1]);
+    const session = sessions.get(match[1]) || dbGet(match[1]);
     if (!session) {
       if (isJson) {
         res.writeHead(404, { 'Content-Type': 'application/json' });

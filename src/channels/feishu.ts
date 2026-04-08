@@ -320,6 +320,7 @@ export class FeishuChannel implements Channel {
       messageId: string;
       sessionId: string;
       steps: ProgressStep[];
+      allSteps: ProgressStep[]; // 完整历史（给网页用，不 shift）
       frame: number;
       startTime: number;
       usage?: ContainerOutput['usage'];
@@ -466,9 +467,10 @@ export class FeishuChannel implements Channel {
         }
 
         existing.steps.push({ title, detail });
+        existing.allSteps.push({ title, detail });
         if (existing.steps.length > 12) existing.steps.shift();
         // 同步到进度查看页面（无上限，页面能看到完整历史）
-        upsertSession(existing.sessionId, existing.steps, existing.startTime);
+        upsertSession(existing.sessionId, existing.allSteps, existing.startTime);
         // 新步骤到来：立即 patch 卡片实现实时推送，同时重置 spinner 定时器避免并发
         existing.frame++;
         this.client.im.message
@@ -720,6 +722,7 @@ export class FeishuChannel implements Channel {
               messageId: msgId,
               sessionId,
               steps: initialSteps,
+              allSteps: [...initialSteps],
               frame: 0,
               startTime: now,
             });
