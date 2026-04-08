@@ -50,24 +50,42 @@ function initProgressDb(): void {
 
 function dbGet(sessionId: string): ProgressSession | null {
   if (!db) initProgressDb();
-  const row = db.prepare('SELECT steps, start_time, completed FROM progress_sessions WHERE id = ?').get(sessionId) as
+  const row = db
+    .prepare(
+      'SELECT steps, start_time, completed FROM progress_sessions WHERE id = ?',
+    )
+    .get(sessionId) as
     | { steps: string; start_time: number; completed: number }
     | undefined;
   if (!row) return null;
-  return {
-    steps: JSON.parse(row.steps),
-    startTime: row.start_time,
-    completed: row.completed === 1,
-  };
+  try {
+    return {
+      steps: JSON.parse(row.steps),
+      startTime: row.start_time,
+      completed: row.completed === 1,
+    };
+  } catch (err) {
+    logger.warn({ err, sessionId }, 'progress DB: steps JSON 解析失败');
+    return null;
+  }
 }
 
 function dbUpsert(sessionId: string, session: ProgressSession): void {
   if (!db) initProgressDb();
-  db.prepare(
-    `INSERT INTO progress_sessions (id, steps, start_time, completed, updated_at)
-     VALUES (?, ?, ?, ?, datetime('now'))
-     ON CONFLICT(id) DO UPDATE SET steps=excluded.steps, completed=excluded.completed, updated_at=datetime('now')`,
-  ).run(sessionId, JSON.stringify(session.steps), session.startTime, session.completed ? 1 : 0);
+  try {
+    db.prepare(
+      `INSERT INTO progress_sessions (id, steps, start_time, completed, updated_at)
+       VALUES (?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET steps=excluded.steps, completed=excluded.completed, updated_at=datetime('now')`,
+    ).run(
+      sessionId,
+      JSON.stringify(session.steps),
+      session.startTime,
+      session.completed ? 1 : 0,
+    );
+  } catch (err) {
+    logger.warn({ err, sessionId }, 'progress DB: 写入失败');
+  }
 }
 
 function dbDelete(sessionId: string): void {
@@ -121,6 +139,7 @@ export function completeSession(sessionId: string): void {
     const fromDb = dbGet(sessionId);
     if (fromDb) {
       fromDb.completed = true;
+      sessions.set(sessionId, fromDb);
       dbUpsert(sessionId, fromDb);
     }
   }

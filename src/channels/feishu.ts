@@ -469,8 +469,13 @@ export class FeishuChannel implements Channel {
         existing.steps.push({ title, detail });
         existing.allSteps.push({ title, detail });
         if (existing.steps.length > 12) existing.steps.shift();
+        if (existing.allSteps.length > 500) existing.allSteps.shift();
         // 同步到进度查看页面（无上限，页面能看到完整历史）
-        upsertSession(existing.sessionId, existing.allSteps, existing.startTime);
+        upsertSession(
+          existing.sessionId,
+          existing.allSteps,
+          existing.startTime,
+        );
         // 新步骤到来：立即 patch 卡片实现实时推送，同时重置 spinner 定时器避免并发
         existing.frame++;
         this.client.im.message
