@@ -117,9 +117,9 @@ export function loadProfile(
   const db = getMemoryDb();
   const row = db
     .prepare(
-      'SELECT profile_json FROM memory_profiles WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1',
+      'SELECT profile_json FROM memory_profiles WHERE group_folder = ? AND user_id = ? ORDER BY updated_at DESC LIMIT 1',
     )
-    .get(userId) as { profile_json: string } | undefined;
+    .get(groupFolder, userId) as { profile_json: string } | undefined;
   if (!row) return null;
   try {
     return JSON.parse(row.profile_json);
@@ -157,10 +157,10 @@ export function loadFacts(
   const rows = db
     .prepare(
       `SELECT id, group_folder, content, category, confidence, source, embedding, created_at
-       FROM memory_facts WHERE user_id = ?
+       FROM memory_facts WHERE group_folder = ? AND user_id = ?
        ORDER BY confidence DESC`,
     )
-    .all(userId) as Array<{
+    .all(groupFolder, userId) as Array<{
     id: string;
     group_folder: string;
     content: string;
@@ -281,6 +281,111 @@ export async function storeFacts(
     logger.info({ groupFolder, count: storedCount }, 'Facts 已存储');
   }
   return storedCount;
+}
+
+/**
+ * 快速存储一条 fact，不调用 embedding API。
+ * 用于 memory_remember 的阶段 1（先保证数据不丢失）。
+ */
+export function storeFactRaw(
+  groupFolder: string,
+  fact: {
+    id: string;
+    content: string;
+    category: string;
+    confidence: number;
+    source: string;
+  },
+  userId: string = '',
+): void {
+  const db = getMemoryDb();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT OR IGNORE INTO memory_facts (id, group_folder, user_id, content, category, confidence, source, embedding, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+  ).run(
+    fact.id,
+    groupFolder,
+    userId,
+    fact.content.trim(),
+    fact.category,
+    fact.confidence,
+    fact.source,
+    now,
+  );
+
+  // 同步 FTS5
+  if (isFtsAvailable()) {
+    try {
+      getMemoryDb()
+        .prepare('INSERT INTO memory_facts_fts (content, fact_id) VALUES (?, ?)')
+        .run(fact.content.trim(), fact.id);
+    } catch {
+      // 忽略重复
+    }
+  }
+}
+
+/**
+ * 更新已有 fact 的内容/类别/置信度/embedding。
+ * 用于 memory_remember 阶段 2（LLM 标准化后回写）。
+ */
+export function updateFact(
+  factId: string,
+  updates: {
+    content?: string;
+    category?: string;
+    confidence?: number;
+    embedding?: number[] | null;
+  },
+): boolean {
+  const db = getMemoryDb();
+
+  const old = db
+    .prepare('SELECT content FROM memory_facts WHERE id = ?')
+    .get(factId) as { content: string } | undefined;
+  if (!old) return false;
+
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  if (updates.content !== undefined) {
+    sets.push('content = ?');
+    params.push(updates.content.trim());
+  }
+  if (updates.category !== undefined) {
+    sets.push('category = ?');
+    params.push(updates.category);
+  }
+  if (updates.confidence !== undefined) {
+    sets.push('confidence = ?');
+    params.push(updates.confidence);
+  }
+  if (updates.embedding !== undefined) {
+    sets.push('embedding = ?');
+    params.push(
+      updates.embedding ? embeddingToBuffer(updates.embedding) : null,
+    );
+  }
+  if (sets.length === 0) return false;
+
+  params.push(factId);
+  db.prepare(`UPDATE memory_facts SET ${sets.join(', ')} WHERE id = ?`).run(
+    ...params,
+  );
+
+  // FTS 更新：先删后插
+  if (updates.content !== undefined && isFtsAvailable()) {
+    try {
+      db.prepare('DELETE FROM memory_facts_fts WHERE fact_id = ?').run(factId);
+      db.prepare(
+        'INSERT INTO memory_facts_fts (content, fact_id) VALUES (?, ?)',
+      ).run(updates.content.trim(), factId);
+    } catch {
+      // FTS 更新失败不阻塞
+    }
+  }
+
+  return true;
 }
 
 export function removeFacts(factIds: string[]): number {

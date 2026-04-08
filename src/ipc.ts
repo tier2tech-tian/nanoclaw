@@ -3,11 +3,17 @@ import path from 'path';
 
 import { CronExpressionParser } from 'cron-parser';
 
+import crypto from 'crypto';
+
 import { DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from './config.js';
 import { AvailableGroup } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
+import { MemoryStore } from './memory/memory-store.js';
+import { extractAndRefine } from './memory/extract-fact.js';
+import { loadFacts, storeFactRaw } from './memory/storage.js';
+import { isMemoryEnabled } from './memory/index.js';
 import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
@@ -24,6 +30,23 @@ export interface IpcDeps {
   ) => void;
   onTasksChanged: () => void;
   onFeishuAuthRequest?: (chatJid: string, groupFolder: string) => Promise<void>;
+}
+
+/**
+ * 写入 IPC response 文件（原子写入：.tmp + rename）。
+ * 用于 memory_recall 等 request-response 模式。
+ */
+export function writeIpcResponse(
+  groupFolder: string,
+  requestId: string,
+  data: object,
+): void {
+  const responsesDir = path.join(DATA_DIR, 'ipc', groupFolder, 'responses');
+  fs.mkdirSync(responsesDir, { recursive: true });
+  const filepath = path.join(responsesDir, `${requestId}.json`);
+  const tempPath = `${filepath}.tmp`;
+  fs.writeFileSync(tempPath, JSON.stringify(data, null, 2));
+  fs.renameSync(tempPath, filepath);
 }
 
 let ipcWatcherRunning = false;
@@ -172,6 +195,31 @@ export function startIpcWatcher(deps: IpcDeps): void {
       } catch (err) {
         logger.error({ err, sourceGroup }, 'Error reading IPC tasks directory');
       }
+
+      // 清理孤儿 response 文件（超过 60s 未被读取）
+      try {
+        const responsesDir = path.join(ipcBaseDir, sourceGroup, 'responses');
+        if (fs.existsSync(responsesDir)) {
+          const now = Date.now();
+          for (const file of fs.readdirSync(responsesDir)) {
+            const filePath = path.join(responsesDir, file);
+            try {
+              const stat = fs.statSync(filePath);
+              if (now - stat.mtimeMs > 60_000) {
+                fs.unlinkSync(filePath);
+                logger.debug(
+                  { file, sourceGroup },
+                  'Cleaned stale IPC response',
+                );
+              }
+            } catch {
+              // 文件可能已被 agent 读走
+            }
+          }
+        }
+      } catch {
+        // responses 目录不存在或读取失败，忽略
+      }
     }
 
     setTimeout(processIpcFiles, IPC_POLL_INTERVAL);
@@ -200,6 +248,12 @@ export async function processTaskIpc(
     trigger?: string;
     requiresTrigger?: boolean;
     containerConfig?: RegisteredGroup['containerConfig'];
+    // For memory operations
+    requestId?: string;
+    query?: string;
+    limit?: number;
+    category?: string;
+    content?: string;
   },
   sourceGroup: string, // Verified identity from IPC directory
   isMain: boolean, // Verified from directory path
@@ -488,6 +542,111 @@ export async function processTaskIpc(
         );
       }
       break;
+
+    case 'memory_recall': {
+      if (!isMemoryEnabled()) {
+        if (data.requestId) {
+          writeIpcResponse(sourceGroup, data.requestId as string, {
+            facts: [],
+            error: 'Memory system is disabled',
+          });
+        }
+        break;
+      }
+
+      const requestId = data.requestId as string;
+      if (!requestId) {
+        logger.warn({ sourceGroup }, 'memory_recall missing requestId');
+        break;
+      }
+
+      try {
+        const query = (data.query as string) || '';
+        const limit = (data.limit as number) || 10;
+        const category = data.category as string | undefined;
+
+        let facts;
+        if (query) {
+          const store = new MemoryStore(sourceGroup);
+          const results = await store.recall(query, limit);
+          facts = results.map((r) => ({
+            id: r.id,
+            content: r.content,
+            category: r.metadata?.category,
+            score: r.score,
+            createdAt: r.createdAt,
+          }));
+        } else {
+          const allFacts = loadFacts(sourceGroup);
+          facts = allFacts.map((f) => ({
+            id: f.id,
+            content: f.content,
+            category: f.category,
+            confidence: f.confidence,
+            createdAt: f.createdAt,
+          }));
+        }
+
+        if (category) {
+          facts = facts.filter(
+            (f) => String(f.category || '') === category,
+          );
+        }
+
+        writeIpcResponse(sourceGroup, requestId, { facts });
+        logger.info(
+          { sourceGroup, query: query.slice(0, 50), count: facts.length },
+          'Memory recall via IPC',
+        );
+      } catch (err) {
+        logger.error({ err, sourceGroup }, 'Memory recall failed');
+        writeIpcResponse(sourceGroup, requestId, {
+          facts: [],
+          error: String(err),
+        });
+      }
+      break;
+    }
+
+    case 'memory_remember': {
+      if (!isMemoryEnabled()) {
+        logger.debug({ sourceGroup }, 'memory_remember skipped: memory disabled');
+        break;
+      }
+
+      const content = data.content as string;
+      if (!content) {
+        logger.warn({ sourceGroup }, 'memory_remember missing content');
+        break;
+      }
+
+      try {
+        // 阶段 1：立即存原文（不调 embedding API）
+        const factId = crypto.randomUUID();
+        storeFactRaw(sourceGroup, {
+          id: factId,
+          content,
+          category: (data.category as string) || 'context',
+          confidence: 0.5,
+          source: 'agent',
+        });
+        logger.info(
+          { sourceGroup, factId },
+          'Memory stored (raw) via IPC',
+        );
+
+        // 阶段 2：后台异步 LLM 标准化 + embedding
+        extractAndRefine(factId, content, sourceGroup).catch((err) => {
+          logger.warn(
+            { err, factId },
+            'Async fact refinement failed, raw content preserved',
+          );
+        });
+      } catch (err) {
+        logger.error({ err, sourceGroup }, 'Memory remember failed');
+      }
+      break;
+    }
 
     default:
       logger.warn({ type: data.type }, 'Unknown IPC task type');

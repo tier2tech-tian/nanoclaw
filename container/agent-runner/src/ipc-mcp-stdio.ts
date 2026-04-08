@@ -7,6 +7,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { CronExpressionParser } from 'cron-parser';
@@ -500,6 +501,111 @@ Use available_groups.json to find the JID for a group. The folder name must be c
         },
       ],
     };
+  },
+);
+
+// ─────────────────────────────────────────────────────────────
+// Memory tools — request-response via IPC
+// ─────────────────────────────────────────────────────────────
+
+const RESPONSES_DIR = path.join(IPC_DIR, 'responses');
+
+async function waitForResponse(
+  requestId: string,
+  timeoutMs = 30000,
+): Promise<object> {
+  const responsePath = path.join(RESPONSES_DIR, `${requestId}.json`);
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (fs.existsSync(responsePath)) {
+      const data = JSON.parse(fs.readFileSync(responsePath, 'utf-8'));
+      try {
+        fs.unlinkSync(responsePath);
+      } catch {
+        // 文件可能已被清理
+      }
+      return data;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Memory request ${requestId} timed out after ${timeoutMs}ms`);
+}
+
+server.tool(
+  'memory_recall',
+  '搜索记忆库。返回与查询相关的记忆条目。query 为空时返回全部记忆。如果 CLAUDE.md 中注入的记忆不够用，用这个工具搜索更多。',
+  {
+    query: z
+      .string()
+      .optional()
+      .default('')
+      .describe('搜索查询（自然语言），为空返回全部'),
+    limit: z
+      .number()
+      .optional()
+      .default(10)
+      .describe('最多返回条数'),
+    category: z
+      .string()
+      .optional()
+      .describe(
+        '按类别过滤: preference | knowledge | context | behavior | goal',
+      ),
+  },
+  async (args) => {
+    const requestId = crypto.randomUUID();
+    writeIpcFile(TASKS_DIR, {
+      type: 'memory_recall',
+      requestId,
+      query: args.query,
+      limit: args.limit,
+      category: args.category,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    });
+
+    try {
+      const response = await waitForResponse(requestId);
+      return {
+        content: [
+          { type: 'text' as const, text: JSON.stringify(response, null, 2) },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `记忆查询失败: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  },
+);
+
+server.tool(
+  'memory_remember',
+  '存储一条记忆。内容先立即存储，后台异步经 LLM 标准化优化。用于用户明确要求记住的内容，或你观察到的重要偏好/事实。',
+  {
+    content: z.string().describe('要记住的内容（自然语言）'),
+    category: z
+      .string()
+      .optional()
+      .describe(
+        '建议类别: preference | knowledge | context | behavior | goal',
+      ),
+  },
+  async (args) => {
+    writeIpcFile(TASKS_DIR, {
+      type: 'memory_remember',
+      content: args.content,
+      category: args.category,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    });
+    return { content: [{ type: 'text' as const, text: '已记住。' }] };
   },
 );
 

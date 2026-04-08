@@ -425,6 +425,13 @@ async function buildLocalEnv(
     // Claude SDK
     CLAUDE_CONFIG_DIR: groupSessionsDir,
 
+    // 所有群共享同一个 auto-memory（MEMORY.md），覆盖 SDK 默认的 per-cwd 隔离
+    CLAUDE_COWORK_MEMORY_PATH_OVERRIDE: path.join(
+      GROUPS_DIR,
+      'global',
+      'memory',
+    ),
+
     // 飞书
     FEISHU_TENANT_TOKEN: await getFeishuToken(input.chatJid),
 

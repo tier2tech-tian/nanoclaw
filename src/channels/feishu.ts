@@ -171,7 +171,9 @@ function buildProgressCard(
   sessionId?: string,
 ): string {
   // 短语轮换：按时间（每 5 秒切换一次），不按 frame，避免 tool_call 密集时切换过快
-  const elapsedSec = startTime ? Math.floor((Date.now() - startTime) / 5000) : frame;
+  const elapsedSec = startTime
+    ? Math.floor((Date.now() - startTime) / 5000)
+    : frame;
   const phrase = THINKING_PHRASES[elapsedSec % THINKING_PHRASES.length];
   const timeStr = startTime ? ` ${formatElapsed(startTime)}` : '';
   const titleText = `**✨ ${phrase}...${timeStr}**`;
