@@ -1256,6 +1256,68 @@ export class FeishuChannel implements Channel {
     });
   }
 
+  /** 获取被回复消息的内容和发送者名称 */
+  private async fetchReplyContext(
+    parentId: string,
+  ): Promise<{ content: string; senderName: string } | null> {
+    const token = await this.getTenantAccessToken();
+    if (!token) return null;
+
+    try {
+      const resp = await fetch(
+        `https://open.feishu.cn/open-apis/im/v1/messages/${parentId}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const data = (await resp.json()) as {
+        code?: number;
+        data?: {
+          items?: Array<{
+            msg_type?: string;
+            sender?: { id: string; sender_type: string };
+            body?: { content: string };
+          }>;
+        };
+      };
+      if (data.code !== 0 || !data.data?.items?.length) return null;
+
+      const item = data.data.items[0];
+      const msgType = item.msg_type ?? '';
+      const rawContent = item.body?.content ?? '{}';
+      const senderOpenId = item.sender?.id ?? '未知';
+
+      // 提取文本内容
+      let content = '';
+      try {
+        const parsed = JSON.parse(rawContent);
+        if (msgType === 'text') {
+          content = parsed.text ?? '';
+        } else if (msgType === 'post') {
+          // 富文本：提取纯文本部分
+          const postResult = this.extractPostContent(parsed);
+          content = postResult.text;
+        } else if (msgType === 'image') {
+          content = '[图片]';
+        } else if (msgType === 'merge_forward') {
+          content = '[合并转发消息]';
+        } else {
+          content = `[${msgType}]`;
+        }
+      } catch {
+        content = '[无法解析]';
+      }
+
+      // 截断过长的引用内容
+      if (content.length > 200) {
+        content = content.slice(0, 200) + '...';
+      }
+
+      return { content, senderName: senderOpenId };
+    } catch (err) {
+      logger.warn({ err, parentId }, '获取被回复消息失败');
+      return null;
+    }
+  }
+
   private async handleMessage(data: {
     sender: {
       sender_id?: { union_id?: string; user_id?: string; open_id?: string };
@@ -1391,6 +1453,17 @@ export class FeishuChannel implements Channel {
       message.mentions?.find((m) => m.id.open_id === senderId)?.name ??
       senderId;
 
+    // 获取被回复消息的内容和发送者
+    let replyContent: string | undefined;
+    let replySenderName: string | undefined;
+    if (message.parent_id) {
+      const replyCtx = await this.fetchReplyContext(message.parent_id);
+      if (replyCtx) {
+        replyContent = replyCtx.content;
+        replySenderName = replyCtx.senderName;
+      }
+    }
+
     const newMsg: NewMessage = {
       id: message.message_id,
       chat_jid: jid,
@@ -1399,6 +1472,8 @@ export class FeishuChannel implements Channel {
       content: text,
       timestamp: new Date().toISOString(),
       reply_to_message_id: message.parent_id,
+      reply_to_message_content: replyContent,
+      reply_to_sender_name: replySenderName,
       thread_id: message.root_id,
     };
 

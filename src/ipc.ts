@@ -588,9 +588,7 @@ export async function processTaskIpc(
         }
 
         if (category) {
-          facts = facts.filter(
-            (f) => String(f.category || '') === category,
-          );
+          facts = facts.filter((f) => String(f.category || '') === category);
         }
 
         writeIpcResponse(sourceGroup, requestId, { facts });
@@ -610,7 +608,10 @@ export async function processTaskIpc(
 
     case 'memory_remember': {
       if (!isMemoryEnabled()) {
-        logger.debug({ sourceGroup }, 'memory_remember skipped: memory disabled');
+        logger.debug(
+          { sourceGroup },
+          'memory_remember skipped: memory disabled',
+        );
         break;
       }
 
@@ -630,10 +631,7 @@ export async function processTaskIpc(
           confidence: 0.5,
           source: 'agent',
         });
-        logger.info(
-          { sourceGroup, factId },
-          'Memory stored (raw) via IPC',
-        );
+        logger.info({ sourceGroup, factId }, 'Memory stored (raw) via IPC');
 
         // 阶段 2：后台异步 LLM 标准化 + embedding
         extractAndRefine(factId, content, sourceGroup).catch((err) => {

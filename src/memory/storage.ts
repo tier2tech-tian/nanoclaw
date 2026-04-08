@@ -318,7 +318,9 @@ export function storeFactRaw(
   if (isFtsAvailable()) {
     try {
       getMemoryDb()
-        .prepare('INSERT INTO memory_facts_fts (content, fact_id) VALUES (?, ?)')
+        .prepare(
+          'INSERT INTO memory_facts_fts (content, fact_id) VALUES (?, ?)',
+        )
         .run(fact.content.trim(), fact.id);
     } catch {
       // 忽略重复
