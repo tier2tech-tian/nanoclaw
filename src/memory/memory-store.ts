@@ -2,7 +2,7 @@
  * 统一记忆存储接口 — 从 Nine store.py 翻译
  *
  * 封装向量 + 关键词双路检索。
- * NanoClaw 适配：per-group 隔离，SQLite 暴力 cosine（无 Qdrant）。
+ * 跨群共享：recall 只按 user_id 查，store 仍保留 groupFolder 溯源。
  */
 import { getEmbedding, cosineSimilarity } from './embeddings.js';
 import { keywordSearch } from './keyword-store.js';
@@ -14,7 +14,7 @@ export class MemoryStore {
   private groupFolder: string;
   private userId: string;
 
-  constructor(groupFolder: string, userId: string = '') {
+  constructor(userId: string = '', groupFolder: string = '') {
     this.groupFolder = groupFolder;
     this.userId = userId;
   }
@@ -29,7 +29,7 @@ export class MemoryStore {
 
     if (queryEmbedding) {
       try {
-        const facts = loadFacts(this.groupFolder, this.userId);
+        const facts = loadFacts();
         const scored: Array<{ fact: (typeof facts)[0]; score: number }> = [];
 
         for (const fact of facts) {
@@ -63,9 +63,7 @@ export class MemoryStore {
     try {
       const kwResults = keywordSearch(
         query,
-        this.groupFolder,
         topK * 2,
-        this.userId,
       );
       keywordResults = kwResults.map((r) => ({
         id: r.id,

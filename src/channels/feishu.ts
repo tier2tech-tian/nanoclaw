@@ -25,8 +25,8 @@ const JID_PREFIX = 'fs:';
 const TYPING_EMOJI = 'OnIt'; // 飞书内置 emoji key
 const CARD_THRESHOLD = 500;
 const MD_PATTERN = /```|\*\*|^##?\s|^\|.*\||\*[^*\s]|^[-*+]\s|^>\s/m;
-const PROGRESS_EMOJI_PATTERN = /^[🔧📖✏️🔍🌐📋⚙️⏳💭✅📊]/;
-const PROGRESS_JSON_PATTERN = /^\{"title":"[🔧📖✏️🔍🌐📋⚙️⏳💭✅📊]/;
+const PROGRESS_EMOJI_PATTERN = /^[🔧📖✏️🔍🌐📋⚙️⏳💭✅]/u;
+const PROGRESS_JSON_PATTERN = /^\{"title":"[🔧📖✏️🔍🌐📋⚙️⏳💭✅]/u;
 const THINKING_PHRASES = ['思考中', '分析中', '处理中', '推理中'];
 
 // ---- 多媒体安全限制 ----
@@ -71,7 +71,7 @@ function buildCard(
   headerColor?: string,
 ): string {
   const card: Record<string, unknown> = {
-    elements: [{ tag: 'markdown', content: text, text_size: 'heading' }],
+    elements: [{ tag: 'markdown', content: text, text_size: 'normal' }],
   };
   // 只有明确传了标题才显示 header（进度卡片等），正式回复不带标题栏
   if (headerText) {
@@ -138,12 +138,16 @@ function formatElapsed(startTime: number): string {
  * 复用于进度卡片和完成卡片。
  */
 function buildTitleRow(leftText: string, rightUrl?: string): unknown[] {
-  const rightContent = rightUrl ? `[📋 过程记录](${rightUrl})` : '\u200b'; // 无链接时用零宽字符占位，保持列结构合法
-
+  if (!rightUrl) {
+    return [
+      { tag: 'markdown', content: leftText },
+      { tag: 'hr' },
+    ];
+  }
   return [
     {
       tag: 'column_set',
-      flex_mode: 'stretch',
+      flex_mode: 'none',
       background_style: 'default',
       columns: [
         {
@@ -155,7 +159,7 @@ function buildTitleRow(leftText: string, rightUrl?: string): unknown[] {
         {
           tag: 'column',
           width: 'auto',
-          elements: [{ tag: 'markdown', content: rightContent }],
+          elements: [{ tag: 'markdown', content: `[过程记录](${rightUrl})`, text_size: 'notation', text_align: 'right' }],
         },
       ],
     },
@@ -217,6 +221,7 @@ const DEFAULT_CONTEXT_WINDOW = 200_000;
 function appendUsageFooter(
   elements: unknown[],
   usage: NonNullable<ContainerOutput['usage']>,
+  thinking?: 'adaptive' | 'disabled',
 ): void {
   const inp = usage.inputTokens.toLocaleString();
   const cacheRead = usage.cacheReadInputTokens.toLocaleString();
@@ -262,9 +267,10 @@ function appendUsageFooter(
       : `${maxContextTokens / 1_000}k`;
 
   elements.push({ tag: 'hr' });
+  const thinkIcon = thinking === 'adaptive' ? '+' : '~';
   elements.push({
     tag: 'markdown',
-    content: `<font color="grey">↑${inp}/${cacheRead}/${cacheCreate} ↓${out} 🔄${turns} ⏱${dur}s 💰≈$${cost} ${ctxBar}ctx${ctxPct}%/${maxK} 🤖${usage.model ? usage.model.replace(/^claude-/, '') : 'unknown'}</font>`,
+    content: `<font color="grey">↑${inp}/${cacheRead}/${cacheCreate} ↓${out} 🔄${turns} ⏱${dur}s 💰≈$${cost} ${ctxBar}ctx${ctxPct}%/${maxK} 🤖${usage.model ? usage.model.replace(/^claude-/, '') : 'unknown'} ${thinkIcon}</font>`,
   });
 }
 
@@ -274,6 +280,7 @@ function buildCompletedCard(
   usage?: ContainerOutput['usage'],
   startTime?: number,
   sessionId?: string,
+  thinking?: 'adaptive' | 'disabled',
 ): string {
   const timeStr = startTime ? ` ${formatElapsed(startTime)}` : '';
   const titleText = `**✓ 已完成${timeStr}**`;
@@ -283,7 +290,7 @@ function buildCompletedCard(
     ...buildTitleRow(titleText, progressUrl),
     ...steps.map(stepToElement),
   ];
-  if (usage) appendUsageFooter(elements, usage);
+  if (usage) appendUsageFooter(elements, usage, thinking);
 
   return JSON.stringify({
     schema: '2.0',
@@ -323,9 +330,16 @@ export class FeishuChannel implements Channel {
       allSteps: ProgressStep[]; // 完整历史（给网页用，不 shift）
       frame: number;
       startTime: number;
-      usage?: ContainerOutput['usage'];
     }
   >();
+
+  // 正式回复已到达标记：防止迟到的进度消息再创建卡片
+  private progressDone = new Set<string>();
+
+  // 当前会话的 thinking 模式和 usage（per-jid，setUsage 时写入，sendMessage 时读取并清理）
+  // 独立于 progressCards，确保快速回复（无进度卡片）也能拿到
+  private thinkingMode = new Map<string, 'adaptive' | 'disabled'>();
+  private pendingUsage = new Map<string, ContainerOutput['usage']>();
 
   // Spinner 自动刷新定时器（每个 chat 一个）
   private spinnerTimers = new Map<string, NodeJS.Timeout>();
@@ -452,31 +466,62 @@ export class FeishuChannel implements Channel {
         }
       }
 
+      // 正式回复已到达，忽略迟到的进度消息（包括 💭）
+      if (this.progressDone.has(jid)) {
+        logger.info({ jid, title }, '[progress] 正式回复已到达，忽略迟到的进度消息');
+        return;
+      }
+
+      // 💭 消息：只单独发出，不加入进度卡片步骤（无论卡片是否已创建）
+      if (title.startsWith('💭')) {
+        const fullText = (detail ?? title).replace(/^💭\s*/, '').trim();
+        if (fullText) {
+          const chatId = chatIdFromJid(jid);
+          this.sendPlainOrCard(chatId, fullText).catch((err) =>
+            logger.debug({ err }, '💭 消息发送失败'),
+          );
+        }
+        return;
+      }
+
+      // 首次工具进度到达：移除 emoji + 创建卡片
+      if (!this.progressCards.has(jid)) {
+        logger.info({ jid, title }, '[progress] 首次工具进度到达，开始创建卡片（移除 emoji + 创建卡片并行）');
+        // 占位防并发（createProgressCard 有 await，期间可能有后续进度进入）
+        this.progressCards.set(jid, {
+          messageId: '',
+          sessionId: '',
+          steps: [],
+          allSteps: [],
+          frame: 0,
+          startTime: Date.now(),
+        } as any);
+        const chatId = chatIdFromJid(jid);
+        await Promise.all([
+          this.removeTypingReaction(jid),
+          this.createProgressCard(jid, chatId, { title, detail }),
+        ]);
+        return;
+      }
+
       const existing = this.progressCards.get(jid);
       if (existing) {
-        // 💭 消息：只单独发出，不加入进度卡片步骤（避免重复显示）
-        if (title.startsWith('💭')) {
-          const fullText = (detail ?? title).replace(/^💭\s*/, '').trim();
-          if (fullText) {
-            const chatId = chatIdFromJid(jid);
-            this.sendPlainOrCard(chatId, fullText).catch((err) =>
-              logger.debug({ err }, '💭 消息发送失败'),
-            );
-          }
-          return;
-        }
-
         existing.steps.push({ title, detail });
         existing.allSteps.push({ title, detail });
-        if (existing.steps.length > 12) existing.steps.shift();
+        if (existing.steps.length > 3) existing.steps.shift();
         if (existing.allSteps.length > 500) existing.allSteps.shift();
-        // 同步到进度查看页面（无上限，页面能看到完整历史）
+        // 卡片尚在创建中（messageId 为空），先缓冲步骤，createProgressCard 完成后会统一 patch
+        if (!existing.messageId) {
+          logger.info({ jid, title, buffered: existing.steps.length }, '[progress] 卡片创建中，缓冲步骤');
+          return;
+        }
+        // 同步到进度查看页面
         upsertSession(
           existing.sessionId,
           existing.allSteps,
           existing.startTime,
         );
-        // 新步骤到来：立即 patch 卡片实现实时推送，同时重置 spinner 定时器避免并发
+        // 新步骤到来：立即 patch 卡片
         existing.frame++;
         this.client.im.message
           .patch({
@@ -493,48 +538,18 @@ export class FeishuChannel implements Channel {
           .catch((err: any) =>
             logger.debug({ err, jid }, '进度步骤实时 patch 失败（非致命）'),
           );
-        // 重置 spinner 定时器：从现在起重新计时，避免 spinner 和实时 patch 并发
+        // 重置 spinner 定时器
         this.resetSpinnerTimer(jid);
       }
       return;
     }
 
-    // 正式回复到达：处理进度卡片
-    const progressEntry = this.progressCards.get(jid);
-    const usage = progressEntry?.usage;
-    if (progressEntry) {
-      this.clearSpinnerTimer(jid);
-      this.progressCards.delete(jid);
-      try {
-        // 判断是否有真正的工具调用步骤（💭 开头的是模型推理文本，不算工具调用）
-        const hasToolSteps = progressEntry.steps.some(
-          (s) => !s.title.startsWith('💭'),
-        );
-        if (!hasToolSteps) {
-          // 纯思考/简单对话（无工具调用）：撤回进度卡片，避免显示多余的"✅ 已完成"
-          deleteSession(progressEntry.sessionId);
-          await this.client.im.message.delete({
-            path: { message_id: progressEntry.messageId },
-          });
-        } else {
-          // 有工具调用步骤：转为完成卡片（不带 usage 脚注，usage 已在正文回复卡片里显示）
-          completeSession(progressEntry.sessionId);
-          await this.client.im.message.patch({
-            path: { message_id: progressEntry.messageId },
-            data: {
-              content: buildCompletedCard(
-                progressEntry.steps,
-                undefined,
-                progressEntry.startTime,
-                progressEntry.sessionId,
-              ),
-            },
-          });
-        }
-      } catch (err) {
-        logger.debug({ err }, '飞书进度卡片更新失败（非致命）');
-      }
-    }
+    // 正式回复到达：读取 usage/thinking，然后清理进度卡片
+    const usage = this.pendingUsage.get(jid);
+    const thinking = this.thinkingMode.get(jid);
+    logger.info({ jid, thinking, hasUsage: !!usage }, '[reply] 读取 usage/thinkingMode');
+    // cleanupProgressCard 会清理 pendingUsage/thinkingMode/progressCards
+    await this.cleanupProgressCard(jid);
 
     // 检测文本中的图片路径，提取并发送
     const imageMatches: string[] = [];
@@ -562,7 +577,7 @@ export class FeishuChannel implements Channel {
         .trim();
       try {
         if (remainingText)
-          await this.sendPlainOrCard(chatId, remainingText, usage);
+          await this.sendPlainOrCard(chatId, remainingText, usage, thinking);
         for (const imgPath of imageMatches) {
           try {
             await this.sendImageMsg(chatId, imgPath, groupFolder);
@@ -594,7 +609,7 @@ export class FeishuChannel implements Channel {
       const remainingText = text.replace(FILE_SEND_PATTERN, '').trim();
       try {
         if (remainingText)
-          await this.sendPlainOrCard(chatId, remainingText, usage);
+          await this.sendPlainOrCard(chatId, remainingText, usage, thinking);
         for (const filePath of fileMatches) {
           try {
             await this.sendFileMsg(chatId, filePath, groupFolder);
@@ -614,10 +629,64 @@ export class FeishuChannel implements Channel {
     }
 
     try {
-      await this.sendPlainOrCard(chatId, text, usage);
+      await this.sendPlainOrCard(chatId, text, usage, thinking);
     } catch (err) {
       logger.error({ err }, '飞书发送消息失败');
       throw err;
+    }
+  }
+
+  /** IPC send_message 专用：直接发消息，不触发进度卡片清理逻辑 */
+  async sendDirectMessage(jid: string, text: string): Promise<void> {
+    const chatId = chatIdFromJid(jid);
+    await this.sendPlainOrCard(chatId, text);
+  }
+
+  /** 清理进度卡片（撤回或转完成卡片）+ 清理 pendingUsage/thinkingMode。
+   *  用于 agent 结束但无正式回复的场景（如 send_message 已发内容，result 为空）。 */
+  async cleanupProgressCard(jid: string): Promise<void> {
+    // 清理独立状态 Map
+    this.pendingUsage.delete(jid);
+    this.thinkingMode.delete(jid);
+
+    const progressEntry = this.progressCards.get(jid);
+    if (!progressEntry) return;
+
+    logger.info({ jid, hasMessageId: !!progressEntry.messageId, steps: progressEntry.steps.length }, '[cleanup] 清理孤儿进度卡片');
+    this.progressDone.add(jid);
+    this.clearSpinnerTimer(jid);
+    this.progressCards.delete(jid);
+
+    if (!progressEntry.messageId) {
+      deleteSession(progressEntry.sessionId);
+      return;
+    }
+
+    try {
+      const hasToolSteps = progressEntry.steps.some(
+        (s) => !s.title.startsWith('💭'),
+      );
+      if (!hasToolSteps) {
+        deleteSession(progressEntry.sessionId);
+        await this.client.im.message.delete({
+          path: { message_id: progressEntry.messageId },
+        });
+      } else {
+        completeSession(progressEntry.sessionId);
+        await this.client.im.message.patch({
+          path: { message_id: progressEntry.messageId },
+          data: {
+            content: buildCompletedCard(
+              progressEntry.steps,
+              undefined,
+              progressEntry.startTime,
+              progressEntry.sessionId,
+            ),
+          },
+        });
+      }
+    } catch (err) {
+      logger.debug({ err }, '飞书进度卡片清理失败（非致命）');
     }
   }
 
@@ -626,19 +695,19 @@ export class FeishuChannel implements Channel {
     chatId: string,
     text: string,
     usage?: ContainerOutput['usage'],
+    thinking?: 'adaptive' | 'disabled',
   ): Promise<void> {
-    if (usage || shouldUseCard(text)) {
+    if (usage || text.length > CARD_THRESHOLD) {
       const elements: unknown[] = [
-        { tag: 'markdown', content: text, text_size: 'heading' },
+        { tag: 'markdown', content: text, text_size: 'normal' },
       ];
-      if (usage) appendUsageFooter(elements, usage);
+      if (usage) appendUsageFooter(elements, usage, thinking);
       await this.client.im.message.create({
         data: {
           receive_id: chatId,
           msg_type: 'interactive',
           content: JSON.stringify({
             schema: '2.0',
-            config: { update_multi: true },
             body: { elements },
           }),
         },
@@ -657,11 +726,14 @@ export class FeishuChannel implements Channel {
   }
 
   /** 设置指定 chat 的最新 usage 数据（下次完成卡片渲染时使用） */
-  setUsage(jid: string, usage: ContainerOutput['usage']): void {
-    const entry = this.progressCards.get(jid);
-    if (entry) {
-      entry.usage = usage;
+  setUsage(jid: string, usage: ContainerOutput['usage'], thinking?: 'adaptive' | 'disabled'): void {
+    // 存到独立 Map，不依赖 progressCards entry 是否存在
+    if (usage) this.pendingUsage.set(jid, usage);
+    // thinking: 只在 Map 中无值时写入（piped 路径已设的值优先，不被 result callback 覆盖）
+    if (thinking !== undefined && !this.thinkingMode.has(jid)) {
+      this.thinkingMode.set(jid, thinking);
     }
+    logger.info({ jid, thinking, effective: this.thinkingMode.get(jid) }, '[usage] setUsage 调用');
   }
 
   private clearSpinnerTimer(jid: string): void {
@@ -690,8 +762,11 @@ export class FeishuChannel implements Channel {
     const chatId = chatIdFromJid(jid);
     try {
       if (isTyping) {
+        // 新对话开始，清除上一轮的 progressDone 标记
+        this.progressDone.delete(jid);
         // 添加 emoji reaction 到用户消息
         const lastMsgId = this.getLastMessageId(jid);
+        logger.info({ jid, lastMsgId }, '[typing] 开始加 emoji reaction');
         if (lastMsgId) {
           const resp = await this.client.im.messageReaction.create({
             data: { reaction_type: { emoji_type: TYPING_EMOJI } },
@@ -700,115 +775,172 @@ export class FeishuChannel implements Channel {
           const reactionId = resp?.data?.reaction_id;
           if (reactionId) {
             this.typingReactions.set(jid, { messageId: lastMsgId, reactionId });
+            logger.info({ jid, reactionId }, '[typing] emoji reaction 已添加');
+          } else {
+            logger.warn({ jid }, '[typing] emoji reaction 创建未返回 reactionId');
           }
+        } else {
+          logger.warn({ jid }, '[typing] 找不到 lastMsgId，跳过 emoji');
         }
 
-        // 发送"处理中"进度卡片
-        if (!this.progressCards.has(jid)) {
-          const SPINNER_INTERVAL_MS = 1000; // 1s（patch 耗时约 300ms，递归 setTimeout 不会并发）
-          const SPINNER_MAX_DURATION_MS = 60 * 60 * 1000; // 60 分钟硬上限
-
-          const now = Date.now();
-          this.spinnerStopped.delete(jid); // 新卡片启动，清除上次的停止标记
-          const sessionId = crypto.randomBytes(8).toString('hex');
-          const initialSteps: ProgressStep[] = [];
-          upsertSession(sessionId, initialSteps, now);
-          const resp = await this.client.im.message.create({
-            data: {
-              receive_id: chatId,
-              msg_type: 'interactive',
-              content: buildProgressCard(initialSteps, 0, now, sessionId),
-            },
-            params: { receive_id_type: 'chat_id' },
-          });
-          const msgId = resp?.data?.message_id;
-          if (msgId) {
-            this.progressCards.set(jid, {
-              messageId: msgId,
-              sessionId,
-              steps: initialSteps,
-              allSteps: [...initialSteps],
-              frame: 0,
-              startTime: now,
-            });
-
-            // 启动 spinner 自动刷新定时器（递归 setTimeout：等上次 patch 完成再调度下次，避免并发）
-            // 注意：clearSpinnerTimer 会设置 spinnerStopped，所以之后必须 delete 抵消，否则新 timer 立刻被拦截
-            this.clearSpinnerTimer(jid);
-            this.spinnerStopped.delete(jid);
-            const spinnerStartTime = now;
-            const scheduleSpinner = (): void => {
-              const t = setTimeout(async () => {
-                // 检查停止标记（clearSpinnerTimer 可能在此 callback 运行期间被调用）
-                if (this.spinnerStopped.has(jid)) {
-                  this.spinnerTimers.delete(jid);
-                  return;
-                }
-
-                const entry = this.progressCards.get(jid);
-                if (!entry) {
-                  // 卡片已被删除（完成/清理），停止
-                  this.spinnerTimers.delete(jid);
-                  return;
-                }
-
-                // 硬上限保护
-                if (Date.now() - spinnerStartTime > SPINNER_MAX_DURATION_MS) {
-                  logger.warn(
-                    { jid },
-                    'Spinner timer 达到 10 分钟上限，自动停止',
-                  );
-                  this.spinnerTimers.delete(jid);
-                  return;
-                }
-
-                entry.frame++;
-                try {
-                  await this.client.im.message.patch({
-                    path: { message_id: entry.messageId },
-                    data: {
-                      content: buildProgressCard(
-                        entry.steps,
-                        entry.frame,
-                        entry.startTime,
-                        entry.sessionId,
-                      ),
-                    },
-                  });
-                } catch (err) {
-                  logger.debug({ err, jid }, 'Spinner 自动刷新失败（非致命）');
-                }
-
-                // 本次完成后才调度下一次（再次检查停止标记）
-                if (!this.spinnerStopped.has(jid)) {
-                  scheduleSpinner();
-                } else {
-                  this.spinnerTimers.delete(jid);
-                }
-              }, SPINNER_INTERVAL_MS);
-              this.spinnerTimers.set(jid, t);
-            };
-            this.spinnerSchedulers.set(jid, scheduleSpinner);
-            scheduleSpinner();
-          }
-        }
+        // 进度卡片延迟创建：等第一条工具进度到达时再创建（见 onAgentProgress）
       } else {
+        logger.info({ jid, hasCard: this.progressCards.has(jid), hasEmoji: this.typingReactions.has(jid) }, '[typing] 结束，清理 spinner + emoji');
         // 清理 spinner 定时器
         this.clearSpinnerTimer(jid);
-        // 移除 emoji reaction
-        const entry = this.typingReactions.get(jid);
-        if (entry) {
-          await this.client.im.messageReaction.delete({
-            path: {
-              message_id: entry.messageId,
-              reaction_id: entry.reactionId,
-            },
-          });
-          this.typingReactions.delete(jid);
-        }
+        // 移除 emoji reaction（先删 Map 再调 API，防与 removeTypingReaction 并发）
+        await this.removeTypingReaction(jid);
       }
     } catch (err) {
       logger.debug({ err, jid, isTyping }, '飞书 typing indicator 操作失败');
+    }
+  }
+
+  /** 移除 typing emoji reaction（幂等，先删 Map 再调 API 防并发） */
+  private async removeTypingReaction(jid: string): Promise<void> {
+    const entry = this.typingReactions.get(jid);
+    if (!entry) {
+      logger.info({ jid }, '[emoji] removeTypingReaction: Map 中无 entry，跳过（可能已被并发移除）');
+      return;
+    }
+    this.typingReactions.delete(jid); // 先删，防止并发双重删除
+    logger.info({ jid, messageId: entry.messageId, reactionId: entry.reactionId }, '[emoji] 开始移除 emoji reaction');
+    try {
+      await this.client.im.messageReaction.delete({
+        path: {
+          message_id: entry.messageId,
+          reaction_id: entry.reactionId,
+        },
+      });
+      logger.info({ jid }, '[emoji] emoji reaction 已移除');
+    } catch (err) {
+      logger.info({ jid, err }, '[emoji] emoji reaction 移除失败（静默忽略）');
+    }
+  }
+
+  /** 创建进度卡片 + 启动 spinner 定时器（从 setTyping 延迟到首次进度时调用） */
+  private async createProgressCard(
+    jid: string,
+    chatId: string,
+    initialStep: ProgressStep,
+  ): Promise<void> {
+    const SPINNER_INTERVAL_MS = 1000;
+    const SPINNER_MAX_DURATION_MS = 60 * 60 * 1000; // 60 分钟硬上限
+
+    const now = Date.now();
+    this.spinnerStopped.delete(jid);
+    const sessionId = crypto.randomBytes(8).toString('hex');
+    const initialSteps: ProgressStep[] = [initialStep];
+    upsertSession(sessionId, initialSteps, now);
+    logger.info({ jid, chatId, sessionId, step: initialStep.title }, '[card] 开始创建进度卡片（调飞书 API）');
+    const resp = await this.client.im.message.create({
+      data: {
+        receive_id: chatId,
+        msg_type: 'interactive',
+        content: buildProgressCard(initialSteps, 0, now, sessionId),
+      },
+      params: { receive_id_type: 'chat_id' },
+    });
+    const msgId = resp?.data?.message_id;
+    if (msgId) {
+      logger.info({ jid, msgId, sessionId }, '[card] 飞书卡片创建成功');
+      // 正式回复可能已先到达，删除了占位 entry — 此时不应再插入
+      const placeholder = this.progressCards.get(jid);
+      if (!placeholder) {
+        logger.info({ jid, msgId }, '[card] 占位 entry 已被正式回复删除，卡片已无用，删除之');
+        this.client.im.message
+          .delete({ path: { message_id: msgId } })
+          .catch(() => {});
+        return;
+      }
+      // 合并缓冲期间（卡片创建 await 期间）积累的步骤
+      const bufferedSteps = placeholder?.steps ?? [];
+      logger.info({ jid, bufferedCount: bufferedSteps.length }, '[card] 合并缓冲步骤');
+      const mergedSteps = [...initialSteps, ...bufferedSteps];
+      const mergedAllSteps = [...initialSteps, ...bufferedSteps];
+      while (mergedSteps.length > 3) mergedSteps.shift();
+      while (mergedAllSteps.length > 500) mergedAllSteps.shift();
+
+      this.progressCards.set(jid, {
+        messageId: msgId,
+        sessionId,
+        steps: mergedSteps,
+        allSteps: mergedAllSteps,
+        frame: 0,
+        startTime: now,
+      });
+
+      // 缓冲期间有新步骤，立即 patch 卡片以显示最新状态
+      if (bufferedSteps.length > 0) {
+        upsertSession(sessionId, mergedAllSteps, now);
+        this.client.im.message
+          .patch({
+            path: { message_id: msgId },
+            data: {
+              content: buildProgressCard(mergedSteps, 0, now, sessionId),
+            },
+          })
+          .catch((err: any) =>
+            logger.debug({ err, jid }, '缓冲步骤 patch 失败（非致命）'),
+          );
+      }
+
+      // 启动 spinner 自动刷新定时器
+      this.clearSpinnerTimer(jid);
+      this.spinnerStopped.delete(jid);
+      const spinnerStartTime = now;
+      const scheduleSpinner = (): void => {
+        const t = setTimeout(async () => {
+          if (this.spinnerStopped.has(jid)) {
+            this.spinnerTimers.delete(jid);
+            return;
+          }
+
+          const entry = this.progressCards.get(jid);
+          if (!entry) {
+            this.spinnerTimers.delete(jid);
+            return;
+          }
+
+          if (Date.now() - spinnerStartTime > SPINNER_MAX_DURATION_MS) {
+            logger.warn(
+              { jid },
+              'Spinner timer 达到硬上限，自动停止',
+            );
+            this.spinnerTimers.delete(jid);
+            return;
+          }
+
+          entry.frame++;
+          try {
+            await this.client.im.message.patch({
+              path: { message_id: entry.messageId },
+              data: {
+                content: buildProgressCard(
+                  entry.steps,
+                  entry.frame,
+                  entry.startTime,
+                  entry.sessionId,
+                ),
+              },
+            });
+          } catch (err) {
+            logger.debug({ err, jid }, 'Spinner 自动刷新失败（非致命）');
+          }
+
+          if (!this.spinnerStopped.has(jid)) {
+            scheduleSpinner();
+          } else {
+            this.spinnerTimers.delete(jid);
+          }
+        }, SPINNER_INTERVAL_MS);
+        this.spinnerTimers.set(jid, t);
+      };
+      this.spinnerSchedulers.set(jid, scheduleSpinner);
+      scheduleSpinner();
+    } else {
+      logger.warn({ jid }, '[card] 飞书卡片创建失败（未返回 messageId），清理占位');
+      this.progressCards.delete(jid);
     }
   }
 
@@ -978,6 +1110,51 @@ export class FeishuChannel implements Channel {
       return filePath;
     } catch (err) {
       logger.error({ err, messageId, imageKey }, '飞书图片下载失败');
+      return null;
+    }
+  }
+
+  /** 下载飞书文件到 group 目录，返回宿主机绝对路径 */
+  private async downloadFile(
+    messageId: string,
+    fileKey: string,
+    fileName: string,
+    groupFolder: string,
+  ): Promise<string | null> {
+    try {
+      const token = await this.getTenantAccessToken();
+      if (!token) return null;
+
+      const groupDir = resolveGroupFolderPath(groupFolder);
+      const filesDir = path.join(groupDir, 'files');
+      fs.mkdirSync(filesDir, { recursive: true });
+
+      // 文件名加 messageId 前缀防重名
+      const safeFileName = fileName.replace(/[/\\]/g, '_');
+      const filePath = path.join(filesDir, `${messageId}_${safeFileName}`);
+
+      const resp = await fetch(
+        `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/resources/${fileKey}?type=file`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      if (!resp.ok) {
+        logger.warn(
+          { messageId, fileKey, status: resp.status },
+          '飞书文件下载 HTTP 错误',
+        );
+        return null;
+      }
+
+      const buf = Buffer.from(await resp.arrayBuffer());
+      fs.writeFileSync(filePath, buf);
+      logger.info(
+        { messageId, fileKey, fileName, hostPath: filePath, size: buf.length },
+        '飞书文件下载成功',
+      );
+      return filePath;
+    } catch (err) {
+      logger.error({ err, messageId, fileKey }, '飞书文件下载失败');
       return null;
     }
   }
@@ -1299,6 +1476,10 @@ export class FeishuChannel implements Channel {
           content = '[图片]';
         } else if (msgType === 'merge_forward') {
           content = '[合并转发消息]';
+        } else if (msgType === 'interactive') {
+          // 互动卡片：尝试提取标题或纯文本
+          const header = parsed?.header?.title?.content;
+          content = header ? `[卡片: ${header}]` : '[互动卡片]';
         } else {
           content = `[${msgType}]`;
         }
@@ -1311,7 +1492,26 @@ export class FeishuChannel implements Channel {
         content = content.slice(0, 200) + '...';
       }
 
-      return { content, senderName: senderOpenId };
+      // 获取发送者名称
+      let senderName = senderOpenId;
+      const senderType = item.sender?.sender_type ?? '';
+      if (senderType === 'app') {
+        // bot 自己发的消息
+        senderName = 'Andy';
+      } else {
+        // 尝试从 DB 获取发送者名称（比 open_id 更友好）
+        try {
+          const { getMessageById } = await import('../db.js');
+          const row = getMessageById(parentId);
+          if (row?.sender_name) {
+            senderName = row.sender_name;
+          }
+        } catch {
+          // DB 查不到就用 open_id
+        }
+      }
+
+      return { content, senderName };
     } catch (err) {
       logger.warn({ err, parentId }, '获取被回复消息失败');
       return null;
@@ -1383,6 +1583,41 @@ export class FeishuChannel implements Channel {
           text = imgPath ? `[图片: ${imgPath}]` : '[图片: 下载失败]';
         } else if (imageKey) {
           text = '[图片: 群未注册，无法下载]';
+        } else {
+          return;
+        }
+      } else if (message.message_type === 'file') {
+        // 文件消息：下载文件并标记路径
+        const parsed = JSON.parse(message.content);
+        const fileKey = parsed.file_key;
+        const fileName = parsed.file_name || 'unknown';
+        if (fileKey && groupFolder) {
+          const filePath = await this.downloadFile(
+            message.message_id,
+            fileKey,
+            fileName,
+            groupFolder,
+          );
+          text = filePath
+            ? `[文件: ${filePath}] (${fileName})`
+            : `[文件: 下载失败] (${fileName})`;
+        } else if (fileKey) {
+          text = `[文件: 群未注册，无法下载] (${fileName})`;
+        } else {
+          return;
+        }
+      } else if (message.message_type === 'audio') {
+        // 语音消息：下载并标记路径（转写由其他 skill 处理）
+        const parsed = JSON.parse(message.content);
+        const fileKey = parsed.file_key;
+        if (fileKey && groupFolder) {
+          const filePath = await this.downloadFile(
+            message.message_id,
+            fileKey,
+            `voice_${message.message_id}.opus`,
+            groupFolder,
+          );
+          text = filePath ? `[语音: ${filePath}]` : '[语音: 下载失败]';
         } else {
           return;
         }

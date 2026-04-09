@@ -33,8 +33,9 @@ export async function injectMemory(
   const config = getMemoryConfig();
   if (!config.injectionEnabled) return;
 
-  const profile = loadProfile(groupFolder, userId);
-  const allFacts = loadFacts(groupFolder, userId);
+  // 整库查：不过滤 group_folder 和 user_id
+  const profile = loadProfile();
+  const allFacts = loadFacts();
 
   // 没有记忆数据时不操作
   if (!profile && allFacts.length === 0) return;
@@ -47,11 +48,13 @@ export async function injectMemory(
     confidence: number;
   }>;
 
+  const TOP_K = 10;
+
   if (latestUserMessage && allFacts.length > 0) {
-    // R15.1: 双路召回 top-K
+    // 双路召回 top-K
     try {
-      const store = new MemoryStore(groupFolder, userId);
-      const recalled = await store.recall(latestUserMessage);
+      const store = new MemoryStore();
+      const recalled = await store.recall(latestUserMessage, TOP_K);
       factsForInjection = recalled.map((r) => ({
         id: r.id,
         content: r.content,
@@ -60,12 +63,12 @@ export async function injectMemory(
         confidence: r.score,
       }));
     } catch (err) {
-      logger.warn({ err }, '双路召回失败，回退全量注入');
-      factsForInjection = allFacts;
+      logger.warn({ err }, '双路召回失败，回退 confidence top-K');
+      factsForInjection = allFacts.slice(0, TOP_K);
     }
   } else {
-    // R15.3: 无消息时全量注入
-    factsForInjection = allFacts;
+    // 无消息时按 confidence 取 top-K（allFacts 已按 confidence DESC 排序）
+    factsForInjection = allFacts.slice(0, TOP_K);
   }
 
   // 组装 memoryData

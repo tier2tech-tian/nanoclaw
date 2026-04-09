@@ -110,21 +110,19 @@ export function isFtsAvailable(): boolean {
 // Profile CRUD
 // ─────────────────────────────────────────────────────────────
 
-export function loadProfile(
-  groupFolder: string,
-  userId: string = '',
-): Record<string, unknown> | null {
+export function loadProfile(): Record<string, unknown> | null {
   const db = getMemoryDb();
+  // 整库查：取最近更新的 profile
   const row = db
     .prepare(
-      'SELECT profile_json FROM memory_profiles WHERE group_folder = ? AND user_id = ? ORDER BY updated_at DESC LIMIT 1',
+      'SELECT profile_json FROM memory_profiles ORDER BY updated_at DESC LIMIT 1',
     )
-    .get(groupFolder, userId) as { profile_json: string } | undefined;
+    .get() as { profile_json: string } | undefined;
   if (!row) return null;
   try {
     return JSON.parse(row.profile_json);
   } catch {
-    logger.warn({ groupFolder }, '解析 profile JSON 失败');
+    logger.warn('解析 profile JSON 失败');
     return null;
   }
 }
@@ -148,19 +146,16 @@ export function saveProfile(
 // Facts CRUD
 // ─────────────────────────────────────────────────────────────
 
-export function loadFacts(
-  groupFolder: string,
-  userId: string = '',
-): MemoryFact[] {
+export function loadFacts(): MemoryFact[] {
   const db = getMemoryDb();
-  // 查询当前用户的 + 全局共享的（user_id=''）
+  // 整库查：不按 group_folder 也不按 user_id 过滤
   const rows = db
     .prepare(
       `SELECT id, group_folder, content, category, confidence, source, embedding, created_at
-       FROM memory_facts WHERE group_folder = ? AND user_id = ?
+       FROM memory_facts
        ORDER BY confidence DESC`,
     )
-    .all(groupFolder, userId) as Array<{
+    .all() as Array<{
     id: string;
     group_folder: string;
     content: string;
@@ -201,7 +196,7 @@ export async function storeFacts(
   if (facts.length === 0) return 0;
 
   const db = getMemoryDb();
-  const existing = loadFacts(groupFolder, userId);
+  const existing = loadFacts();
   const existingContents = new Set(existing.map((f) => f.content.trim()));
 
   // 收集已有的 embeddings 用于语义去重

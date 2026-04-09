@@ -20,6 +20,7 @@ const TASKS_DIR = path.join(IPC_DIR, 'tasks');
 const chatJid = process.env.NANOCLAW_CHAT_JID!;
 const groupFolder = process.env.NANOCLAW_GROUP_FOLDER!;
 const isMain = process.env.NANOCLAW_IS_MAIN === '1';
+const senderId = process.env.NANOCLAW_SENDER_ID || '';
 
 function writeIpcFile(dir: string, data: object): string {
   fs.mkdirSync(dir, { recursive: true });
@@ -561,6 +562,7 @@ server.tool(
       limit: args.limit,
       category: args.category,
       groupFolder,
+      senderId,
       timestamp: new Date().toISOString(),
     });
 
@@ -603,6 +605,7 @@ server.tool(
       content: args.content,
       category: args.category,
       groupFolder,
+      senderId,
       timestamp: new Date().toISOString(),
     });
     return { content: [{ type: 'text' as const, text: '已记住。' }] };

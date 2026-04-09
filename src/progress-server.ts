@@ -204,7 +204,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 const initSteps = ${stepsJson};
 const initDone = ${completedJson};
 let rendered = 0;
-let completed = initDone;
+let completed = false;
 
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 

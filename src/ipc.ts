@@ -6,7 +6,7 @@ import { CronExpressionParser } from 'cron-parser';
 import crypto from 'crypto';
 
 import { DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from './config.js';
-import { AvailableGroup } from './container-runner.js';
+import { AvailableGroup, getFeishuToken } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
@@ -254,6 +254,7 @@ export async function processTaskIpc(
     limit?: number;
     category?: string;
     content?: string;
+    senderId?: string;
   },
   sourceGroup: string, // Verified identity from IPC directory
   isMain: boolean, // Verified from directory path
@@ -564,10 +565,11 @@ export async function processTaskIpc(
         const query = (data.query as string) || '';
         const limit = (data.limit as number) || 10;
         const category = data.category as string | undefined;
+        const userId = (data.senderId as string) || '';
 
         let facts;
         if (query) {
-          const store = new MemoryStore(sourceGroup);
+          const store = new MemoryStore();
           const results = await store.recall(query, limit);
           facts = results.map((r) => ({
             id: r.id,
@@ -577,7 +579,7 @@ export async function processTaskIpc(
             createdAt: r.createdAt,
           }));
         } else {
-          const allFacts = loadFacts(sourceGroup);
+          const allFacts = loadFacts();
           facts = allFacts.map((f) => ({
             id: f.id,
             content: f.content,
@@ -622,6 +624,7 @@ export async function processTaskIpc(
       }
 
       try {
+        const userId = (data.senderId as string) || '';
         // 阶段 1：立即存原文（不调 embedding API）
         const factId = crypto.randomUUID();
         storeFactRaw(sourceGroup, {
@@ -630,7 +633,7 @@ export async function processTaskIpc(
           category: (data.category as string) || 'context',
           confidence: 0.5,
           source: 'agent',
-        });
+        }, userId);
         logger.info({ sourceGroup, factId }, 'Memory stored (raw) via IPC');
 
         // 阶段 2：后台异步 LLM 标准化 + embedding
@@ -642,6 +645,31 @@ export async function processTaskIpc(
         });
       } catch (err) {
         logger.error({ err, sourceGroup }, 'Memory remember failed');
+      }
+      break;
+    }
+
+    case 'get_feishu_token': {
+      const requestId = data.requestId as string;
+      if (!requestId) {
+        logger.warn({ sourceGroup }, 'get_feishu_token missing requestId');
+        break;
+      }
+      try {
+        const chatJid = data.chatJid as string;
+        const senderId = data.senderId as string | undefined;
+        const token = await getFeishuToken(chatJid, senderId);
+        writeIpcResponse(sourceGroup, requestId, {
+          token: token || null,
+          error: token ? null : '无法获取飞书 token（需要用户授权）',
+        });
+        logger.info({ sourceGroup, hasToken: !!token }, 'Feishu token via IPC');
+      } catch (err) {
+        logger.error({ err, sourceGroup }, 'get_feishu_token failed');
+        writeIpcResponse(sourceGroup, requestId, {
+          token: null,
+          error: String(err),
+        });
       }
       break;
     }

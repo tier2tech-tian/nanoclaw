@@ -98,6 +98,37 @@ export interface Channel {
   syncGroups?(force: boolean): Promise<void>;
 }
 
+// --- Usage API ---
+
+export interface OAuthCredential {
+  secret_name: string;
+  refresh_token: string;
+  access_token: string | null;
+  expires_at: number | null; // Unix timestamp ms
+  cached_usage: string | null; // JSON string of RateLimits
+  last_usage_check: number | null; // Unix timestamp ms
+  error_state: string | null; // null | 'auth' | 'network'
+  updated_at: string;
+}
+
+export interface RateLimits {
+  fiveHourPercent: number;
+  weeklyPercent?: number;
+  fiveHourResetsAt?: string | null;
+  weeklyResetsAt?: string | null;
+  sonnetWeeklyPercent?: number;
+  sonnetWeeklyResetsAt?: string | null;
+  opusWeeklyPercent?: number;
+  opusWeeklyResetsAt?: string | null;
+}
+
+export interface UsageResult {
+  secretName: string;
+  rateLimits: RateLimits | null;
+  error?: 'auth' | 'network' | 'no_credentials' | 'rate_limited';
+  stale?: boolean;
+}
+
 // Callback type that channels use to deliver inbound messages
 export type OnInboundMessage = (chatJid: string, message: NewMessage) => void;
 

@@ -144,7 +144,7 @@ describe('storage', () => {
       saveProfile('test_group', {
         user: { workContext: { summary: 'Engineer', updatedAt: '' } },
       });
-      const loaded = loadProfile('test_group');
+      const loaded = loadProfile();
       expect(loaded).toBeDefined();
       expect(
         (loaded!.user as Record<string, { summary: string }>).workContext
@@ -153,14 +153,14 @@ describe('storage', () => {
     });
 
     it('不存在时返回 null', () => {
-      getMemoryDb(); // 初始化
-      expect(loadProfile('nonexistent')).toBeNull();
+      getMemoryDb(); // 初始化（空库，没有任何 profile）
+      expect(loadProfile()).toBeNull();
     });
 
     it('更新已有 profile', () => {
       saveProfile('test_group', { user: { v: 1 } });
       saveProfile('test_group', { user: { v: 2 } });
-      const loaded = loadProfile('test_group');
+      const loaded = loadProfile();
       expect((loaded!.user as Record<string, number>).v).toBe(2);
     });
   });
@@ -177,7 +177,7 @@ describe('storage', () => {
         },
       ]);
       expect(count).toBe(1);
-      const facts = loadFacts('test_group');
+      const facts = loadFacts();
       expect(facts).toHaveLength(1);
       expect(facts[0].content).toBe('TypeScript expert');
       expect(facts[0].category).toBe('knowledge');
@@ -217,7 +217,7 @@ describe('storage', () => {
       ]);
       const removed = removeFacts(['f1']);
       expect(removed).toBe(1);
-      expect(loadFacts('test_group')).toHaveLength(0);
+      expect(loadFacts()).toHaveLength(0);
     });
 
     it('enforceMaxFacts 超限清理', async () => {
@@ -231,7 +231,7 @@ describe('storage', () => {
       await storeFacts('test_group', facts);
       const removed = enforceMaxFacts('test_group', 3);
       expect(removed).toBe(2);
-      const remaining = loadFacts('test_group');
+      const remaining = loadFacts();
       expect(remaining).toHaveLength(3);
       // 高置信度的应该保留
       expect(remaining.map((f) => f.id)).toContain('f4');
@@ -525,7 +525,7 @@ describe('keyword-store', () => {
       },
     ]);
 
-    const results = keywordSearch('TypeScript', 'test_group', 5);
+    const results = keywordSearch('TypeScript', 5);
     expect(results.length).toBeGreaterThanOrEqual(1);
     expect(results[0].content).toContain('TypeScript');
     expect(results[0].score).toBeGreaterThan(0);
@@ -533,11 +533,11 @@ describe('keyword-store', () => {
 
   it('空查询返回空', () => {
     getMemoryDb();
-    const results = keywordSearch('', 'test_group', 5);
+    const results = keywordSearch('', 5);
     expect(results).toHaveLength(0);
   });
 
-  it('按 user_id 隔离（跨群共享用户记忆）', async () => {
+  it('整库查（不按 group_folder 和 user_id 过滤）', async () => {
     await storeFacts(
       'group_a',
       [
@@ -556,7 +556,7 @@ describe('keyword-store', () => {
       [
         {
           id: 'ub1',
-          content: 'User B fact about TypeScript',
+          content: 'User B fact about Python',
           category: 'context',
           confidence: 0.8,
           source: 'test',
@@ -565,14 +565,13 @@ describe('keyword-store', () => {
       'user_b',
     );
 
-    // user_a 的记忆跨群可查
-    const resultsA = keywordSearch('TypeScript', 'group_a', 5, 'user_a');
-    const resultsB = keywordSearch('TypeScript', 'group_b', 5, 'user_b');
+    // 整库查：不管哪个用户/哪个群存的都能查到
+    const results = keywordSearch('TypeScript', 5);
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe('ua1');
 
-    expect(resultsA).toHaveLength(1);
-    expect(resultsA[0].id).toBe('ua1');
-    expect(resultsB).toHaveLength(1);
-    expect(resultsB[0].id).toBe('ub1');
+    const allResults = keywordSearch('fact', 10);
+    expect(allResults).toHaveLength(2);
   });
 });
 

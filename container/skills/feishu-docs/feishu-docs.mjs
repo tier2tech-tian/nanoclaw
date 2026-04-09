@@ -2,7 +2,7 @@
 /**
  * 飞书文档 CLI 工具 — 容器内使用
  *
- * 环境变量: FEISHU_TENANT_TOKEN（由宿主预注入）
+ * 通过 IPC 向宿主按需获取飞书 token（自动刷新，不依赖启动时注入）
  *
  * 命令:
  *   feishu-docs read <url_or_id>           读取文档内容（返回 markdown）
@@ -11,12 +11,73 @@
  *   feishu-docs search <query>             搜索文档
  */
 
+import _fs from 'fs';
+import _path from 'path';
+import _crypto from 'crypto';
+
 const API_BASE = 'https://open.feishu.cn/open-apis';
 
 const AUTH_EXPIRED_CODES = new Set([99991668, 99991672]);
 
-function getToken() {
-  return process.env.FEISHU_TENANT_TOKEN || null;
+// ---- IPC token 获取 ----
+
+const IPC_DIR = process.env.NANOCLAW_IPC_DIR || '';
+const CHAT_JID = process.env.NANOCLAW_CHAT_JID || '';
+const SENDER_ID = process.env.NANOCLAW_SENDER_ID || '';
+
+let _cachedToken = null;
+
+/** 通过 IPC 向宿主请求新鲜的飞书 token */
+async function requestTokenViaIpc() {
+  if (!IPC_DIR) return null;
+
+  const tasksDir = _path.join(IPC_DIR, 'tasks');
+  const responsesDir = _path.join(IPC_DIR, 'responses');
+  _fs.mkdirSync(tasksDir, { recursive: true });
+  _fs.mkdirSync(responsesDir, { recursive: true });
+
+  const requestId = _crypto.randomUUID();
+  const payload = {
+    type: 'get_feishu_token',
+    requestId,
+    chatJid: CHAT_JID,
+    senderId: SENDER_ID,
+    timestamp: new Date().toISOString(),
+  };
+
+  // 原子写入请求
+  const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`;
+  const filepath = _path.join(tasksDir, filename);
+  const tempPath = `${filepath}.tmp`;
+  _fs.writeFileSync(tempPath, JSON.stringify(payload, null, 2));
+  _fs.renameSync(tempPath, filepath);
+
+  // 轮询等待响应（最多 15s）
+  const responsePath = _path.join(responsesDir, `${requestId}.json`);
+  const start = Date.now();
+  while (Date.now() - start < 15000) {
+    if (_fs.existsSync(responsePath)) {
+      const data = JSON.parse(_fs.readFileSync(responsePath, 'utf-8'));
+      try { _fs.unlinkSync(responsePath); } catch { /* 已被清理 */ }
+      if (data.error) console.error('IPC token:', data.error);
+      return data.token || null;
+    }
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return null;
+}
+
+async function getToken() {
+  if (_cachedToken) return _cachedToken;
+
+  // 通过 IPC 向宿主请求（宿主自动刷新，永远拿到最新 token）
+  const ipcToken = await requestTokenViaIpc();
+  if (ipcToken) {
+    _cachedToken = ipcToken;
+    return ipcToken;
+  }
+
+  return null;
 }
 
 function authRequiredExit(reason) {
@@ -28,7 +89,7 @@ function authRequiredExit(reason) {
 }
 
 async function api(method, path, body) {
-  const token = getToken();
+  const token = await getToken();
   if (!token) {
     authRequiredExit('飞书文档工具需要用户授权才能使用');
   }
@@ -44,6 +105,15 @@ async function api(method, path, body) {
   const resp = await fetch(url, opts);
   const data = await resp.json();
   if (AUTH_EXPIRED_CODES.has(data.code)) {
+    // token 过期 — 清缓存重试一次
+    _cachedToken = null;
+    const freshToken = await getToken();
+    if (freshToken && freshToken !== token) {
+      const retryOpts = { ...opts, headers: { ...opts.headers, 'Authorization': `Bearer ${freshToken}` } };
+      const retryResp = await fetch(url, retryOpts);
+      const retryData = await retryResp.json();
+      if (!AUTH_EXPIRED_CODES.has(retryData.code)) return retryData;
+    }
     authRequiredExit('飞书 token 已过期或权限不足');
   }
   return data;
@@ -321,44 +391,24 @@ function markdownToBlocks(md) {
 // ---- 下载文件附件 ----
 
 async function downloadFile(fileToken) {
-  const token = getToken();
-  const fs = await import('fs');
-  const path = await import('path');
+  const token = await getToken();
+  if (!token) authRequiredExit('下载文件需要飞书授权');
 
-  // 先获取文件元信息
-  const metaResp = await fetch(`${API_BASE}/drive/v1/medias/${fileToken}`, {
+  // 下载文件内容（优先 /drive/v1/files/ 端点，支持云盘文件）
+  let dlResp = await fetch(`${API_BASE}/drive/v1/files/${fileToken}/download`, {
     headers: { 'Authorization': `Bearer ${token}` },
   });
 
-  // 下载文件内容
-  const dlResp = await fetch(`${API_BASE}/drive/v1/medias/${fileToken}/download`, {
-    headers: { 'Authorization': `Bearer ${token}` },
-  });
-
+  // fallback: medias 端点（嵌入式媒体）
   if (!dlResp.ok) {
-    // 尝试另一个 API（旧版文件下载）
-    const dlResp2 = await fetch(`${API_BASE}/open-file/v1/files/${fileToken}`, {
+    dlResp = await fetch(`${API_BASE}/drive/v1/medias/${fileToken}/download`, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
-    if (!dlResp2.ok) {
-      console.error('下载失败: HTTP', dlResp2.status);
-      process.exit(1);
-    }
-    const buffer = Buffer.from(await dlResp2.arrayBuffer());
-    const outPath = `/tmp/${fileToken}`;
-    fs.writeFileSync(outPath, buffer);
-    console.log(`文件已下载到: ${outPath} (${buffer.length} bytes)`);
-    // 尝试当文本读取
-    if (buffer.length < 500000) {
-      try {
-        const text = buffer.toString('utf-8');
-        if (!text.includes('\0')) { // 非二进制
-          console.log('\n--- 文件内容 ---\n');
-          console.log(text);
-        }
-      } catch { /* 二进制文件 */ }
-    }
-    return;
+  }
+
+  if (!dlResp.ok) {
+    console.error('下载失败: HTTP', dlResp.status);
+    process.exit(1);
   }
 
   const buffer = Buffer.from(await dlResp.arrayBuffer());
@@ -366,7 +416,7 @@ async function downloadFile(fileToken) {
   const nameMatch = contentDisp.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
   const fileName = nameMatch ? decodeURIComponent(nameMatch[1]) : fileToken;
   const outPath = `/tmp/${fileName}`;
-  fs.writeFileSync(outPath, buffer);
+  _fs.writeFileSync(outPath, buffer);
   console.log(`文件已下载到: ${outPath} (${buffer.length} bytes)`);
 
   // 尝试当文本读取
@@ -386,19 +436,17 @@ async function downloadFile(fileToken) {
 // ---- 上传文件 ----
 
 async function uploadFile(filePath) {
-  const fs = await import('fs');
-  const path = await import('path');
-
-  if (!fs.existsSync(filePath)) {
+  if (!_fs.existsSync(filePath)) {
     console.error('文件不存在:', filePath);
     process.exit(1);
   }
 
-  const fileName = path.basename(filePath);
-  const fileData = fs.readFileSync(filePath);
+  const fileName = _path.basename(filePath);
+  const fileData = _fs.readFileSync(filePath);
   const fileSize = fileData.length;
 
-  const token = getToken();
+  const token = await getToken();
+  if (!token) authRequiredExit('上传文件需要飞书授权');
   const boundary = '----FormBoundary' + Date.now().toString(36);
 
   // 构建 multipart/form-data

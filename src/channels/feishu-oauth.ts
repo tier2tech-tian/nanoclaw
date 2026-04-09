@@ -10,7 +10,6 @@ import os from 'os';
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
 import {
-  getFeishuToken,
   getFeishuTokenByUserId,
   setFeishuToken,
 } from '../db.js';
@@ -50,6 +49,7 @@ function getAppCredentials(): { appId: string; appSecret: string } | null {
 // ---- Token 内存缓存 ----
 
 const tokenCache = new Map<string, { token: string; expiresAt: Date }>();
+const refreshInFlight = new Map<string, Promise<string | null>>();
 
 function cacheKey(userId: string): string {
   return userId;
@@ -80,7 +80,6 @@ async function getAppAccessToken(): Promise<string | null> {
 
 export async function getFeishuUserToken(
   userId: string,
-  chatJid: string,
 ): Promise<string | null> {
   const key = cacheKey(userId);
   const now = new Date();
@@ -91,12 +90,8 @@ export async function getFeishuUserToken(
     return cached.token;
   }
 
-  // 2. 查 DB（先查指定群，再查该用户任意群的 token）
-  let record = getFeishuToken(userId, chatJid);
-  if (!record) {
-    const any = getFeishuTokenByUserId(userId);
-    if (any) record = any;
-  }
+  // 2. 查 DB — 按 user_id 查，所有群共享同一 token
+  const record = getFeishuTokenByUserId(userId);
   if (!record) return null;
 
   const expiresAt = new Date(record.expires_at);
@@ -107,18 +102,25 @@ export async function getFeishuUserToken(
     return record.access_token;
   }
 
-  // 4. 需要刷新
-  const refreshed = await refreshUserToken(
-    userId,
-    chatJid,
-    record.refresh_token,
-  );
-  if (refreshed) {
-    return refreshed.accessToken;
-  }
+  // 4. 需要刷新 — 加锁防止多 agent 并发刷新
+  const existing = refreshInFlight.get(key);
+  if (existing) return existing;
 
-  // 5. 刷新失败 — token 完全过期
-  return null;
+  const refreshPromise = (async (): Promise<string | null> => {
+    try {
+      const refreshed = await refreshUserToken(
+        userId,
+        record.chat_jid,
+        record.refresh_token,
+      );
+      return refreshed?.accessToken ?? null;
+    } finally {
+      refreshInFlight.delete(key);
+    }
+  })();
+
+  refreshInFlight.set(key, refreshPromise);
+  return refreshPromise;
 }
 
 // ---- 刷新 token ----
@@ -132,7 +134,7 @@ async function refreshUserToken(
   if (!appToken) return null;
 
   try {
-    const resp = await fetch(`${API_BASE}/authen/v1/oidc/access_token`, {
+    const resp = await fetch(`${API_BASE}/authen/v1/oidc/refresh_access_token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -228,10 +230,29 @@ async function exchangeCodeForToken(code: string): Promise<{
       return null;
     }
 
-    const openId =
+    let openId =
       data.data.open_id ||
       ((data.data as Record<string, unknown>).open_id as string) ||
       '';
+
+    // OIDC 接口可能不直接返回 open_id，需要调 user_info 获取
+    if (!openId && data.data.access_token) {
+      try {
+        const userInfoResp = await fetch(`${API_BASE}/authen/v1/user_info`, {
+          headers: { Authorization: `Bearer ${data.data.access_token}` },
+        });
+        const userInfo = (await userInfoResp.json()) as {
+          code?: number;
+          data?: { open_id?: string };
+        };
+        if (userInfo.code === 0 && userInfo.data?.open_id) {
+          openId = userInfo.data.open_id;
+        }
+      } catch (err) {
+        logger.warn({ err }, '飞书 user_info 获取 open_id 失败');
+      }
+    }
+
     logger.info(
       {
         openId,
@@ -256,7 +277,7 @@ async function exchangeCodeForToken(code: string): Promise<{
 // ---- 生成授权 URL ----
 
 // 授权时请求的权限范围
-const OAUTH_SCOPES = 'docx:document:readonly';
+const OAUTH_SCOPES = 'docx:document:readonly drive:drive';
 
 export function buildAuthUrl(state: string): string {
   const creds = getAppCredentials();

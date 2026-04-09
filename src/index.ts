@@ -72,6 +72,13 @@ import { startSessionCleanup } from './session-cleanup.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
+import {
+  formatUsage,
+  formatUsageAll,
+  getCurrentSecretName,
+  getUsageAll,
+  getUsageForSecret,
+} from './usage-api.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -418,12 +425,24 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // R8.1: 收集 Agent 回复文本（用于记忆更新）
   const agentReplies: string[] = [];
 
-  // 取最后一条用户消息用于记忆召回
-  const lastUserMsg = [...missedMessages]
-    .reverse()
-    .find((m) => !m.is_bot_message && !m.is_from_me);
-  const latestUserMessage = lastUserMsg?.content;
-  const memorySenderId = lastUserMsg?.sender || '';
+  // 取最近消息用于记忆召回（用户+agent 各最多 2 条，拼接提升语义丰富度）
+  const recentMsgs = [...missedMessages].reverse();
+  const userMsgs: string[] = [];
+  const botMsgs: string[] = [];
+  let memorySenderId = '';
+  for (const m of recentMsgs) {
+    if (!m.is_bot_message && !m.is_from_me) {
+      if (userMsgs.length < 2) userMsgs.push(m.content);
+      if (!memorySenderId) memorySenderId = m.sender || '';
+    } else {
+      if (botMsgs.length < 2) botMsgs.push(m.content);
+    }
+    if (userMsgs.length >= 2 && botMsgs.length >= 2) break;
+  }
+  const recallParts: string[] = [];
+  for (const u of userMsgs.reverse()) recallParts.push(`User: ${u}`);
+  for (const b of botMsgs.reverse()) recallParts.push(`Assistant: ${b}`);
+  const latestUserMessage = recallParts.length > 0 ? recallParts.join('\n') : undefined;
 
   const output = await runAgent(
     group,
@@ -443,9 +462,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       if (result.usage && 'setUsage' in channel) {
         (
           channel as {
-            setUsage: (jid: string, usage: typeof result.usage) => void;
+            setUsage: (jid: string, usage: typeof result.usage, thinking?: 'adaptive' | 'disabled') => void;
           }
-        ).setUsage(chatJid, result.usage);
+        // agent-runner 默认 thinking adaptive（除非显式 disabled），所以 undefined → 'adaptive'
+        ).setUsage(chatJid, result.usage, modelOverride?.thinking === 'disabled' ? 'disabled' : 'adaptive');
       }
 
       // Streaming output callback — called for each agent result
@@ -468,6 +488,15 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       }
 
       if (result.status === 'success') {
+        // 无论是否有文本输出，确保 typing/spinner/进度卡片被清理
+        // （agent 可能只通过 send_message 发了结果，最终 result 为空或被 <internal> 包裹）
+        if (!outputSentToUser) {
+          await channel.setTyping?.(chatJid, false);
+          // 清理孤儿进度卡片（sendMessage 未被调用时，卡片不会被自动清理）
+          if ('cleanupProgressCard' in channel) {
+            await (channel as { cleanupProgressCard: (jid: string) => Promise<void> }).cleanupProgressCard(chatJid);
+          }
+        }
         queue.notifyIdle(chatJid);
       }
 
@@ -623,6 +652,7 @@ async function runAgent(
         isMain,
         assistantName: ASSISTANT_NAME,
         modelOverride,
+        senderId: memorySenderId,
       },
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),
@@ -895,6 +925,11 @@ async function startMessageLoop(): Promise<void> {
               { chatJid, count: messagesToSend.length },
               'Piped messages to active container',
             );
+            // piped 消息的 thinking 模式传给 channel，供脚注显示
+            if ('setUsage' in channel && pipeModelOverride) {
+              const thinkVal = pipeModelOverride.thinking === 'disabled' ? 'disabled' as const : 'adaptive' as const;
+              (channel as { setUsage: (jid: string, usage: undefined, thinking?: 'adaptive' | 'disabled') => void }).setUsage(chatJid, undefined, thinkVal);
+            }
             lastAgentTimestamp[chatJid] =
               messagesToSend[messagesToSend.length - 1].timestamp;
             saveState();
@@ -1088,14 +1123,17 @@ async function main(): Promise<void> {
           '/account — 列出所有 Anthropic 账号及当前绑定',
           '/account <name> — 切换到指定账号',
           '/account auto on|off — 开关自动轮换（429 时自动切换）',
+          '/usage — 查当前账号配额使用率',
+          '/usage all — 查所有账号配额',
+          '/usage <name> — 查指定账号配额',
           '/trigger — 开启 @触发模式（群聊需 @机器人才响应）',
           '/notrigger — 关闭 @触发模式（群聊中所有消息都响应）',
           '/cwd <path> — 设置 Claude Code 工作目录（下次对话生效）',
           '/cwd reset — 重置为默认工作目录',
-          '! <消息> — Sonnet 快速（无思考）',
-          '!! <消息> — Sonnet 深度思考',
-          '~ <消息> — 关闭思考（默认模型）',
-          '+ <消息> — Opus 4.6 深度思考',
+          '`!` <消息> — Sonnet 快速（无思考）',
+          '`!!` <消息> — Sonnet 深度思考',
+          '`~` <消息> — 关闭思考（默认模型）',
+          '`+` <消息> — Opus 4.6 深度思考',
           '/remote-control — 启动 Claude Code 远程控制会话',
           '/remote-control-end — 结束远程控制会话',
         ].join('\n');
@@ -1275,6 +1313,51 @@ async function main(): Promise<void> {
         return;
       }
 
+      // /usage 指令 — 查询配额使用率
+      if (trimmed === '/usage' || trimmed.startsWith('/usage ')) {
+        const arg = trimmed.slice('/usage'.length).trim();
+        const ch = findChannel(channels, chatJid);
+
+        (async () => {
+          try {
+            if (arg === 'all') {
+              const results = await getUsageAll();
+              const currentSecret = getCurrentSecretName(
+                chatJid,
+                registeredGroups,
+              );
+              const reply = formatUsageAll(results, currentSecret);
+              await ch?.sendMessage(chatJid, reply);
+            } else if (!arg) {
+              const currentSecret = getCurrentSecretName(
+                chatJid,
+                registeredGroups,
+              );
+              if (!currentSecret) {
+                await ch?.sendMessage(
+                  chatJid,
+                  '⚠️ 无法确定当前账号。用 /usage all 查看所有。',
+                );
+                return;
+              }
+              const result = await getUsageForSecret(currentSecret);
+              await ch?.sendMessage(chatJid, formatUsage(result));
+            } else {
+              // /usage <secret-name> — 查指定账号
+              const result = await getUsageForSecret(arg);
+              await ch?.sendMessage(chatJid, formatUsage(result));
+            }
+          } catch (err) {
+            logger.error({ err }, '/usage 执行失败');
+            ch?.sendMessage(
+              chatJid,
+              `❌ 查询失败: ${(err as Error).message}`,
+            ).catch(() => {});
+          }
+        })();
+        return;
+      }
+
       // /trigger 和 /notrigger 指令 — 拦截并切换模式
       if (trimmed === '/trigger' || trimmed === '/notrigger') {
         const reply = handleTriggerToggle(
@@ -1305,10 +1388,12 @@ async function main(): Promise<void> {
           '/account — 列出所有 Anthropic 账号及当前绑定',
           '/account <name> — 切换到指定账号',
           '/account auto on|off — 开关自动轮换（429 时自动切换）',
+          '/usage — 查当前账号配额',
+          '/usage all — 查所有账号配额',
           '/trigger — 开启 @触发模式',
           '/notrigger — 关闭 @触发模式',
           '/cwd <path> — 设置 Claude Code 工作目录',
-          '! <消息> — 单次快速模式（Sonnet）',
+          '`!` <消息> — 单次快速模式（Sonnet）',
           '/remote-control — 启动 Claude Code 远程控制会话',
           '/remote-control-end — 结束远程控制会话',
         ].join('\n');
@@ -1393,6 +1478,10 @@ async function main(): Promise<void> {
     sendMessage: (jid, text) => {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
+      // 优先用 sendDirectMessage（跳过进度卡片清理），fallback 到 sendMessage
+      if ('sendDirectMessage' in channel) {
+        return (channel as { sendDirectMessage: (jid: string, text: string) => Promise<void> }).sendDirectMessage(jid, text);
+      }
       return channel.sendMessage(jid, text);
     },
     registeredGroups: () => registeredGroups,

@@ -36,43 +36,38 @@ function buildFtsQuery(raw: string): string | null {
 
 /**
  * 关键词检索（自动选择 FTS5 或 LIKE）
- *
- * W1 修复：FTS5 查询 JOIN 主表过滤 group_folder
+ * 整库查：不过滤 group_folder 和 user_id
  */
 export function keywordSearch(
   query: string,
-  groupFolder: string,
   topK: number = 10,
-  userId: string = '',
 ): KeywordResult[] {
   if (isFtsAvailable()) {
-    return searchFts(query, groupFolder, topK, userId);
+    return searchFts(query, topK);
   }
-  return searchLike(query, groupFolder, topK, userId);
+  return searchLike(query, topK);
 }
 
 function searchFts(
   query: string,
-  groupFolder: string,
   topK: number,
-  userId: string = '',
 ): KeywordResult[] {
   const ftsQuery = buildFtsQuery(query);
   if (!ftsQuery) return [];
 
   const db = getMemoryDb();
   try {
-    // W1 修复：JOIN 主表过滤 group_folder
+    // 整库查：不过滤 user_id
     const rows = db
       .prepare(
         `SELECT m.id, m.content, m.category, m.created_at, fts.rank
          FROM memory_facts_fts fts
          JOIN memory_facts m ON fts.fact_id = m.id
-         WHERE fts.content MATCH ? AND m.user_id = ?
+         WHERE fts.content MATCH ?
          ORDER BY fts.rank
          LIMIT ?`,
       )
-      .all(ftsQuery, userId, topK) as Array<{
+      .all(ftsQuery, topK) as Array<{
       id: string;
       content: string;
       category: string;
@@ -90,15 +85,13 @@ function searchFts(
     }));
   } catch (err) {
     logger.warn({ err }, 'FTS5 检索失败，回退到 LIKE');
-    return searchLike(query, groupFolder, topK);
+    return searchLike(query, topK);
   }
 }
 
 function searchLike(
   query: string,
-  groupFolder: string,
   topK: number,
-  userId: string = '',
 ): KeywordResult[] {
   const tokens = extractTokens(query);
   if (tokens.length === 0) return [];
@@ -115,12 +108,11 @@ function searchLike(
     SELECT id, content, category, created_at,
            (${scoreParts.join(' + ')}) AS match_count
     FROM memory_facts
-    WHERE user_id = @uid AND (${likeClauses.join(' OR ')})
+    WHERE (${likeClauses.join(' OR ')})
     ORDER BY match_count DESC
     LIMIT @topK`;
 
   const params: Record<string, string | number> = {
-    uid: userId,
     topK,
   };
   for (let i = 0; i < tokens.length; i++) {

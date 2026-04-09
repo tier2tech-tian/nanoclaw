@@ -7,6 +7,7 @@ import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
 import {
   NewMessage,
+  OAuthCredential,
   RegisteredGroup,
   ScheduledTask,
   TaskRunLog,
@@ -96,6 +97,17 @@ function createSchema(database: Database.Database): void {
       expires_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       PRIMARY KEY (user_id, chat_jid)
+    );
+
+    CREATE TABLE IF NOT EXISTS oauth_credentials (
+      secret_name TEXT PRIMARY KEY,
+      refresh_token TEXT NOT NULL,
+      access_token TEXT,
+      expires_at INTEGER,
+      cached_usage TEXT,
+      last_usage_check INTEGER,
+      error_state TEXT,
+      updated_at TEXT NOT NULL
     );
   `);
 
@@ -331,6 +343,15 @@ export function storeMessage(msg: NewMessage): void {
     msg.reply_to_message_content ?? null,
     msg.reply_to_sender_name ?? null,
   );
+}
+
+/** 按消息 ID 查询发送者名称和内容 */
+export function getMessageById(
+  messageId: string,
+): { sender_name: string; content: string } | undefined {
+  return db
+    .prepare('SELECT sender_name, content FROM messages WHERE id = ?')
+    .get(messageId) as { sender_name: string; content: string } | undefined;
 }
 
 /**
@@ -786,18 +807,6 @@ export interface FeishuTokenRecord {
   expires_at: string;
 }
 
-export function getFeishuToken(
-  userId: string,
-  chatJid: string,
-): FeishuTokenRecord | null {
-  const row = db
-    .prepare(
-      'SELECT access_token, refresh_token, expires_at FROM feishu_tokens WHERE user_id = ? AND chat_jid = ?',
-    )
-    .get(userId, chatJid) as FeishuTokenRecord | undefined;
-  return row ?? null;
-}
-
 export function getFeishuTokenByUserId(
   userId: string,
 ): (FeishuTokenRecord & { chat_jid: string }) | null {
@@ -825,6 +834,78 @@ export function setFeishuToken(
     refreshToken,
     expiresAt,
     new Date().toISOString(),
+  );
+}
+
+// --- OAuth credentials (usage API) ---
+
+export function getOAuthCredential(
+  secretName: string,
+): OAuthCredential | null {
+  return (
+    (db
+      .prepare('SELECT * FROM oauth_credentials WHERE secret_name = ?')
+      .get(secretName) as OAuthCredential | undefined) ?? null
+  );
+}
+
+export function getAllOAuthCredentials(): OAuthCredential[] {
+  return db
+    .prepare('SELECT * FROM oauth_credentials')
+    .all() as OAuthCredential[];
+}
+
+export function upsertOAuthCredential(
+  secretName: string,
+  refreshToken: string,
+  accessToken?: string,
+  expiresAt?: number,
+): void {
+  db.prepare(
+    `INSERT INTO oauth_credentials (secret_name, refresh_token, access_token, expires_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(secret_name) DO UPDATE SET
+       refresh_token = excluded.refresh_token,
+       access_token = COALESCE(excluded.access_token, access_token),
+       expires_at = COALESCE(excluded.expires_at, expires_at),
+       updated_at = excluded.updated_at`,
+  ).run(
+    secretName,
+    refreshToken,
+    accessToken ?? null,
+    expiresAt ?? null,
+    new Date().toISOString(),
+  );
+}
+
+export function updateOAuthTokens(
+  secretName: string,
+  accessToken: string,
+  refreshToken: string,
+  expiresAt: number,
+): void {
+  db.prepare(
+    `UPDATE oauth_credentials
+     SET access_token = ?, refresh_token = ?, expires_at = ?, updated_at = ?
+     WHERE secret_name = ?`,
+  ).run(accessToken, refreshToken, expiresAt, new Date().toISOString(), secretName);
+}
+
+export function updateOAuthUsageCache(
+  secretName: string,
+  usage: string | null,
+  errorState?: string,
+): void {
+  db.prepare(
+    `UPDATE oauth_credentials
+     SET cached_usage = ?, error_state = ?, last_usage_check = ?
+     WHERE secret_name = ?`,
+  ).run(usage, errorState ?? null, Date.now(), secretName);
+}
+
+export function deleteOAuthCredential(secretName: string): void {
+  db.prepare('DELETE FROM oauth_credentials WHERE secret_name = ?').run(
+    secretName,
   );
 }
 

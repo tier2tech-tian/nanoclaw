@@ -170,6 +170,8 @@ export interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   script?: string;
+  /** 触发本次对话的用户 ID（飞书 open_id），传给 agent-runner 用于记忆读写 */
+  senderId?: string;
   /** 单次模型/思考模式覆盖，不持久化 */
   modelOverride?: {
     model?: string;
@@ -355,49 +357,31 @@ function getStaticCredentials(): Record<string, string | undefined> {
   };
 }
 
-/** 获取飞书 token — User Token → Tenant Token fallback */
-async function getFeishuToken(chatJid?: string): Promise<string | undefined> {
+/** 获取飞书 User Token（纯用户 token，不用应用 token） */
+export async function getFeishuToken(
+  chatJid?: string,
+  senderId?: string,
+): Promise<string | undefined> {
   if (!chatJid?.startsWith('fs:')) return undefined;
 
-  // 优先 User Token（feishu-oauth 为可选 skill，可能未安装）
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const feishuOauth = await import('./channels/feishu-oauth.js' as any);
-    const db = await import('./db.js');
-    const lastSender = (db as any).getLastSenderForChat?.(chatJid);
-    if (lastSender) {
-      const userToken = await feishuOauth.getFeishuUserToken(
-        lastSender,
-        chatJid,
-      );
-      if (userToken) return userToken;
+
+    // 优先用指定的 senderId，否则查 DB 最近发送者
+    let userId = senderId;
+    if (!userId) {
+      const db = await import('./db.js');
+      userId = (db as any).getLastSenderForChat?.(chatJid) || undefined;
     }
+    if (!userId) return undefined;
+
+    const userToken = await feishuOauth.getFeishuUserToken(userId);
+    return userToken || undefined;
   } catch {
     /* feishu-oauth 未导入或无 user token */
+    return undefined;
   }
-
-  // Fallback: Tenant Access Token
-  const feishuEnv = readEnvFile(['FEISHU_APP_ID', 'FEISHU_APP_SECRET']);
-  const appId = process.env.FEISHU_APP_ID || feishuEnv.FEISHU_APP_ID;
-  const appSecret =
-    process.env.FEISHU_APP_SECRET || feishuEnv.FEISHU_APP_SECRET;
-  if (appId && appSecret) {
-    try {
-      const resp = await fetch(
-        'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
-        },
-      );
-      const data = (await resp.json()) as { tenant_access_token?: string };
-      return data.tenant_access_token;
-    } catch {
-      /* 非致命 */
-    }
-  }
-  return undefined;
 }
 
 /** 构建子进程环境变量（精确过滤，不泄露宿主无关变量） */
@@ -432,11 +416,15 @@ async function buildLocalEnv(
       'memory',
     ),
 
-    // 飞书
-    FEISHU_TENANT_TOKEN: await getFeishuToken(input.chatJid),
-
     // NanoClaw IPC 路径（agent-runner 传给 MCP server）
     NANOCLAW_IPC_DIR: input.workspacePaths!.ipc,
+
+    // 群标识（feishu-docs 等 skill 通过 IPC 请求 token 时需要）
+    NANOCLAW_CHAT_JID: input.chatJid || '',
+    NANOCLAW_GROUP_FOLDER: input.groupFolder || '',
+
+    // 触发用户 ID（记忆读写用）
+    NANOCLAW_SENDER_ID: input.senderId || '',
 
     // Agent SDK 配置 — 与 settings.json 双保险
     CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
@@ -474,8 +462,6 @@ function killProcessTree(
  */
 export function cleanupOrphanAgents(): void {
   try {
-    const { execSync } =
-      require('child_process') as typeof import('child_process');
     // 找到所有 agent-runner 进程（排除当前主进程的子进程）
     const mainPid = process.pid;
     const output = execSync(
@@ -683,7 +669,8 @@ export async function runContainerAgent(
           if (
             line.includes('[model-override]') ||
             line.includes('[query-start]') ||
-            line.includes('[result]')
+            line.includes('[result]') ||
+            line.includes('[text-block]')
           ) {
             logger.info({ agent: group.folder }, line);
           } else {

@@ -108,8 +108,9 @@ export class MemoryUpdater {
 
     try {
       // 加载当前记忆状态
-      const profile = loadProfile(groupFolder);
-      const existingFacts = loadFacts(groupFolder);
+      // 整库查
+      const profile = loadProfile();
+      const existingFacts = loadFacts();
 
       // 组装 DeerFlow 兼容的 memory_data
       const currentMemory = this.buildMemoryData(profile, existingFacts);

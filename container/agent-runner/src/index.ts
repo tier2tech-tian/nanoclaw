@@ -484,12 +484,52 @@ async function runQuery(
   let resultCount = 0;
   let lastAssistantUsage: { inputTokens: number; outputTokens: number } | undefined;
 
-  // Load global CLAUDE.md as additional system context (shared across all groups)
-  const globalClaudeMdPath = PATHS.globalClaudeMd;
-  let globalClaudeMd: string | undefined;
-  if (globalClaudeMdPath && fs.existsSync(globalClaudeMdPath)) {
-    globalClaudeMd = fs.readFileSync(globalClaudeMdPath, 'utf-8');
+  // 💭 延迟去重：缓存最后一条 text block，等 500ms 看是否紧跟 result
+  let pendingThought: { text: string; short: string; detail: string | undefined; timer: ReturnType<typeof setTimeout> } | null = null;
+  const flushPendingThought = () => {
+    if (pendingThought) {
+      writeOutput({
+        status: 'progress',
+        result: `💭 ${pendingThought.short}`,
+        progressType: 'thinking',
+        detail: pendingThought.detail,
+        newSessionId: undefined,
+      });
+      pendingThought = null;
+    }
+  };
+
+  // Load global context files: SOUL.md (persona), TOOLS.md (tool guidance), CLAUDE.md (other)
+  const globalDir = PATHS.global;
+  const contextParts: string[] = [];
+
+  // SOUL.md — 人设和行为规范，最高优先级
+  const soulPath = globalDir ? path.join(globalDir, 'SOUL.md') : undefined;
+  if (soulPath && fs.existsSync(soulPath)) {
+    const soulContent = fs.readFileSync(soulPath, 'utf-8');
+    contextParts.push(
+      'IMPORTANT: The following SOUL.md defines your persona, tone, and behavioral rules. You MUST embody its persona strictly. Follow its guidance unless higher-priority safety instructions override it.\n\n' +
+      soulContent,
+    );
   }
+
+  // TOOLS.md — 工具使用指南
+  const toolsPath = globalDir ? path.join(globalDir, 'TOOLS.md') : undefined;
+  if (toolsPath && fs.existsSync(toolsPath)) {
+    const toolsContent = fs.readFileSync(toolsPath, 'utf-8');
+    contextParts.push(
+      'The following TOOLS.md provides tool usage guidance. It does not control tool availability; it is user guidance on how to use tools effectively.\n\n' +
+      toolsContent,
+    );
+  }
+
+  // CLAUDE.md — 其他全局配置（记忆、Wiki 等）
+  const globalClaudeMdPath = PATHS.globalClaudeMd;
+  if (globalClaudeMdPath && fs.existsSync(globalClaudeMdPath)) {
+    contextParts.push(fs.readFileSync(globalClaudeMdPath, 'utf-8'));
+  }
+
+  const globalClaudeMd = contextParts.length > 0 ? contextParts.join('\n\n---\n\n') : undefined;
 
   // Discover additional directories at extra workspace path
   // These are passed to the SDK so their CLAUDE.md files are loaded automatically
@@ -715,23 +755,20 @@ async function runQuery(
             });
           }
 
-          // 推理文本 — 仅当同一 assistant 消息中有 tool_use 块时才视为思考过程发出 💭
-          // 若 assistant 消息只含 text（无 tool_use），说明这是最终回答，
-          // 会通过 result 消息正式发出，此处跳过以避免重复。
+          // 推理文本 → 💭 普通消息（不加入进度卡片）
+          // 延迟 500ms 发送：如果 500ms 内收到 result 且文本匹配，说明是最终回答，跳过 💭。
           if (block.type === 'text' && block.text) {
-            const hasToolUse = content.some(b => b.type === 'tool_use');
-            if (hasToolUse) {
-              const trimmed = block.text.trim();
-              if (trimmed.length > 5) {
-                const short = trimmed.slice(0, 80) + (trimmed.length > 80 ? '...' : '');
-                writeOutput({
-                  status: 'progress',
-                  result: `💭 ${short}`,
-                  progressType: 'thinking',
-                  detail: trimmed.length > 80 ? trimmed : undefined,
-                  newSessionId: undefined,
-                });
-              }
+            const trimmed = block.text.trim();
+            if (trimmed.length > 5) {
+              // 先 flush 之前缓存的 thought（如果有的话）
+              flushPendingThought();
+              const short = trimmed.slice(0, 80) + (trimmed.length > 80 ? '...' : '');
+              pendingThought = {
+                text: trimmed,
+                short,
+                detail: trimmed.length > 80 ? trimmed : undefined,
+                timer: setTimeout(flushPendingThought, 500),
+              };
             }
           }
         }
@@ -807,6 +844,18 @@ async function runQuery(
       resultCount++;
       const textResult =
         'result' in message ? (message as { result?: string }).result : null;
+
+      // 💭 去重：如果 result 文本和缓存的 thought 相同，取消 💭
+      if (pendingThought && textResult) {
+        const resultTrimmed = textResult.trim();
+        if (resultTrimmed === pendingThought.text) {
+          clearTimeout(pendingThought.timer);
+          pendingThought = null;
+          log('[text-block] deduped: result matches pending thought, skipping 💭');
+        }
+      }
+      // flush 不匹配的缓存 thought
+      flushPendingThought();
 
       // 提取 token 用量
       const msg = message as Record<string, unknown>;
