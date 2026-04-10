@@ -67,7 +67,10 @@ export const CHAT_INDEX_DEBOUNCE_MS = parseInt(
     '5000',
   10,
 );
-export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '28800000', 10); // 8h default — how long to keep agent alive after last result
+export const IDLE_TIMEOUT = parseInt(
+  process.env.IDLE_TIMEOUT || '28800000',
+  10,
+); // 8h default — how long to keep agent alive after last result
 export const MAX_CONCURRENT_AGENTS = Math.max(
   1,
   parseInt(

@@ -1244,6 +1244,8 @@ async function main(): Promise<void> {
           '',
           '/help — 显示此帮助',
           '/clear — 清除当前 session，开始新对话（记忆保留）',
+          '/reset — 杀进程，保留 session（重启后恢复上下文，用于加载新代码）',
+          '/new — 杀进程 + 清 session，开启全新会话',
           '/account — 列出所有 Anthropic 账号及当前绑定',
           '/account <name> — 切换到指定账号',
           '/account auto on|off — 开关自动轮换（429 时自动切换）',
@@ -1324,9 +1326,7 @@ async function main(): Promise<void> {
             killed
               ? '进程已终止，session 已清除。下次消息将开启全新会话。'
               : 'session 已清除。下次消息将开启全新会话。',
-          ).catch((err) =>
-            logger.error({ err }, 'Failed to send /new reply'),
-          );
+          ).catch((err) => logger.error({ err }, 'Failed to send /new reply'));
         }
         return;
       }
@@ -1556,6 +1556,8 @@ async function main(): Promise<void> {
           '',
           '/help — 显示此帮助',
           '/clear — 清除当前 session，开始新对话（记忆保留）',
+          '/reset — 杀进程，保留 session（重启后恢复上下文）',
+          '/new — 杀进程 + 清 session，开启全新会话',
           '/account — 列出所有 Anthropic 账号及当前绑定',
           '/account <name> — 切换到指定账号',
           '/account auto on|off — 开关自动轮换（429 时自动切换）',
