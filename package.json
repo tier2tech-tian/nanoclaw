@@ -19,7 +19,8 @@
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "postinstall": "npm rebuild better-sqlite3"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.60.0",
