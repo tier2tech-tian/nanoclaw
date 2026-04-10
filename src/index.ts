@@ -4,6 +4,9 @@ import { execSync } from 'child_process';
 
 import { OneCLI } from '@onecli-sh/sdk';
 
+import { dispatch } from './commands/registry.js';
+import './commands/session.js'; // 注册 /clear, /reset, /new
+
 import {
   getMemoryQueue,
   injectMemory,
@@ -1179,7 +1182,7 @@ async function main(): Promise<void> {
 
   // Channel callbacks (shared by all channels)
   const channelOpts = {
-    onMessage: (chatJid: string, msg: NewMessage) => {
+    onMessage: async (chatJid: string, msg: NewMessage) => {
       // 剥离 trigger 前缀（如 "@Andy "）以匹配 slash 命令
       const rawContent = msg.content.trim();
       let trimmed = rawContent;
@@ -1187,6 +1190,22 @@ async function main(): Promise<void> {
       if (group) {
         const triggerPattern = getTriggerPattern(group.trigger);
         trimmed = trimmed.replace(triggerPattern, '').trim();
+      }
+
+      // Command Registry dispatch（已迁移的命令）
+      if (group) {
+        const handled = await dispatch(trimmed, {
+          chatJid,
+          msg,
+          group,
+          channels,
+          sessions,
+          queue,
+          registeredGroups,
+          deleteSession,
+          setRegisteredGroup,
+        });
+        if (handled) return;
       }
 
       // /cwd 命令 — 设置 Claude Code 的工作目录
@@ -1266,68 +1285,6 @@ async function main(): Promise<void> {
         ch?.sendMessage(chatJid, help).catch((err) =>
           logger.error({ err }, '/help reply failed'),
         );
-        return;
-      }
-
-      // /clear 指令 — 清除 session，开始新对话（对齐 Claude Code /clear）
-      if (trimmed === '/clear') {
-        const group = registeredGroups[chatJid];
-        if (group) {
-          delete sessions[group.folder];
-          deleteSession(group.folder);
-          logger.info({ group: group.folder }, '/clear: session 已清除');
-          const ch = findChannel(channels, chatJid);
-          ch?.sendMessage(
-            chatJid,
-            '对话已清除，下次消息将开始新 session。记忆保留。',
-          ).catch((err) =>
-            logger.error({ err }, 'Failed to send /clear reply'),
-          );
-        }
-        return;
-      }
-
-      // /reset 指令 — 杀进程但保留 session，下次启动恢复上下文（用于加载新代码）
-      if (trimmed === '/reset') {
-        const group = registeredGroups[chatJid];
-        if (group) {
-          const killed = queue.killGroup(chatJid);
-          logger.info(
-            { group: group.folder, killed },
-            '/reset: 进程已终止，session 保留',
-          );
-          const ch = findChannel(channels, chatJid);
-          ch?.sendMessage(
-            chatJid,
-            killed
-              ? '进程已终止，session 保留。下次消息将恢复上下文。'
-              : '无活跃进程。下次消息将恢复上下文。',
-          ).catch((err) =>
-            logger.error({ err }, 'Failed to send /reset reply'),
-          );
-        }
-        return;
-      }
-
-      // /new 指令 — 杀进程 + 删 session，开启全新会话
-      if (trimmed === '/new') {
-        const group = registeredGroups[chatJid];
-        if (group) {
-          const killed = queue.killGroup(chatJid);
-          delete sessions[group.folder];
-          deleteSession(group.folder);
-          logger.info(
-            { group: group.folder, killed },
-            '/new: 进程已终止，session 已清除',
-          );
-          const ch = findChannel(channels, chatJid);
-          ch?.sendMessage(
-            chatJid,
-            killed
-              ? '进程已终止，session 已清除。下次消息将开启全新会话。'
-              : 'session 已清除。下次消息将开启全新会话。',
-          ).catch((err) => logger.error({ err }, 'Failed to send /new reply'));
-        }
         return;
       }
 
