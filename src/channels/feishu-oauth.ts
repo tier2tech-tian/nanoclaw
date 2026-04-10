@@ -277,7 +277,7 @@ async function exchangeCodeForToken(code: string): Promise<{
 // ---- 生成授权 URL ----
 
 // 授权时请求的权限范围
-const OAUTH_SCOPES = 'docx:document:readonly drive:drive';
+const OAUTH_SCOPES = 'docx:document:readonly drive:drive wiki:wiki:readonly';
 
 export function buildAuthUrl(state: string): string {
   const creds = getAppCredentials();
