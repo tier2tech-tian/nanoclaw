@@ -9,16 +9,17 @@
  *   --days   只回填最近 N 天，默认全部
  *   --dry-run 不写入，仅统计
  */
-import Database from 'better-sqlite3';
-import path from 'path';
-
-import { ASSISTANT_NAME, STORE_DIR } from '../src/config.js';
+import { ASSISTANT_NAME } from '../src/config.js';
+import { initDatabase, getDb } from '../src/db.js';
 import { logger } from '../src/logger.js';
 import {
   ChatIndex,
   chunkConversation,
   ChatChunk,
 } from '../src/chat-index.js';
+
+// 初始化主 db 单例（ChatIndex.retryUnindexed 和本脚本都用 getDb()）
+initDatabase();
 
 // --- CLI 参数 ---
 const args = process.argv.slice(2);
@@ -30,9 +31,8 @@ const dryRun = args.includes('--dry-run');
 const groupFilter = getArg('group');
 const daysFilter = getArg('days') ? parseInt(getArg('days')!, 10) : undefined;
 
-// --- 数据库连接 ---
-const dbPath = path.join(STORE_DIR, 'messages.db');
-const db = new Database(dbPath);
+// --- 数据库连接（复用主 db 单例）---
+const db = getDb();
 
 interface MessageRow {
   id: string;
