@@ -1285,8 +1285,30 @@ async function main(): Promise<void> {
         return;
       }
 
-      // /reset 指令 — 杀掉进程 + 清除 session，彻底重建 container
+      // /reset 指令 — 杀进程但保留 session，下次启动恢复上下文（用于加载新代码）
       if (trimmed === '/reset') {
+        const group = registeredGroups[chatJid];
+        if (group) {
+          const killed = queue.killGroup(chatJid);
+          logger.info(
+            { group: group.folder, killed },
+            '/reset: 进程已终止，session 保留',
+          );
+          const ch = findChannel(channels, chatJid);
+          ch?.sendMessage(
+            chatJid,
+            killed
+              ? '进程已终止，session 保留。下次消息将恢复上下文。'
+              : '无活跃进程。下次消息将恢复上下文。',
+          ).catch((err) =>
+            logger.error({ err }, 'Failed to send /reset reply'),
+          );
+        }
+        return;
+      }
+
+      // /new 指令 — 杀进程 + 删 session，开启全新会话
+      if (trimmed === '/new') {
         const group = registeredGroups[chatJid];
         if (group) {
           const killed = queue.killGroup(chatJid);
@@ -1294,16 +1316,16 @@ async function main(): Promise<void> {
           deleteSession(group.folder);
           logger.info(
             { group: group.folder, killed },
-            '/reset: 进程已终止，session 已清除',
+            '/new: 进程已终止，session 已清除',
           );
           const ch = findChannel(channels, chatJid);
           ch?.sendMessage(
             chatJid,
             killed
-              ? '进程已终止，session 已清除。下次消息将启动全新 container。'
-              : 'session 已清除（无活跃进程）。下次消息将启动全新 container。',
+              ? '进程已终止，session 已清除。下次消息将开启全新会话。'
+              : 'session 已清除。下次消息将开启全新会话。',
           ).catch((err) =>
-            logger.error({ err }, 'Failed to send /reset reply'),
+            logger.error({ err }, 'Failed to send /new reply'),
           );
         }
         return;
