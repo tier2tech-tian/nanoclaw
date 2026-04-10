@@ -1,9 +1,6 @@
 import { execSync } from 'child_process';
 import { logger } from '../logger.js';
-import {
-  getRotateEnabled,
-  setRotateEnabled,
-} from '../db.js';
+import { getRotateEnabled, setRotateEnabled } from '../db.js';
 import { registerCommand } from './registry.js';
 
 // /account — 列出/切换 Anthropic 账号
@@ -15,7 +12,10 @@ registerCommand({
   subcommands: [
     { usage: '/account', description: '列出所有账号及当前绑定' },
     { usage: '/account <name>', description: '切换到指定账号' },
-    { usage: '/account auto on|off', description: '开关自动轮换（429 时自动切换）' },
+    {
+      usage: '/account auto on|off',
+      description: '开关自动轮换（429 时自动切换）',
+    },
   ],
   handler: async (ctx) => {
     const { args, chatJid, channel, group, sessions, queue, registeredGroups } =
@@ -132,6 +132,7 @@ registerCommand({
         // 杀掉旧容器，让新消息用新 key 起新容器
         if (group) {
           delete sessions[group.folder];
+          ctx.deleteSession(group.folder);
           queue.killGroup(chatJid);
         }
         await channel.sendMessage(

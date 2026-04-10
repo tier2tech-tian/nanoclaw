@@ -110,7 +110,7 @@ export function getHelp(prefix?: string): string {
   });
 
   const header = prefix ? `${prefix}可用命令：\n` : '可用命令：\n';
-  const suffix = `\n\n消息前缀修饰符：\n! — 强制 opus（默认 sonnet）\n!! — 强制 opus + thinking\n~ — 关闭 thinking\n+ — 追加到上条消息（不新开对话）`;
+  const suffix = `\n\n消息前缀修饰符：\n! — Sonnet 快速（无思考）\n!! — Sonnet 深度思考\n~ — 关闭思考（默认模型）\n+ — Opus 4.6 深度思考`;
   return header + lines.join('\n') + suffix;
 }
 
