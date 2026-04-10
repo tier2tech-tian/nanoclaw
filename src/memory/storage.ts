@@ -146,7 +146,23 @@ export function saveProfile(
 // Facts CRUD
 // ─────────────────────────────────────────────────────────────
 
+// facts 缓存（TTL 30 秒，避免每条消息都全量读 SQLite）
+let _factsCache: MemoryFact[] | null = null;
+let _factsCacheTime = 0;
+const FACTS_CACHE_TTL = 30_000; // 30 秒
+
+/** 强制刷新 facts 缓存（新记忆写入后调用） */
+export function invalidateFactsCache(): void {
+  _factsCache = null;
+  _factsCacheTime = 0;
+}
+
 export function loadFacts(): MemoryFact[] {
+  // TTL 缓存命中
+  if (_factsCache && Date.now() - _factsCacheTime < FACTS_CACHE_TTL) {
+    return _factsCache;
+  }
+
   const db = getMemoryDb();
   // 整库查：不按 group_folder 也不按 user_id 过滤
   const rows = db
@@ -166,7 +182,7 @@ export function loadFacts(): MemoryFact[] {
     created_at: string;
   }>;
 
-  return rows.map((r) => ({
+  _factsCache = rows.map((r) => ({
     id: r.id,
     groupFolder: r.group_folder,
     content: r.content,
@@ -176,6 +192,8 @@ export function loadFacts(): MemoryFact[] {
     embedding: r.embedding ? bufferToEmbedding(r.embedding) : null,
     createdAt: r.created_at,
   }));
+  _factsCacheTime = Date.now();
+  return _factsCache;
 }
 
 /**
@@ -273,6 +291,7 @@ export async function storeFacts(
   }
 
   if (storedCount > 0) {
+    invalidateFactsCache();
     logger.info({ groupFolder, count: storedCount }, 'Facts 已存储');
   }
   return storedCount;

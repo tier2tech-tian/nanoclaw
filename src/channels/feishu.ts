@@ -245,6 +245,7 @@ function appendUsageFooter(
     if (windows.length > 0) {
       maxContextTokens = Math.max(...windows);
     }
+    logger.info({ modelContextWindows: usage.modelContextWindows, sdkMax: maxContextTokens }, 'SDK modelContextWindows');
   }
 
   // 兜底表：对每个模型名查表，取更大值（修正 SDK 返回偏小的情况）

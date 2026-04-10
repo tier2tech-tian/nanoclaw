@@ -16,6 +16,7 @@ import {
 import type { MessageContext } from './memory/index.js';
 import {
   ASSISTANT_NAME,
+  CHAT_INDEX_ENABLED,
   DEFAULT_TRIGGER,
   getTriggerPattern,
   GROUPS_DIR,
@@ -25,6 +26,7 @@ import {
   POLL_INTERVAL,
   TIMEZONE,
 } from './config.js';
+import { getChatIndex } from './chat-index.js';
 import './channels/index.js';
 import {
   getChannelFactory,
@@ -563,6 +565,44 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     return false;
   }
 
+  // Bot 回复入库 + 聊天索引
+  if (agentReplies.length > 0) {
+    const botReplyText = agentReplies.join('\n');
+    const botMsgId = `bot_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    // 存 bot 回复到 messages 表
+    try {
+      storeMessage({
+        id: botMsgId,
+        chat_jid: chatJid,
+        sender: ASSISTANT_NAME,
+        sender_name: ASSISTANT_NAME,
+        content: botReplyText,
+        timestamp: new Date().toISOString(),
+        is_from_me: true,
+        is_bot_message: true,
+      });
+    } catch (err) {
+      logger.warn({ err }, 'Bot 回复入库失败，不影响主流程');
+    }
+
+    // 聊天记录索引
+    if (CHAT_INDEX_ENABLED) {
+      const latestUserMsg = missedMessages[missedMessages.length - 1];
+      if (latestUserMsg) {
+        getChatIndex().enqueue({
+          userContent: latestUserMsg.content,
+          botContent: botReplyText,
+          userMsgId: latestUserMsg.id,
+          botMsgId,
+          chat_jid: chatJid,
+          group_folder: group.folder,
+          sender_name: latestUserMsg.sender_name || '用户',
+          timestamp: latestUserMsg.timestamp || new Date().toISOString(),
+        });
+      }
+    }
+  }
+
   // R8.1: 对话完成后，收集 Agent 回复 + 用户消息一起入队记忆更新
   if (isMemoryEnabled()) {
     const memoryMessages = [
@@ -1057,11 +1097,22 @@ async function main(): Promise<void> {
     getMemoryQueue();
   }
 
+  // 初始化聊天记录索引（如启用）
+  if (CHAT_INDEX_ENABLED) {
+    getChatIndex().init().catch((err) => {
+      logger.warn({ err }, 'Chat index 初始化失败，不影响主流程');
+    });
+  }
+
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
     // 先杀所有 agent 子进程（5 秒宽限期）
     await queue.shutdown(5000);
+    // flush 聊天索引
+    if (CHAT_INDEX_ENABLED) {
+      await getChatIndex().dispose();
+    }
     // 再 flush 记忆
     if (isMemoryEnabled()) {
       await getMemoryQueue().flush();

@@ -109,6 +109,33 @@ function createSchema(database: Database.Database): void {
       error_state TEXT,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS chat_chunks (
+      id TEXT PRIMARY KEY,
+      chat_jid TEXT NOT NULL,
+      group_folder TEXT NOT NULL,
+      message_ids TEXT NOT NULL DEFAULT '[]',
+      chunk_text TEXT NOT NULL,
+      sender_names TEXT NOT NULL DEFAULT '',
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      qdrant_indexed INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_chat_chunks_jid ON chat_chunks(chat_jid);
+    CREATE INDEX IF NOT EXISTS idx_chat_chunks_group ON chat_chunks(group_folder);
+    CREATE INDEX IF NOT EXISTS idx_chat_chunks_qdrant ON chat_chunks(qdrant_indexed) WHERE qdrant_indexed = 0;
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS chat_chunks_fts USING fts5(
+      chunk_text,
+      content='chat_chunks',
+      content_rowid='rowid',
+      tokenize='trigram'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS chat_chunks_ai AFTER INSERT ON chat_chunks BEGIN
+      INSERT INTO chat_chunks_fts(rowid, chunk_text) VALUES (new.rowid, new.chunk_text);
+    END;
   `);
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)
@@ -202,6 +229,11 @@ export function initDatabase(): void {
 
   // Migrate from JSON files if they exist
   migrateJsonState();
+}
+
+/** 获取数据库实例（供 chat-index 等模块直接查询用） */
+export function getDb(): Database.Database {
+  return db;
 }
 
 /** @internal - for tests only. Creates a fresh in-memory database. */

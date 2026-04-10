@@ -5,7 +5,8 @@ import { CronExpressionParser } from 'cron-parser';
 
 import crypto from 'crypto';
 
-import { DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from './config.js';
+import { CHAT_INDEX_ENABLED, DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from './config.js';
+import { getChatIndex } from './chat-index.js';
 import { AvailableGroup, getFeishuToken } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
@@ -596,7 +597,7 @@ export async function processTaskIpc(
 
         let facts;
         if (query) {
-          const store = new MemoryStore();
+          const store = MemoryStore.getInstance();
           const results = await store.recall(query, limit);
           facts = results.map((r) => ({
             id: r.id,
@@ -699,6 +700,59 @@ export async function processTaskIpc(
         logger.error({ err, sourceGroup }, 'get_feishu_token failed');
         writeIpcResponse(sourceGroup, requestId, {
           token: null,
+          error: String(err),
+        });
+      }
+      break;
+    }
+
+    case 'search_chat': {
+      const requestId = data.requestId as string;
+      if (!requestId) {
+        logger.warn({ sourceGroup }, 'search_chat missing requestId');
+        break;
+      }
+
+      if (!CHAT_INDEX_ENABLED) {
+        writeIpcResponse(sourceGroup, requestId, {
+          results: [],
+          error: 'Chat index is disabled',
+        });
+        break;
+      }
+
+      const query = data.query as string;
+      if (!query) {
+        writeIpcResponse(sourceGroup, requestId, {
+          results: [],
+          error: 'Missing query parameter',
+        });
+        break;
+      }
+
+      try {
+        const options = (data as Record<string, unknown>).options as Record<string, unknown> | undefined;
+        const searchTimeout = 15_000;
+        const results = await Promise.race([
+          getChatIndex().search(query, {
+            group: options?.group as string | undefined,
+            sender: options?.sender as string | undefined,
+            days: options?.days as number | undefined,
+            limit: options?.limit as number | undefined,
+          }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('search_chat timeout')), searchTimeout),
+          ),
+        ]);
+        writeIpcResponse(sourceGroup, requestId, { results });
+        logger.info(
+          { sourceGroup, query: query.slice(0, 50), count: results.length },
+          'Chat search via IPC',
+        );
+      } catch (err) {
+        logger.error({ err, sourceGroup }, 'search_chat failed');
+        writeIpcResponse(sourceGroup, requestId, {
+          results: [],
           error: String(err),
         });
       }

@@ -192,7 +192,7 @@ export async function recallRelevantFacts(
   if (allFacts.length === 0) return [];
 
   try {
-    const store = new MemoryStore();
+    const store = MemoryStore.getInstance();
     const recalled = await store.recall(text, topK);
     return recalled.map((r) => ({
       content: (r.content || '').slice(0, 100),
@@ -311,7 +311,7 @@ export async function injectMemory(
   if (latestUserMessage && allFacts.length > 0) {
     // 双路召回 top-K（复用底层 MemoryStore）
     try {
-      const store = new MemoryStore();
+      const store = MemoryStore.getInstance();
       const recalled = await store.recall(latestUserMessage, TOP_K);
       factsForInjection = recalled.map((r) => ({
         id: r.id,

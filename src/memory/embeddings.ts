@@ -10,6 +10,29 @@ import { logger } from '../logger.js';
 
 let _client: OpenAI | null = null;
 
+// embedding LRU 缓存（按 query text → 向量，最多 128 条）
+const EMBEDDING_CACHE_MAX = 128;
+const _embeddingCache = new Map<string, number[]>();
+
+function cacheGet(key: string): number[] | undefined {
+  const val = _embeddingCache.get(key);
+  if (val) {
+    // LRU: 移到末尾
+    _embeddingCache.delete(key);
+    _embeddingCache.set(key, val);
+  }
+  return val;
+}
+
+function cacheSet(key: string, val: number[]): void {
+  if (_embeddingCache.size >= EMBEDDING_CACHE_MAX) {
+    // 淘汰最旧的（Map 头部）
+    const oldest = _embeddingCache.keys().next().value;
+    if (oldest !== undefined) _embeddingCache.delete(oldest);
+  }
+  _embeddingCache.set(key, val);
+}
+
 function getClient(): OpenAI {
   if (_client) return _client;
   const config = getMemoryConfig();
@@ -34,14 +57,22 @@ export async function getEmbedding(text: string): Promise<number[] | null> {
     logger.warn('getEmbedding 收到空文本，返回 null');
     return null;
   }
+
+  // LRU 缓存命中
+  const trimmed = text.trim();
+  const cached = cacheGet(trimmed);
+  if (cached) return cached;
+
   try {
     const config = getMemoryConfig();
     const client = getClient();
     const response = await client.embeddings.create({
       model: config.embeddingModel,
-      input: text,
+      input: trimmed,
     });
-    return response.data[0].embedding;
+    const embedding = response.data[0].embedding;
+    cacheSet(trimmed, embedding);
+    return embedding;
   } catch (err) {
     logger.warn({ err }, 'Embedding 生成失败');
     return null;

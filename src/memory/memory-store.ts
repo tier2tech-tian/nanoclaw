@@ -14,6 +14,19 @@ export class MemoryStore {
   private groupFolder: string;
   private userId: string;
 
+  // 单例实例
+  private static _instance: MemoryStore | null = null;
+
+  /**
+   * 获取单例实例（热路径用，避免每条消息实例化）
+   */
+  static getInstance(): MemoryStore {
+    if (!MemoryStore._instance) {
+      MemoryStore._instance = new MemoryStore();
+    }
+    return MemoryStore._instance;
+  }
+
   constructor(userId: string = '', groupFolder: string = '') {
     this.groupFolder = groupFolder;
     this.userId = userId;
