@@ -212,7 +212,7 @@ function buildProgressCard(
 
 /** 各模型 context window 的兜底值（当 SDK 未返回时使用） */
 const CLAUDE_CONTEXT_WINDOW_FALLBACK: Record<string, number> = {
-  'claude-opus-4': 1_000_000, // opus-4-5, opus-4-6, opus-4.x 全系
+  'claude-opus-4': 1_000_000, // opus-4-6 官方确认 1M context
   'claude-sonnet-4': 200_000,
   'claude-haiku-4': 200_000,
   'claude-3-5-sonnet': 200_000,
