@@ -1,0 +1,8 @@
+// 统一注册所有命令（side-effect imports）
+import './session.js';
+import './account.js';
+import './misc.js';
+import './remote-control.js';
+
+export { dispatch, getHelp, getRegisteredCommands } from './registry.js';
+export type { Command, CommandContext } from './types.js';

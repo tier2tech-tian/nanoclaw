@@ -1,11 +1,9 @@
 import fs from 'fs';
 import path from 'path';
-import { execSync } from 'child_process';
 
 import { OneCLI } from '@onecli-sh/sdk';
 
-import { dispatch } from './commands/registry.js';
-import './commands/session.js'; // 注册 /clear, /reset, /new
+import { dispatch, getHelp } from './commands/index.js';
 
 import {
   getMemoryQueue,
@@ -58,8 +56,6 @@ import {
   setRegisteredGroup,
   setRouterState,
   setSession,
-  getRotateEnabled,
-  setRotateEnabled,
   storeChatMetadata,
   storeMessage,
 } from './db.js';
@@ -67,11 +63,7 @@ import { GroupQueue } from './group-queue.js';
 import { isValidGroupFolder, resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
-import {
-  restoreRemoteControl,
-  startRemoteControl,
-  stopRemoteControl,
-} from './remote-control.js';
+import { restoreRemoteControl } from './remote-control.js';
 import {
   isSenderAllowed,
   isTriggerAllowed,
@@ -82,13 +74,6 @@ import { startSessionCleanup } from './session-cleanup.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
-import {
-  formatUsage,
-  formatUsageAll,
-  getCurrentSecretName,
-  getUsageAll,
-  getUsageForSecret,
-} from './usage-api.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -203,34 +188,6 @@ function autoRegisterGroup(chatJid: string): boolean {
  * 处理 /trigger 和 /notrigger 指令，切换群的 requiresTrigger 状态。
  * 返回要发送给用户的确认消息，如果不适用则返回 null。
  */
-function handleTriggerToggle(
-  chatJid: string,
-  command: '/trigger' | '/notrigger',
-): string | null {
-  const group = registeredGroups[chatJid];
-  if (!group) return null;
-  if (group.isMain) return null; // main group 不需要 trigger
-
-  const wantTrigger = command === '/trigger';
-  if (group.requiresTrigger === wantTrigger) {
-    return wantTrigger
-      ? `已经是 @触发 模式，发消息需要 ${group.trigger || DEFAULT_TRIGGER} 开头`
-      : '已经是免@模式，所有消息都会被处理';
-  }
-
-  group.requiresTrigger = wantTrigger;
-  registeredGroups[chatJid] = group;
-  setRegisteredGroup(chatJid, group);
-
-  logger.info(
-    { chatJid, name: group.name, requiresTrigger: wantTrigger },
-    'Trigger mode toggled',
-  );
-
-  return wantTrigger
-    ? `已切换到 @触发 模式，发消息需要 ${group.trigger || DEFAULT_TRIGGER} 开头`
-    : '已切换到免@模式，所有消息都会被处理';
-}
 
 /**
  * Return the message cursor for a group, recovering from the last bot reply
@@ -1139,47 +1096,6 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => shutdown('SIGINT'));
 
   // Handle /remote-control and /remote-control-end commands
-  async function handleRemoteControl(
-    command: string,
-    chatJid: string,
-    msg: NewMessage,
-  ): Promise<void> {
-    const group = registeredGroups[chatJid];
-    if (!group?.isMain) {
-      logger.warn(
-        { chatJid, sender: msg.sender },
-        'Remote control rejected: not main group',
-      );
-      return;
-    }
-
-    const channel = findChannel(channels, chatJid);
-    if (!channel) return;
-
-    if (command === '/remote-control') {
-      const result = await startRemoteControl(
-        msg.sender,
-        chatJid,
-        process.cwd(),
-      );
-      if (result.ok) {
-        await channel.sendMessage(chatJid, result.url);
-      } else {
-        await channel.sendMessage(
-          chatJid,
-          `Remote Control failed: ${result.error}`,
-        );
-      }
-    } else {
-      const result = stopRemoteControl();
-      if (result.ok) {
-        await channel.sendMessage(chatJid, 'Remote Control session ended.');
-      } else {
-        await channel.sendMessage(chatJid, result.error);
-      }
-    }
-  }
-
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: async (chatJid: string, msg: NewMessage) => {
@@ -1208,325 +1124,11 @@ async function main(): Promise<void> {
         if (handled) return;
       }
 
-      // /cwd 命令 — 设置 Claude Code 的工作目录
-      if (trimmed === '/cwd' || trimmed.startsWith('/cwd ')) {
-        const ch = findChannel(channels, chatJid);
-        const grp = registeredGroups[chatJid];
-        if (grp) {
-          const arg = trimmed.slice(4).trim();
-          if (!arg || arg === 'status') {
-            const cur = grp.customCwd || '(默认: groups/' + grp.folder + ')';
-            ch?.sendMessage(chatJid, `[cwd] 当前工作目录: ${cur}`).catch(
-              () => {},
-            );
-          } else if (arg === 'reset') {
-            delete grp.customCwd;
-            setRegisteredGroup(chatJid, grp);
-            ch?.sendMessage(
-              chatJid,
-              '[cwd] 已重置为默认目录，下次对话生效',
-            ).catch(() => {});
-          } else {
-            const resolved = path.resolve(
-              arg.replace(/^~/, process.env.HOME || '~'),
-            );
-            if (!fs.existsSync(resolved)) {
-              ch?.sendMessage(chatJid, `[cwd] 目录不存在: ${resolved}`).catch(
-                () => {},
-              );
-            } else {
-              grp.customCwd = resolved;
-              setRegisteredGroup(chatJid, grp);
-              ch?.sendMessage(
-                chatJid,
-                `[cwd] 已设置为 ${resolved}，下次对话生效`,
-              ).catch(() => {});
-            }
-          }
-        }
-        return;
-      }
-
-      // Remote control commands — intercept before storage
-      if (trimmed === '/remote-control' || trimmed === '/remote-control-end') {
-        handleRemoteControl(trimmed, chatJid, msg).catch((err) =>
-          logger.error({ err, chatJid }, 'Remote control command error'),
-        );
-        return;
-      }
-
-      // /help 指令 — 列出所有可用命令
-      if (trimmed === '/help') {
-        const ch = findChannel(channels, chatJid);
-        const help = [
-          '可用命令：',
-          '',
-          '/help — 显示此帮助',
-          '/clear — 清除当前 session，开始新对话（记忆保留）',
-          '/reset — 杀进程，保留 session（重启后恢复上下文，用于加载新代码）',
-          '/new — 杀进程 + 清 session，开启全新会话',
-          '/account — 列出所有 Anthropic 账号及当前绑定',
-          '/account <name> — 切换到指定账号',
-          '/account auto on|off — 开关自动轮换（429 时自动切换）',
-          '/usage — 查当前账号配额使用率',
-          '/usage all — 查所有账号配额',
-          '/usage <name> — 查指定账号配额',
-          '/trigger — 开启 @触发模式（群聊需 @机器人才响应）',
-          '/notrigger — 关闭 @触发模式（群聊中所有消息都响应）',
-          '/cwd <path> — 设置 Claude Code 工作目录（下次对话生效）',
-          '/cwd reset — 重置为默认工作目录',
-          '`!` <消息> — Sonnet 快速（无思考）',
-          '`!!` <消息> — Sonnet 深度思考',
-          '`~` <消息> — 关闭思考（默认模型）',
-          '`+` <消息> — Opus 4.6 深度思考',
-          '/remote-control — 启动 Claude Code 远程控制会话',
-          '/remote-control-end — 结束远程控制会话',
-        ].join('\n');
-        ch?.sendMessage(chatJid, help).catch((err) =>
-          logger.error({ err }, '/help reply failed'),
-        );
-        return;
-      }
-
-      // /account 指令 — 切换 Anthropic 账号
-      if (trimmed === '/account' || trimmed.startsWith('/account ')) {
-        const arg = trimmed.slice('/account'.length).trim();
-        const ch = findChannel(channels, chatJid);
-        logger.info(
-          { chatJid, arg, hasCh: !!ch, trimmed },
-          '/account 命令匹配',
-        );
-        try {
-          if (arg === 'auto on') {
-            setRotateEnabled(true);
-            ch?.sendMessage(chatJid, '🔄 自动轮换已开启').catch(() => {});
-            logger.info('/account auto on');
-          } else if (arg === 'auto off') {
-            setRotateEnabled(false);
-            ch?.sendMessage(chatJid, '🔄 自动轮换已关闭').catch(() => {});
-            logger.info('/account auto off');
-          } else if (!arg) {
-            // 列出所有 secrets
-
-            const secrets = JSON.parse(
-              execSync('onecli secrets list', {
-                encoding: 'utf-8',
-                timeout: 5000,
-              }),
-            ) as Array<{ id: string; name: string; type: string }>;
-            const agents = JSON.parse(
-              execSync('onecli agents list', {
-                encoding: 'utf-8',
-                timeout: 5000,
-              }),
-            ) as Array<{
-              id: string;
-              name: string;
-              identifier: string;
-              secretMode: string;
-            }>;
-
-            // 找当前群对应的 agent
-            const group = registeredGroups[chatJid];
-            const agentId =
-              group?.folder.toLowerCase().replace(/_/g, '-') || '';
-            const currentAgent =
-              agents.find((a) => a.identifier === agentId) ||
-              agents.find((a) => 'isDefault' in a && a.isDefault);
-
-            // 获取当前 agent 绑定的 secrets
-            let assignedSecretIds: string[] = [];
-            if (currentAgent) {
-              try {
-                const agentSecrets = JSON.parse(
-                  execSync(`onecli agents secrets --id ${currentAgent.id}`, {
-                    encoding: 'utf-8',
-                    timeout: 5000,
-                  }),
-                ) as Array<string | { id: string }>;
-                assignedSecretIds = agentSecrets.map((s) =>
-                  typeof s === 'string' ? s : s.id,
-                );
-              } catch {
-                /* no secrets assigned */
-              }
-            }
-
-            const autoStatus = getRotateEnabled() ? '开启' : '关闭';
-            const lines = secrets.map((s) => {
-              const active = assignedSecretIds.includes(s.id) ? ' ← 当前' : '';
-              return `• ${s.name} (${s.type})${active}`;
-            });
-            const reply =
-              lines.length > 0
-                ? `可用账号：\n${lines.join('\n')}\n\n自动轮换: ${autoStatus}\n\n切换：/account <name>\n开关：/account auto on|off`
-                : '没有配置任何账号。用 onecli secrets create 添加。';
-            logger.info(
-              { chatJid, replyLen: reply.length },
-              '/account 准备发送回复',
-            );
-            ch?.sendMessage(chatJid, reply)
-              .then(() => logger.info('/account 回复已发送'))
-              .catch((err) => logger.error({ err }, '/account reply failed'));
-          } else {
-            // 切换到指定账号
-
-            const secrets = JSON.parse(
-              execSync('onecli secrets list', {
-                encoding: 'utf-8',
-                timeout: 5000,
-              }),
-            ) as Array<{ id: string; name: string }>;
-            const target = secrets.find(
-              (s) =>
-                s.name === arg ||
-                s.id === arg ||
-                s.name.toLowerCase().includes(arg.toLowerCase()),
-            );
-            if (!target) {
-              ch?.sendMessage(
-                chatJid,
-                `❌ 找不到账号 "${arg}"。用 /account 查看可用账号。`,
-              ).catch(() => {});
-            } else {
-              const group = registeredGroups[chatJid];
-              const agentId =
-                group?.folder.toLowerCase().replace(/_/g, '-') || '';
-              const agents = JSON.parse(
-                execSync('onecli agents list', {
-                  encoding: 'utf-8',
-                  timeout: 5000,
-                }),
-              ) as Array<{
-                id: string;
-                identifier: string;
-                isDefault?: boolean;
-              }>;
-              const agent =
-                agents.find((a) => a.identifier === agentId) ||
-                agents.find((a) => 'isDefault' in a && a.isDefault);
-              if (agent) {
-                execSync(
-                  `onecli agents set-secrets --id ${agent.id} --secret-ids ${target.id}`,
-                  { encoding: 'utf-8', timeout: 5000 },
-                );
-                // 杀掉旧容器，让新消息用新 key 起新容器
-                // 注意：不删 session，保留聊天记录，新容器会 resume
-                if (group) {
-                  delete sessions[group.folder];
-                  queue.killGroup(chatJid);
-                }
-                ch?.sendMessage(
-                  chatJid,
-                  `✅ 已切换到 ${target.name}。下次对话生效。`,
-                ).catch(() => {});
-                logger.info(
-                  { agent: agent.id, secret: target.name },
-                  '/account: 账号已切换',
-                );
-              } else {
-                ch?.sendMessage(chatJid, '❌ 找不到对应的 agent。').catch(
-                  () => {},
-                );
-              }
-            }
-          }
-        } catch (err) {
-          logger.error({ err }, '/account 执行失败');
-          ch?.sendMessage(
-            chatJid,
-            `❌ 账号操作失败: ${(err as Error).message}`,
-          ).catch(() => {});
-        }
-        return;
-      }
-
-      // /usage 指令 — 查询配额使用率
-      if (trimmed === '/usage' || trimmed.startsWith('/usage ')) {
-        const arg = trimmed.slice('/usage'.length).trim();
-        const ch = findChannel(channels, chatJid);
-
-        (async () => {
-          try {
-            if (arg === 'all') {
-              const results = await getUsageAll();
-              const currentSecret = getCurrentSecretName(
-                chatJid,
-                registeredGroups,
-              );
-              const reply = formatUsageAll(results, currentSecret);
-              await ch?.sendMessage(chatJid, reply);
-            } else if (!arg) {
-              const currentSecret = getCurrentSecretName(
-                chatJid,
-                registeredGroups,
-              );
-              if (!currentSecret) {
-                await ch?.sendMessage(
-                  chatJid,
-                  '⚠️ 无法确定当前账号。用 /usage all 查看所有。',
-                );
-                return;
-              }
-              const result = await getUsageForSecret(currentSecret);
-              await ch?.sendMessage(chatJid, formatUsage(result));
-            } else {
-              // /usage <secret-name> — 查指定账号
-              const result = await getUsageForSecret(arg);
-              await ch?.sendMessage(chatJid, formatUsage(result));
-            }
-          } catch (err) {
-            logger.error({ err }, '/usage 执行失败');
-            ch?.sendMessage(
-              chatJid,
-              `❌ 查询失败: ${(err as Error).message}`,
-            ).catch(() => {});
-          }
-        })();
-        return;
-      }
-
-      // /trigger 和 /notrigger 指令 — 拦截并切换模式
-      if (trimmed === '/trigger' || trimmed === '/notrigger') {
-        const reply = handleTriggerToggle(
-          chatJid,
-          trimmed as '/trigger' | '/notrigger',
-        );
-        if (reply) {
-          const ch = findChannel(channels, chatJid);
-          ch?.sendMessage(chatJid, reply).catch((err) =>
-            logger.error(
-              { err, chatJid },
-              'Failed to send trigger toggle reply',
-            ),
-          );
-        }
-        return; // 不存储指令消息
-      }
-
       // 未知 / 命令 — 拦截并返回错误提示，不进 LLM
       if (trimmed.startsWith('/') && !trimmed.startsWith('/ ')) {
         const ch = findChannel(channels, chatJid);
         const unknownCmd = trimmed.split(/\s/)[0];
-        const help = [
-          `❓ 未知命令 "${unknownCmd}"，可用命令：`,
-          '',
-          '/help — 显示此帮助',
-          '/clear — 清除当前 session，开始新对话（记忆保留）',
-          '/reset — 杀进程，保留 session（重启后恢复上下文）',
-          '/new — 杀进程 + 清 session，开启全新会话',
-          '/account — 列出所有 Anthropic 账号及当前绑定',
-          '/account <name> — 切换到指定账号',
-          '/account auto on|off — 开关自动轮换（429 时自动切换）',
-          '/usage — 查当前账号配额',
-          '/usage all — 查所有账号配额',
-          '/trigger — 开启 @触发模式',
-          '/notrigger — 关闭 @触发模式',
-          '/cwd <path> — 设置 Claude Code 工作目录',
-          '`!` <消息> — 单次快速模式（Sonnet）',
-          '/remote-control — 启动 Claude Code 远程控制会话',
-          '/remote-control-end — 结束远程控制会话',
-        ].join('\n');
+        const help = getHelp(`❓ 未知命令 "${unknownCmd}"，`);
         ch?.sendMessage(chatJid, help).catch((err) =>
           logger.error({ err }, 'unknown command reply failed'),
         );
