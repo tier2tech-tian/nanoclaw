@@ -168,6 +168,32 @@ export class GroupQueue {
   }
 
   /**
+   * 杀掉指定 group 的活跃容器进程。
+   * 用于 /account 切换账号时立即终止旧容器，让新消息用新 key 起新容器。
+   * 进程退出后 runForGroup 的 finally 块会自动 drain 后续消息。
+   */
+  killGroup(groupJid: string): boolean {
+    const state = this.groups.get(groupJid);
+    if (!state?.active || !state.process) return false;
+
+    const pid = state.process.pid;
+    const name = state.containerName || groupJid;
+    logger.info({ groupJid, pid, name }, 'killGroup: 终止容器进程');
+
+    try {
+      // 先尝试杀进程组
+      process.kill(-pid!, 'SIGTERM');
+    } catch {
+      try {
+        process.kill(pid!, 'SIGTERM');
+      } catch {
+        // 进程已退出
+      }
+    }
+    return true;
+  }
+
+  /**
    * Mark the container as idle-waiting (finished work, waiting for IPC input).
    * If tasks are pending, preempt the idle container immediately.
    */

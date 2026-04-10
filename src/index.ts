@@ -1395,10 +1395,11 @@ async function main(): Promise<void> {
                   `onecli agents set-secrets --id ${agent.id} --secret-ids ${target.id}`,
                   { encoding: 'utf-8', timeout: 5000 },
                 );
-                // 也清掉 session，让新容器用新 key
+                // 杀掉旧容器，让新消息用新 key 起新容器
+                // 注意：不删 session，保留聊天记录，新容器会 resume
                 if (group) {
                   delete sessions[group.folder];
-                  deleteSession(group.folder);
+                  queue.killGroup(chatJid);
                 }
                 ch?.sendMessage(
                   chatJid,
