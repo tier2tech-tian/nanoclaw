@@ -245,10 +245,7 @@ const _lastContextHash = new Map<string, string>();
  * 对 MessageContext 做 hash，用于去重
  */
 export function hashContext(ctx: MessageContext): string {
-  return crypto
-    .createHash('md5')
-    .update(JSON.stringify(ctx))
-    .digest('hex');
+  return crypto.createHash('md5').update(JSON.stringify(ctx)).digest('hex');
 }
 
 /**
@@ -348,10 +345,7 @@ export async function injectMemory(
       wikiHints =
         '\nWiki 相关条目（需要时可用 Read 工具查看详情）：\n' +
         lines.join('\n');
-      logger.info(
-        { matched: matched.length },
-        '[wiki] 命中 wiki 条目',
-      );
+      logger.info({ matched: matched.length }, '[wiki] 命中 wiki 条目');
     }
   }
 

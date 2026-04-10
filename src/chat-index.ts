@@ -13,10 +13,7 @@ import {
 import { getDb } from './db.js';
 import { logger } from './logger.js';
 import { getEmbedding } from './memory/embeddings.js';
-import {
-  mergeHybridResults,
-  HybridResult,
-} from './memory/hybrid.js';
+import { mergeHybridResults, HybridResult } from './memory/hybrid.js';
 
 // --- 类型定义 ---
 
@@ -81,7 +78,10 @@ export function cleanContent(text: string): string {
     '[工具: $1]',
   );
   // 通用 tool_result 清理（没有 tool_name 子标签的情况）
-  cleaned = cleaned.replace(/<tool_result>[\s\S]*?<\/tool_result>/g, '[工具调用结果]');
+  cleaned = cleaned.replace(
+    /<tool_result>[\s\S]*?<\/tool_result>/g,
+    '[工具调用结果]',
+  );
   // tool_use 只保留工具名
   cleaned = cleaned.replace(
     /<tool_use>\s*<tool_name>(.*?)<\/tool_name>[\s\S]*?<\/tool_use>/g,
@@ -145,7 +145,10 @@ export function chunkConversation(
   const cleanBot = cleanContent(botContent);
   const fullText = `${metadata.sender_name}: ${cleanUser}\n助手: ${cleanBot}`;
 
-  if (!fullText.trim() || fullText.trim() === `${metadata.sender_name}: \n助手:`) {
+  if (
+    !fullText.trim() ||
+    fullText.trim() === `${metadata.sender_name}: \n助手:`
+  ) {
     return [];
   }
 
@@ -270,16 +273,11 @@ export class ChatIndex {
     try {
       const db = getDb();
       const chunks = db
-        .prepare(
-          'SELECT * FROM chat_chunks WHERE qdrant_indexed = 0 LIMIT ?',
-        )
+        .prepare('SELECT * FROM chat_chunks WHERE qdrant_indexed = 0 LIMIT ?')
         .all(RETRY_LIMIT) as ChatChunk[];
 
       if (chunks.length === 0) return;
-      logger.info(
-        { count: chunks.length },
-        '重试未索引的 chat chunks',
-      );
+      logger.info({ count: chunks.length }, '重试未索引的 chat chunks');
 
       for (const chunk of chunks) {
         try {
@@ -288,7 +286,11 @@ export class ChatIndex {
 
           if (embedding.length !== VECTOR_SIZE) {
             logger.error(
-              { expected: VECTOR_SIZE, got: embedding.length, chunkId: chunk.id },
+              {
+                expected: VECTOR_SIZE,
+                got: embedding.length,
+                chunkId: chunk.id,
+              },
               'Embedding 维度不匹配，跳过',
             );
             continue;
@@ -314,10 +316,7 @@ export class ChatIndex {
             'UPDATE chat_chunks SET qdrant_indexed = 1 WHERE id = ?',
           ).run(chunk.id);
         } catch (err) {
-          logger.warn(
-            { err, chunkId: chunk.id },
-            '重试索引 chunk 失败',
-          );
+          logger.warn({ err, chunkId: chunk.id }, '重试索引 chunk 失败');
         }
       }
     } catch (err) {
@@ -402,7 +401,11 @@ export class ChatIndex {
 
               if (embedding.length !== VECTOR_SIZE) {
                 logger.error(
-                  { expected: VECTOR_SIZE, got: embedding.length, chunkId: chunk.id },
+                  {
+                    expected: VECTOR_SIZE,
+                    got: embedding.length,
+                    chunkId: chunk.id,
+                  },
                   'Embedding 维度不匹配，跳过',
                 );
                 continue;
@@ -484,10 +487,16 @@ export class ChatIndex {
 
           vectorResults = results.map((r) => ({
             id: String(r.id),
-            content: String((r.payload as Record<string, unknown>)?.chunk_text || ''),
+            content: String(
+              (r.payload as Record<string, unknown>)?.chunk_text || '',
+            ),
             score: r.score,
-            createdAt: String((r.payload as Record<string, unknown>)?.start_time || ''),
-            embedding: Array.isArray(r.vector) ? (r.vector as number[]) : undefined,
+            createdAt: String(
+              (r.payload as Record<string, unknown>)?.start_time || '',
+            ),
+            embedding: Array.isArray(r.vector)
+              ? (r.vector as number[])
+              : undefined,
             metadata: r.payload as Record<string, unknown>,
           }));
         }

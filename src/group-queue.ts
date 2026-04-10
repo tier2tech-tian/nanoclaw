@@ -238,7 +238,12 @@ export class GroupQueue {
       const tempPath = `${filepath}.tmp`;
       fs.writeFileSync(
         tempPath,
-        JSON.stringify({ type: 'message', text, modelOverride, context: context || undefined }),
+        JSON.stringify({
+          type: 'message',
+          text,
+          modelOverride,
+          context: context || undefined,
+        }),
       );
       fs.renameSync(tempPath, filepath);
       return true;

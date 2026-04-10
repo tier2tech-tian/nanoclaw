@@ -129,7 +129,11 @@ describe('chunkConversation', () => {
   };
 
   it('短对话生成单个 chunk', () => {
-    const chunks = chunkConversation('你好', '你好，有什么可以帮你？', baseMeta);
+    const chunks = chunkConversation(
+      '你好',
+      '你好，有什么可以帮你？',
+      baseMeta,
+    );
     expect(chunks).toHaveLength(1);
     expect(chunks[0].chunk_text).toContain('张三: 你好');
     expect(chunks[0].chunk_text).toContain('助手: 你好，有什么可以帮你？');
@@ -222,9 +226,7 @@ describe('ChatIndex SQLite 操作', () => {
 
     const db = getDb();
     const count = db
-      .prepare(
-        'SELECT COUNT(*) as cnt FROM chat_chunks WHERE group_folder = ?',
-      )
+      .prepare('SELECT COUNT(*) as cnt FROM chat_chunks WHERE group_folder = ?')
       .get('dup_grp') as { cnt: number };
 
     expect(count.cnt).toBe(1);

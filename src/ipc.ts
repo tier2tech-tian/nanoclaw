@@ -5,7 +5,12 @@ import { CronExpressionParser } from 'cron-parser';
 
 import crypto from 'crypto';
 
-import { CHAT_INDEX_ENABLED, DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from './config.js';
+import {
+  CHAT_INDEX_ENABLED,
+  DATA_DIR,
+  IPC_POLL_INTERVAL,
+  TIMEZONE,
+} from './config.js';
 import { getChatIndex } from './chat-index.js';
 import { AvailableGroup, getFeishuToken } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
@@ -731,7 +736,9 @@ export async function processTaskIpc(
       }
 
       try {
-        const options = (data as Record<string, unknown>).options as Record<string, unknown> | undefined;
+        const options = (data as Record<string, unknown>).options as
+          | Record<string, unknown>
+          | undefined;
         const searchTimeout = 15_000;
         const results = await Promise.race([
           getChatIndex().search(query, {
@@ -741,7 +748,10 @@ export async function processTaskIpc(
             limit: options?.limit as number | undefined,
           }),
           new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('search_chat timeout')), searchTimeout),
+            setTimeout(
+              () => reject(new Error('search_chat timeout')),
+              searchTimeout,
+            ),
           ),
         ]);
         writeIpcResponse(sourceGroup, requestId, { results });

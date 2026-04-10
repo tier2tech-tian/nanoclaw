@@ -1005,12 +1005,22 @@ async function startMessageLoop(): Promise<void> {
                 }
               }
             } catch (err) {
-              logger.warn({ err, chatJid }, 'buildMessageContext 失败，降级跳过');
+              logger.warn(
+                { err, chatJid },
+                'buildMessageContext 失败，降级跳过',
+              );
               dynamicContext = null;
             }
           }
 
-          if (queue.sendMessage(chatJid, formatted, pipeModelOverride, dynamicContext)) {
+          if (
+            queue.sendMessage(
+              chatJid,
+              formatted,
+              pipeModelOverride,
+              dynamicContext,
+            )
+          ) {
             logger.debug(
               { chatJid, count: messagesToSend.length },
               'Piped messages to active container',
@@ -1099,9 +1109,11 @@ async function main(): Promise<void> {
 
   // 初始化聊天记录索引（如启用）
   if (CHAT_INDEX_ENABLED) {
-    getChatIndex().init().catch((err) => {
-      logger.warn({ err }, 'Chat index 初始化失败，不影响主流程');
-    });
+    getChatIndex()
+      .init()
+      .catch((err) => {
+        logger.warn({ err }, 'Chat index 初始化失败，不影响主流程');
+      });
   }
 
   // Graceful shutdown handlers

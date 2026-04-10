@@ -295,12 +295,9 @@ export function parseEnvOutput(output: string): Record<string, string> {
   return result;
 }
 
-// OneCLI CA 证书临时文件路径
-const ONECLI_CA_PATH = path.join(os.tmpdir(), 'onecli-gateway-ca.pem');
-const ONECLI_COMBINED_CA_PATH = path.join(
-  os.tmpdir(),
-  'onecli-combined-ca.pem',
-);
+// OneCLI CA 证书路径（放在 data/ 下，避免 /tmp 被清理导致 proxy 连接失败）
+const ONECLI_CA_PATH = path.join(DATA_DIR, 'onecli-gateway-ca.pem');
+const ONECLI_COMBINED_CA_PATH = path.join(DATA_DIR, 'onecli-combined-ca.pem');
 
 /**
  * 获取 OneCLI 代理配置（HTTPS_PROXY + CA 证书），用于凭证注入。
