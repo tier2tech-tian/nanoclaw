@@ -3,6 +3,8 @@ import fs from 'fs';
 import path from 'path';
 
 import { DATA_DIR, MAX_CONCURRENT_AGENTS } from './config.js';
+import { clearContextHash } from './memory/inject.js';
+import type { MessageContext } from './memory/inject.js';
 import { logger } from './logger.js';
 
 interface QueuedTask {
@@ -158,6 +160,14 @@ export class GroupQueue {
   }
 
   /**
+   * 检查 group 的 container 是否 active（可用于决定是否做动态注入）
+   */
+  isActive(groupJid: string): boolean {
+    const state = this.groups.get(groupJid);
+    return !!state?.active && !!state?.groupFolder && !state?.isTaskContainer;
+  }
+
+  /**
    * Mark the container as idle-waiting (finished work, waiting for IPC input).
    * If tasks are pending, preempt the idle container immediately.
    */
@@ -177,6 +187,7 @@ export class GroupQueue {
     groupJid: string,
     text: string,
     modelOverride?: { model?: string; thinking?: 'adaptive' | 'disabled' },
+    context?: MessageContext | null,
   ): boolean {
     const state = this.getGroup(groupJid);
     if (!state.active || !state.groupFolder || state.isTaskContainer) {
@@ -201,7 +212,7 @@ export class GroupQueue {
       const tempPath = `${filepath}.tmp`;
       fs.writeFileSync(
         tempPath,
-        JSON.stringify({ type: 'message', text, modelOverride }),
+        JSON.stringify({ type: 'message', text, modelOverride, context: context || undefined }),
       );
       fs.renameSync(tempPath, filepath);
       return true;
@@ -255,6 +266,7 @@ export class GroupQueue {
       logger.error({ groupJid, err }, 'Error processing messages for group');
       this.scheduleRetry(groupJid, state);
     } finally {
+      if (state.groupFolder) clearContextHash(state.groupFolder);
       state.active = false;
       state.process = null;
       state.containerName = null;
@@ -282,6 +294,7 @@ export class GroupQueue {
     } catch (err) {
       logger.error({ groupJid, taskId: task.id, err }, 'Error running task');
     } finally {
+      if (state.groupFolder) clearContextHash(state.groupFolder);
       state.active = false;
       state.isTaskContainer = false;
       state.runningTaskId = null;

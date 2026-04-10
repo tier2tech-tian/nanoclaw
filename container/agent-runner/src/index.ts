@@ -345,9 +345,65 @@ function shouldClose(): boolean {
   return false;
 }
 
+// 动态 context 类型（与宿主侧 MessageContext 一致）
+interface WikiMatch {
+  title: string;
+  path: string;
+  snippet: string;
+}
+
+interface FactMatch {
+  content: string;
+  category: string;
+  confidence: number;
+}
+
+interface MessageContext {
+  wiki: WikiMatch[];
+  facts: FactMatch[];
+}
+
 interface IpcMessage {
   text: string;
   modelOverride?: { model?: string; thinking?: 'adaptive' | 'disabled' };
+  context?: MessageContext | null;
+}
+
+/**
+ * 将 MessageContext 格式化为 <context> XML 块
+ */
+function formatContext(ctx: MessageContext): string {
+  const parts: string[] = ['<context>'];
+  if (ctx.wiki?.length) {
+    parts.push('Wiki 相关条目:');
+    for (const w of ctx.wiki) {
+      parts.push(`  - [${w.title}](${w.path}) — ${w.snippet}`);
+    }
+  }
+  if (ctx.facts?.length) {
+    parts.push('记忆召回:');
+    for (const f of ctx.facts) {
+      parts.push(`  - [${f.category} | ${f.confidence.toFixed(2)}] ${f.content}`);
+    }
+  }
+  parts.push('</context>');
+  return parts.join('\n');
+}
+
+/**
+ * 判断 context 是否有效（非空且有实际条目）
+ */
+function hasValidContext(ctx: MessageContext | null | undefined): ctx is MessageContext {
+  if (!ctx) return false;
+  return (ctx.wiki?.length > 0) || (ctx.facts?.length > 0);
+}
+
+/**
+ * 将 context prepend 到消息文本前
+ */
+function prependContext(text: string, ctx: MessageContext | null | undefined): string {
+  if (!hasValidContext(ctx)) return text;
+  return formatContext(ctx) + '\n\n' + text;
 }
 
 /**
@@ -368,7 +424,11 @@ function drainIpcInput(): IpcMessage[] {
         const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
         fs.unlinkSync(filePath);
         if (data.type === 'message' && data.text) {
-          messages.push({ text: data.text, modelOverride: data.modelOverride });
+          messages.push({
+            text: data.text,
+            modelOverride: data.modelOverride,
+            context: data.context || null,
+          });
         }
       } catch (err) {
         log(
@@ -400,11 +460,16 @@ function waitForIpcMessage(): Promise<IpcMessage | null> {
       }
       const messages = drainIpcInput();
       if (messages.length > 0) {
-        // 合并多条消息文本，modelOverride 取最后一条的
+        // 合并多条消息文本，modelOverride + context 取最后一条的
+        const last = messages[messages.length - 1];
         const combined: IpcMessage = {
           text: messages.map(m => m.text).join('\n'),
-          modelOverride: messages[messages.length - 1].modelOverride,
+          modelOverride: last.modelOverride,
+          context: last.context || null,
         };
+        if (hasValidContext(combined.context)) {
+          log(`Combined ${messages.length} msgs, context from last (wiki=${combined.context!.wiki.length} facts=${combined.context!.facts.length})`);
+        }
         resolve(combined);
         return;
       }
@@ -471,7 +536,11 @@ async function runQuery(
           }).catch(() => {});
         }
       }
-      stream.push(msg.text);
+      const pushText = prependContext(msg.text, msg.context);
+      if (hasValidContext(msg.context)) {
+        log(`Piping with context: wiki=${msg.context!.wiki.length} facts=${msg.context!.facts.length}`);
+      }
+      stream.push(pushText);
     }
     setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
   };
@@ -1029,7 +1098,7 @@ async function main(): Promise<void> {
   const pending = drainIpcInput();
   if (pending.length > 0) {
     log(`Draining ${pending.length} pending IPC messages into initial prompt`);
-    prompt += '\n' + pending.map(m => m.text).join('\n');
+    prompt += '\n' + pending.map(m => prependContext(m.text, m.context)).join('\n');
   }
 
   // Script phase: run script before waking agent
@@ -1098,7 +1167,7 @@ async function main(): Promise<void> {
       }
 
       log(`Got new message (${nextMessage.text.length} chars), starting new query`);
-      prompt = nextMessage.text;
+      prompt = prependContext(nextMessage.text, nextMessage.context);
       // 应用 IPC 消息中的 modelOverride（下次 runQuery 会用）
       if (nextMessage.modelOverride) {
         containerInput.modelOverride = nextMessage.modelOverride;

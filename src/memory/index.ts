@@ -10,7 +10,15 @@ import { injectMemory } from './inject.js';
 import { logger } from '../logger.js';
 
 export { getMemoryConfig } from './config.js';
-export { injectMemory } from './inject.js';
+export {
+  injectMemory,
+  buildMessageContext,
+  hashContext,
+  getLastContextHash,
+  setLastContextHash,
+  clearContextHash,
+} from './inject.js';
+export type { MessageContext, WikiMatch, FactMatch } from './inject.js';
 export { MemoryStore } from './memory-store.js';
 
 let _queue: MemoryUpdateQueue | null = null;

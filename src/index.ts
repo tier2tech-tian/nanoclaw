@@ -8,7 +8,12 @@ import {
   getMemoryQueue,
   injectMemory,
   isMemoryEnabled,
+  buildMessageContext,
+  hashContext,
+  getLastContextHash,
+  setLastContextHash,
 } from './memory/index.js';
+import type { MessageContext } from './memory/index.js';
 import {
   ASSISTANT_NAME,
   DEFAULT_TRIGGER,
@@ -87,6 +92,7 @@ let lastTimestamp = '';
 let sessions: Record<string, string> = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
+// 动态记忆注入去重：per-group context hash（在 inject.ts 管理）
 let messageLoopRunning = false;
 
 const channels: Channel[] = [];
@@ -932,7 +938,39 @@ async function startMessageLoop(): Promise<void> {
           }
           const formatted = formatMessages(messagesToSend, TIMEZONE);
 
-          if (queue.sendMessage(chatJid, formatted, pipeModelOverride)) {
+          // 动态记忆/Wiki 注入：仅 container active 时才做（避免冷启动路径浪费）
+          // 用最后一条原始用户消息做 query，避免 formatted 中的时间戳/发送者噪声
+          let dynamicContext: MessageContext | null = null;
+          if (isMemoryEnabled() && queue.isActive(chatJid)) {
+            try {
+              const lastMsg = messagesToSend[messagesToSend.length - 1];
+              const queryText = lastMsg?.content || formatted;
+              const groupDir = resolveGroupFolderPath(group.folder);
+              dynamicContext = await buildMessageContext(queryText, groupDir);
+              // 去重：与上次相同则不注入
+              if (dynamicContext) {
+                const hash = hashContext(dynamicContext);
+                if (hash === getLastContextHash(group.folder)) {
+                  dynamicContext = null;
+                } else {
+                  setLastContextHash(group.folder, hash);
+                  logger.info(
+                    {
+                      chatJid,
+                      wikiCount: dynamicContext.wiki.length,
+                      factsCount: dynamicContext.facts.length,
+                    },
+                    '动态 context 注入',
+                  );
+                }
+              }
+            } catch (err) {
+              logger.warn({ err, chatJid }, 'buildMessageContext 失败，降级跳过');
+              dynamicContext = null;
+            }
+          }
+
+          if (queue.sendMessage(chatJid, formatted, pipeModelOverride, dynamicContext)) {
             logger.debug(
               { chatJid, count: messagesToSend.length },
               'Piped messages to active container',
