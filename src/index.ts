@@ -1544,7 +1544,10 @@ async function main(): Promise<void> {
       if (channel?.renameChat) {
         await channel.renameChat(jid, name);
       } else {
-        logger.warn({ jid, hasChannel: !!channel }, '[rename] channel 不支持 renameChat');
+        logger.warn(
+          { jid, hasChannel: !!channel },
+          '[rename] channel 不支持 renameChat',
+        );
       }
     },
     onFeishuAuthRequest: async (chatJid, groupFolder) => {

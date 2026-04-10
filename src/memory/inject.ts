@@ -75,30 +75,50 @@ export async function injectMemory(
   let wikiHints = '';
   if (latestUserMessage) {
     try {
-      const wikiIndexPath = path.join(groupDir, '..', 'global', 'wiki', 'index.md');
+      const wikiIndexPath = path.join(
+        groupDir,
+        '..',
+        'global',
+        'wiki',
+        'index.md',
+      );
       if (fs.existsSync(wikiIndexPath)) {
         const indexContent = fs.readFileSync(wikiIndexPath, 'utf-8');
         // 提取所有 "- [xxx](yyy) — zzz" 行
         const entryRegex = /^- \[([^\]]+)\]\(([^)]+)\)\s*(?:—\s*(.+))?$/gm;
-        const entries: Array<{ title: string; path: string; desc: string }> = [];
+        const entries: Array<{ title: string; path: string; desc: string }> =
+          [];
         let match: RegExpExecArray | null;
         while ((match = entryRegex.exec(indexContent)) !== null) {
-          entries.push({ title: match[1], path: match[2], desc: match[3] || '' });
+          entries.push({
+            title: match[1],
+            path: match[2],
+            desc: match[3] || '',
+          });
         }
         // 从用户消息提取关键词（中文字符 + 英文单词）
-        const tokens = (latestUserMessage.match(/[\u4e00-\u9fff]{2,}|[a-zA-Z]\w{2,}/g) || [])
-          .map(t => t.toLowerCase());
+        const tokens = (
+          latestUserMessage.match(/[\u4e00-\u9fff]{2,}|[a-zA-Z]\w{2,}/g) || []
+        ).map((t) => t.toLowerCase());
         if (tokens.length > 0) {
-          const matched = entries.filter(e => {
-            const text = `${e.title} ${e.desc}`.toLowerCase();
-            return tokens.some(t => text.includes(t));
-          }).slice(0, 5);
+          const matched = entries
+            .filter((e) => {
+              const text = `${e.title} ${e.desc}`.toLowerCase();
+              return tokens.some((t) => text.includes(t));
+            })
+            .slice(0, 5);
           if (matched.length > 0) {
-            const lines = matched.map(e =>
-              `- [${e.title}](../../global/wiki/${e.path})${e.desc ? ' — ' + e.desc : ''}`
+            const lines = matched.map(
+              (e) =>
+                `- [${e.title}](../../global/wiki/${e.path})${e.desc ? ' — ' + e.desc : ''}`,
             );
-            wikiHints = '\nWiki 相关条目（需要时可用 Read 工具查看详情）：\n' + lines.join('\n');
-            logger.info({ matched: matched.length, tokens: tokens.slice(0, 5) }, '[wiki] 命中 wiki 条目');
+            wikiHints =
+              '\nWiki 相关条目（需要时可用 Read 工具查看详情）：\n' +
+              lines.join('\n');
+            logger.info(
+              { matched: matched.length, tokens: tokens.slice(0, 5) },
+              '[wiki] 命中 wiki 条目',
+            );
           }
         }
       }

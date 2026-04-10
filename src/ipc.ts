@@ -125,13 +125,27 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 }
               }
 
-              if (data.type === 'rename_chat' && data.chatJid && data.name && deps.renameChat) {
+              if (
+                data.type === 'rename_chat' &&
+                data.chatJid &&
+                data.name &&
+                deps.renameChat
+              ) {
                 const targetGroup = registeredGroups[data.chatJid];
-                if (isMain || (targetGroup && targetGroup.folder === sourceGroup)) {
+                if (
+                  isMain ||
+                  (targetGroup && targetGroup.folder === sourceGroup)
+                ) {
                   await deps.renameChat(data.chatJid, data.name);
-                  logger.info({ chatJid: data.chatJid, name: data.name, sourceGroup }, 'IPC rename_chat processed');
+                  logger.info(
+                    { chatJid: data.chatJid, name: data.name, sourceGroup },
+                    'IPC rename_chat processed',
+                  );
                 } else {
-                  logger.warn({ chatJid: data.chatJid, sourceGroup }, 'Unauthorized IPC rename_chat blocked');
+                  logger.warn(
+                    { chatJid: data.chatJid, sourceGroup },
+                    'Unauthorized IPC rename_chat blocked',
+                  );
                 }
                 fs.unlinkSync(filePath);
                 continue;
