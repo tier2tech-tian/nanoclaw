@@ -1285,6 +1285,30 @@ async function main(): Promise<void> {
         return;
       }
 
+      // /reset 指令 — 杀掉进程 + 清除 session，彻底重建 container
+      if (trimmed === '/reset') {
+        const group = registeredGroups[chatJid];
+        if (group) {
+          const killed = queue.killGroup(chatJid);
+          delete sessions[group.folder];
+          deleteSession(group.folder);
+          logger.info(
+            { group: group.folder, killed },
+            '/reset: 进程已终止，session 已清除',
+          );
+          const ch = findChannel(channels, chatJid);
+          ch?.sendMessage(
+            chatJid,
+            killed
+              ? '进程已终止，session 已清除。下次消息将启动全新 container。'
+              : 'session 已清除（无活跃进程）。下次消息将启动全新 container。',
+          ).catch((err) =>
+            logger.error({ err }, 'Failed to send /reset reply'),
+          );
+        }
+        return;
+      }
+
       // /account 指令 — 切换 Anthropic 账号
       if (trimmed === '/account' || trimmed.startsWith('/account ')) {
         const arg = trimmed.slice('/account'.length).trim();
