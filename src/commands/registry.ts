@@ -7,6 +7,9 @@ import type { Command, CommandContext } from './types.js';
 const commands: Command[] = [];
 
 export function registerCommand(cmd: Command): void {
+  if (commands.some((c) => c.name === cmd.name)) {
+    throw new Error(`命令 "${cmd.name}" 已注册，禁止重复注册`);
+  }
   commands.push(cmd);
 }
 
@@ -39,8 +42,7 @@ export async function dispatch(
   if (!matched) {
     matched = commands.find(
       (c) =>
-        c.hasArgs &&
-        (trimmed === c.name || trimmed.startsWith(c.name + ' ')),
+        c.hasArgs && (trimmed === c.name || trimmed.startsWith(c.name + ' ')),
     );
   }
 
@@ -48,7 +50,13 @@ export async function dispatch(
 
   // channel 空值守卫
   const channel = findChannel(deps.channels, deps.chatJid);
-  if (!channel) return false;
+  if (!channel) {
+    logger.warn(
+      { chatJid: deps.chatJid, cmd: matched.name },
+      '命令匹配但 channel 未找到',
+    );
+    return true; // 命令已匹配，不应穿透到"未知命令"
+  }
 
   // 权限检查
   if (matched.requiresMain && !deps.group?.isMain) {
@@ -77,10 +85,7 @@ export async function dispatch(
   } catch (err) {
     logger.error({ err, cmd: matched.name }, '命令执行失败');
     await channel
-      .sendMessage(
-        deps.chatJid,
-        `命令执行失败: ${(err as Error).message}`,
-      )
+      .sendMessage(deps.chatJid, `命令执行失败: ${(err as Error).message}`)
       .catch(() => {});
   }
   return true;

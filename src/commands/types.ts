@@ -15,7 +15,7 @@ export interface CommandContext {
   chatJid: string;
   args: string; // 命令后的参数
   group: RegisteredGroup;
-  channel: Channel;
+  channel: Channel; // dispatch 层已保证非 null，handler 无需 findChannel
   msg: NewMessage; // 原始消息
   // 可变状态
   sessions: Record<string, string>;
