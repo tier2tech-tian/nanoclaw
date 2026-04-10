@@ -96,6 +96,8 @@ export interface Channel {
   setTyping?(jid: string, isTyping: boolean): Promise<void>;
   // Optional: sync group/chat names from the platform.
   syncGroups?(force: boolean): Promise<void>;
+  // Optional: rename the chat/group on the platform.
+  renameChat?(jid: string, name: string): Promise<void>;
 }
 
 // --- Usage API ---

@@ -61,10 +61,7 @@ export class MemoryStore {
     // 2. 关键词检索
     let keywordResults: HybridResult[] = [];
     try {
-      const kwResults = keywordSearch(
-        query,
-        topK * 2,
-      );
+      const kwResults = keywordSearch(query, topK * 2);
       keywordResults = kwResults.map((r) => ({
         id: r.id,
         content: r.content,

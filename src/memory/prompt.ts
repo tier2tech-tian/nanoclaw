@@ -5,77 +5,79 @@
  */
 import { getMemoryConfig } from './config.js';
 
-// LLM 记忆更新提示词（从 DeerFlow/Nine 直接移植）
-export const MEMORY_UPDATE_PROMPT = `You are a memory management system. Your task is to analyze a conversation and update the user's memory profile.
+// LLM 记忆更新提示词
+export const MEMORY_UPDATE_PROMPT = `你是一个记忆管理系统。你的任务是分析对话内容，更新用户的记忆档案。
 
-Current Memory State:
+**所有输出内容必须使用中文**，技术术语和专有名词可保留英文原文。
+
+当前记忆状态：
 <current_memory>
 {current_memory}
 </current_memory>
 
-New Conversation to Process:
+需要处理的新对话：
 <conversation>
 {conversation}
 </conversation>
 
-Instructions:
-1. Analyze the conversation for important information about the user
-2. Extract relevant facts, preferences, and context with specific details (numbers, names, technologies)
-3. Update the memory sections as needed following the detailed length guidelines below
+处理步骤：
+1. 分析对话中关于用户的重要信息
+2. 提取具体的事实、偏好和上下文（数字、名称、技术栈等细节）
+3. 按照以下规范更新各记忆模块
 
-Memory Section Guidelines:
+记忆模块规范：
 
-**User Context** (Current state - concise summaries):
-- workContext: Professional role, company, key projects, main technologies (2-3 sentences)
-  Example: Core contributor, project names with metrics (16k+ stars), technical stack
-- personalContext: Languages, communication preferences, key interests (1-2 sentences)
-  Example: Bilingual capabilities, specific interest areas, expertise domains
-- topOfMind: Multiple ongoing focus areas and priorities (3-5 sentences, detailed paragraph)
-  Example: Primary project work, parallel technical investigations, ongoing learning/tracking
-  Include: Active implementation work, troubleshooting issues, market/research interests
-  Note: This captures SEVERAL concurrent focus areas, not just one task
+**用户概况**（当前状态 - 简洁摘要）：
+- workContext：职业角色、公司、核心项目、主要技术栈（2-3 句）
+  示例：核心贡献者，项目名称及指标（16k+ stars），技术栈
+- personalContext：语言能力、沟通偏好、主要兴趣（1-2 句）
+  示例：双语能力、专业领域、兴趣方向
+- topOfMind：多个并行关注点和优先事项（3-5 句，详细段落）
+  示例：主线项目工作、并行技术调研、持续学习/跟踪
+  包含：正在实施的工作、排查中的问题、市场/调研兴趣
+  注意：这里记录多个并行关注点，不只是单一任务
 
-**History** (Temporal context - rich paragraphs):
-- recentMonths: Detailed summary of recent activities (4-6 sentences or 1-2 paragraphs)
-  Timeline: Last 1-3 months of interactions
-  Include: Technologies explored, projects worked on, problems solved, interests demonstrated
-- earlierContext: Important historical patterns (3-5 sentences or 1 paragraph)
-  Timeline: 3-12 months ago
-  Include: Past projects, learning journeys, established patterns
-- longTermBackground: Persistent background and foundational context (2-4 sentences)
-  Timeline: Overall/foundational information
-  Include: Core expertise, longstanding interests, fundamental working style
+**历史记录**（时间线上下文 - 详细段落）：
+- recentMonths：近期活动详细总结（4-6 句或 1-2 段）
+  时间范围：最近 1-3 个月
+  包含：探索的技术、参与的项目、解决的问题、展现的兴趣
+- earlierContext：较早的重要模式（3-5 句或 1 段）
+  时间范围：3-12 个月前
+  包含：过往项目、学习历程、已建立的模式
+- longTermBackground：持久的背景和基础上下文（2-4 句）
+  时间范围：全局/基础性信息
+  包含：核心专长、长期兴趣、基本工作风格
 
-**Facts Extraction**:
-- Extract specific, quantifiable details (e.g., "16k+ GitHub stars", "200+ datasets")
-- Include proper nouns (company names, project names, technology names)
-- Preserve technical terminology and version numbers
-- Categories:
-  * preference: Tools, styles, approaches user prefers/dislikes
-  * knowledge: Specific expertise, technologies mastered, domain knowledge
-  * context: Background facts (job title, projects, locations, languages)
-  * behavior: Working patterns, communication habits, problem-solving approaches
-  * goal: Stated objectives, learning targets, project ambitions
-- Confidence levels:
-  * 0.9-1.0: Explicitly stated facts ("I work on X", "My role is Y")
-  * 0.7-0.8: Strongly implied from actions/discussions
-  * 0.5-0.6: Inferred patterns (use sparingly, only for clear patterns)
+**事实提取**：
+- 提取具体、可量化的细节（如 "16k+ GitHub stars"、"200+ datasets"）
+- 包含专有名词（公司名、项目名、技术名称）
+- 保留技术术语和版本号
+- 分类：
+  * preference：用户偏好/不喜欢的工具、风格、方法
+  * knowledge：特定专长、掌握的技术、领域知识
+  * context：背景事实（职位、项目、地点、语言）
+  * behavior：工作模式、沟通习惯、解决问题的方式
+  * goal：明确的目标、学习计划、项目愿景
+- 置信度：
+  * 0.9-1.0：明确陈述（"我做 X"、"我的角色是 Y"）
+  * 0.7-0.8：从行为/讨论中强推断
+  * 0.5-0.6：推断的模式（谨慎使用，仅限明确模式）
 
-**What Goes Where**:
-- workContext: Current job, active projects, primary tech stack
-- personalContext: Languages, personality, interests outside direct work tasks
-- topOfMind: Multiple ongoing priorities and focus areas user cares about recently (gets updated most frequently)
-  Should capture 3-5 concurrent themes: main work, side explorations, learning/tracking interests
-- recentMonths: Detailed account of recent technical explorations and work
-- earlierContext: Patterns from slightly older interactions still relevant
-- longTermBackground: Unchanging foundational facts about the user
+**归类原则**：
+- workContext：当前工作、活跃项目、主要技术栈
+- personalContext：语言、性格、工作外的兴趣
+- topOfMind：用户近期关注的多个优先事项（更新最频繁）
+  应包含 3-5 个并行主题：主线工作、副线探索、学习/跟踪兴趣
+- recentMonths：近期技术探索和工作的详细记录
+- earlierContext：较早但仍相关的交互模式
+- longTermBackground：不变的基础性用户信息
 
-**Multilingual Content**:
-- Preserve original language for proper nouns and company names
-- Keep technical terms in their original form (DeepSeek, LangGraph, etc.)
-- Note language capabilities in personalContext
+**多语言内容**：
+- 专有名词和公司名保留原始语言
+- 技术术语保留原始形式（DeepSeek、LangGraph 等）
+- 在 personalContext 中注明语言能力
 
-Output Format (JSON):
+输出格式（JSON）：
 {{
   "user": {{
     "workContext": {{ "summary": "...", "shouldUpdate": true/false }},
@@ -93,22 +95,19 @@ Output Format (JSON):
   "factsToRemove": ["fact_id_1", "fact_id_2"]
 }}
 
-Important Rules:
-- Only set shouldUpdate=true if there's meaningful new information
-- Follow length guidelines: workContext/personalContext are concise (1-3 sentences), topOfMind and history sections are detailed (paragraphs)
-- Include specific metrics, version numbers, and proper nouns in facts
-- Only add facts that are clearly stated (0.9+) or strongly implied (0.7+)
-- Remove facts that are contradicted by new information
-- When updating topOfMind, integrate new focus areas while removing completed/abandoned ones
-  Keep 3-5 concurrent focus themes that are still active and relevant
-- For history sections, integrate new information chronologically into appropriate time period
-- Preserve technical accuracy - keep exact names of technologies, companies, projects
-- Focus on information useful for future interactions and personalization
-- IMPORTANT: Do NOT record file upload events in memory. Uploaded files are
-  session-specific and ephemeral - they will not be accessible in future sessions.
-  Recording upload events causes confusion in subsequent conversations.
+重要规则：
+- 仅在有实质新信息时设置 shouldUpdate=true
+- 遵循长度规范：workContext/personalContext 简洁（1-3 句），topOfMind 和 history 部分详细（段落）
+- 事实中包含具体指标、版本号和专有名词
+- 仅添加明确陈述（0.9+）或强推断（0.7+）的事实
+- 删除被新信息矛盾的旧事实
+- 更新 topOfMind 时，整合新关注点并移除已完成/放弃的项目，保持 3-5 个活跃主题
+- history 部分按时间线整合新信息
+- 保持技术准确性 — 保留技术、公司、项目的准确名称
+- 聚焦于对未来交互和个性化有用的信息
+- 重要：不要记录文件上传事件。上传文件是会话级的临时资源，后续会话无法访问，记录上传事件会导致混淆。
 
-Return ONLY valid JSON, no explanation or markdown.`;
+只返回合法 JSON，不要解释或 markdown。`;
 
 /**
  * token 估算：字符数 / 4（不引入 tiktoken 依赖）
@@ -159,13 +158,13 @@ export function formatMemoryForInjection(
   if (user) {
     const lines: string[] = [];
     const work = user.workContext;
-    if (work?.summary) lines.push(`Work: ${work.summary}`);
+    if (work?.summary) lines.push(`工作: ${work.summary}`);
     const personal = user.personalContext;
-    if (personal?.summary) lines.push(`Personal: ${personal.summary}`);
+    if (personal?.summary) lines.push(`个人: ${personal.summary}`);
     const topOfMind = user.topOfMind;
-    if (topOfMind?.summary) lines.push(`Current Focus: ${topOfMind.summary}`);
+    if (topOfMind?.summary) lines.push(`当前关注: ${topOfMind.summary}`);
     if (lines.length > 0) {
-      sections.push('User Context:\n' + lines.map((l) => `- ${l}`).join('\n'));
+      sections.push('用户概况:\n' + lines.map((l) => `- ${l}`).join('\n'));
     }
   }
 
@@ -174,15 +173,15 @@ export function formatMemoryForInjection(
   if (history) {
     const lines: string[] = [];
     const recent = history.recentMonths;
-    if (recent?.summary) lines.push(`Recent: ${recent.summary}`);
+    if (recent?.summary) lines.push(`近期: ${recent.summary}`);
     const earlier = history.earlierContext;
-    if (earlier?.summary) lines.push(`Earlier: ${earlier.summary}`);
+    if (earlier?.summary) lines.push(`较早: ${earlier.summary}`);
     if (lines.length > 0) {
-      sections.push('History:\n' + lines.map((l) => `- ${l}`).join('\n'));
+      sections.push('历史记录:\n' + lines.map((l) => `- ${l}`).join('\n'));
     }
   }
 
-  // Facts（按置信度降序，在 token 预算内填充）
+  // 事实（按置信度降序，在 token 预算内填充）
   const facts = memoryData.facts;
   if (Array.isArray(facts) && facts.length > 0) {
     const ranked = facts
@@ -193,7 +192,7 @@ export function formatMemoryForInjection(
 
     const baseText = sections.join('\n\n');
     const baseTokens = baseText ? countTokens(baseText) : 0;
-    const factsHeader = 'Facts:\n';
+    const factsHeader = '事实:\n';
     const separatorTokens = baseText
       ? countTokens('\n\n' + factsHeader)
       : countTokens(factsHeader);
@@ -218,7 +217,7 @@ export function formatMemoryForInjection(
     }
 
     if (factLines.length > 0) {
-      sections.push('Facts:\n' + factLines.join('\n'));
+      sections.push('事实:\n' + factLines.join('\n'));
     }
   }
 

@@ -839,9 +839,7 @@ export function setFeishuToken(
 
 // --- OAuth credentials (usage API) ---
 
-export function getOAuthCredential(
-  secretName: string,
-): OAuthCredential | null {
+export function getOAuthCredential(secretName: string): OAuthCredential | null {
   return (
     (db
       .prepare('SELECT * FROM oauth_credentials WHERE secret_name = ?')
@@ -888,7 +886,13 @@ export function updateOAuthTokens(
     `UPDATE oauth_credentials
      SET access_token = ?, refresh_token = ?, expires_at = ?, updated_at = ?
      WHERE secret_name = ?`,
-  ).run(accessToken, refreshToken, expiresAt, new Date().toISOString(), secretName);
+  ).run(
+    accessToken,
+    refreshToken,
+    expiresAt,
+    new Date().toISOString(),
+    secretName,
+  );
 }
 
 export function updateOAuthUsageCache(

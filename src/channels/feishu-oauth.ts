@@ -9,10 +9,7 @@ import os from 'os';
 
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
-import {
-  getFeishuTokenByUserId,
-  setFeishuToken,
-} from '../db.js';
+import { getFeishuTokenByUserId, setFeishuToken } from '../db.js';
 
 // ---- 配置 ----
 
@@ -134,17 +131,20 @@ async function refreshUserToken(
   if (!appToken) return null;
 
   try {
-    const resp = await fetch(`${API_BASE}/authen/v1/oidc/refresh_access_token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${appToken}`,
+    const resp = await fetch(
+      `${API_BASE}/authen/v1/oidc/refresh_access_token`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${appToken}`,
+        },
+        body: JSON.stringify({
+          grant_type: 'refresh_token',
+          refresh_token: refreshToken,
+        }),
       },
-      body: JSON.stringify({
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-      }),
-    });
+    );
     const data = (await resp.json()) as {
       code?: number;
       data?: {

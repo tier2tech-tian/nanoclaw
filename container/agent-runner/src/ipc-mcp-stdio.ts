@@ -70,6 +70,24 @@ server.tool(
 );
 
 server.tool(
+  'rename_chat',
+  '修改当前群聊名称。用于在开始任务时将群名改为任务名称，方便识别。',
+  {
+    name: z.string().describe('新的群聊名称（建议 20 字以内）'),
+  },
+  async (args) => {
+    writeIpcFile(MESSAGES_DIR, {
+      type: 'rename_chat',
+      chatJid,
+      name: args.name,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    });
+    return { content: [{ type: 'text' as const, text: `群名已改为「${args.name}」` }] };
+  },
+);
+
+server.tool(
   'schedule_task',
   `Schedule a recurring or one-time task. The task will run as a full agent with access to all tools. Returns the task ID for future reference. To modify an existing task, use update_task instead.
 

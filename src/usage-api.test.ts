@@ -20,7 +20,11 @@ vi.mock('./db.js', () => ({
       cred.expires_at = exp;
     }
   },
-  updateOAuthUsageCache: (name: string, usage: string | null, error?: string) => {
+  updateOAuthUsageCache: (
+    name: string,
+    usage: string | null,
+    error?: string,
+  ) => {
     const cred = mockDb.credentials.get(name);
     if (cred) {
       cred.cached_usage = usage;
@@ -65,8 +69,13 @@ vi.mock('https', () => ({
 }));
 
 // 动态 import 以确保 mock 生效
-const { getUsageForSecret, getUsageAll, formatUsage, formatUsageAll, getCurrentSecretName } =
-  await import('./usage-api.js');
+const {
+  getUsageForSecret,
+  getUsageAll,
+  formatUsage,
+  formatUsageAll,
+  getCurrentSecretName,
+} = await import('./usage-api.js');
 
 // --- 辅助函数 ---
 
@@ -336,7 +345,10 @@ describe('formatUsageAll', () => {
   it('标记当前账号', () => {
     const results = [
       { secretName: 'anthropic-tian', rateLimits: { fiveHourPercent: 30 } },
-      { secretName: 'anthropic-Elizabeth', rateLimits: { fiveHourPercent: 50 } },
+      {
+        secretName: 'anthropic-Elizabeth',
+        rateLimits: { fiveHourPercent: 50 },
+      },
     ];
     const output = formatUsageAll(results, 'anthropic-tian');
     expect(output).toContain('anthropic-tian');

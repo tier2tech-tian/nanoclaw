@@ -442,7 +442,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   const recallParts: string[] = [];
   for (const u of userMsgs.reverse()) recallParts.push(`User: ${u}`);
   for (const b of botMsgs.reverse()) recallParts.push(`Assistant: ${b}`);
-  const latestUserMessage = recallParts.length > 0 ? recallParts.join('\n') : undefined;
+  const latestUserMessage =
+    recallParts.length > 0 ? recallParts.join('\n') : undefined;
 
   const output = await runAgent(
     group,
@@ -462,10 +463,19 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       if (result.usage && 'setUsage' in channel) {
         (
           channel as {
-            setUsage: (jid: string, usage: typeof result.usage, thinking?: 'adaptive' | 'disabled') => void;
+            setUsage: (
+              jid: string,
+              usage: typeof result.usage,
+              thinking?: 'adaptive' | 'disabled',
+            ) => void;
           }
-        // agent-runner 默认 thinking adaptive（除非显式 disabled），所以 undefined → 'adaptive'
-        ).setUsage(chatJid, result.usage, modelOverride?.thinking === 'disabled' ? 'disabled' : 'adaptive');
+        )
+          // agent-runner 默认 thinking adaptive（除非显式 disabled），所以 undefined → 'adaptive'
+          .setUsage(
+            chatJid,
+            result.usage,
+            modelOverride?.thinking === 'disabled' ? 'disabled' : 'adaptive',
+          );
       }
 
       // Streaming output callback — called for each agent result
@@ -494,7 +504,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           await channel.setTyping?.(chatJid, false);
           // 清理孤儿进度卡片（sendMessage 未被调用时，卡片不会被自动清理）
           if ('cleanupProgressCard' in channel) {
-            await (channel as { cleanupProgressCard: (jid: string) => Promise<void> }).cleanupProgressCard(chatJid);
+            await (
+              channel as { cleanupProgressCard: (jid: string) => Promise<void> }
+            ).cleanupProgressCard(chatJid);
           }
         }
         queue.notifyIdle(chatJid);
@@ -927,8 +939,19 @@ async function startMessageLoop(): Promise<void> {
             );
             // piped 消息的 thinking 模式传给 channel，供脚注显示
             if ('setUsage' in channel && pipeModelOverride) {
-              const thinkVal = pipeModelOverride.thinking === 'disabled' ? 'disabled' as const : 'adaptive' as const;
-              (channel as { setUsage: (jid: string, usage: undefined, thinking?: 'adaptive' | 'disabled') => void }).setUsage(chatJid, undefined, thinkVal);
+              const thinkVal =
+                pipeModelOverride.thinking === 'disabled'
+                  ? ('disabled' as const)
+                  : ('adaptive' as const);
+              (
+                channel as {
+                  setUsage: (
+                    jid: string,
+                    usage: undefined,
+                    thinking?: 'adaptive' | 'disabled',
+                  ) => void;
+                }
+              ).setUsage(chatJid, undefined, thinkVal);
             }
             lastAgentTimestamp[chatJid] =
               messagesToSend[messagesToSend.length - 1].timestamp;
@@ -1480,7 +1503,11 @@ async function main(): Promise<void> {
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
       // 优先用 sendDirectMessage（跳过进度卡片清理），fallback 到 sendMessage
       if ('sendDirectMessage' in channel) {
-        return (channel as { sendDirectMessage: (jid: string, text: string) => Promise<void> }).sendDirectMessage(jid, text);
+        return (
+          channel as {
+            sendDirectMessage: (jid: string, text: string) => Promise<void>;
+          }
+        ).sendDirectMessage(jid, text);
       }
       return channel.sendMessage(jid, text);
     },
@@ -1510,6 +1537,14 @@ async function main(): Promise<void> {
       }));
       for (const group of Object.values(registeredGroups)) {
         writeTasksSnapshot(group.folder, group.isMain === true, taskRows);
+      }
+    },
+    renameChat: async (jid, name) => {
+      const channel = findChannel(channels, jid);
+      if (channel?.renameChat) {
+        await channel.renameChat(jid, name);
+      } else {
+        logger.warn({ jid, hasChannel: !!channel }, '[rename] channel 不支持 renameChat');
       }
     },
     onFeishuAuthRequest: async (chatJid, groupFolder) => {

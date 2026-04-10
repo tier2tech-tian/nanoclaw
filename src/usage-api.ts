@@ -71,7 +71,11 @@ interface TokenResponse {
 async function refreshAccessToken(
   secretName: string,
   refreshToken: string,
-): Promise<{ accessToken: string; refreshToken: string; expiresAt: number } | null> {
+): Promise<{
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+} | null> {
   // 用 JSON 格式，不带 scope（与 CLIProxyAPI 一致）
   // 端点用 api.anthropic.com（不用 platform.claude.com 避免 TLS 问题）
   const body = JSON.stringify({
@@ -93,10 +97,7 @@ async function refreshAccessToken(
     );
 
     if (res.status !== 200) {
-      logger.warn(
-        { secretName, status: res.status },
-        'Token 刷新失败',
-      );
+      logger.warn({ secretName, status: res.status }, 'Token 刷新失败');
       return null;
     }
 
@@ -152,7 +153,9 @@ function parseUsageResponse(response: UsageApiResponse): RateLimits | null {
   };
 
   if (response.seven_day_sonnet?.utilization != null) {
-    result.sonnetWeeklyPercent = toPercent(response.seven_day_sonnet.utilization);
+    result.sonnetWeeklyPercent = toPercent(
+      response.seven_day_sonnet.utilization,
+    );
     result.sonnetWeeklyResetsAt = response.seven_day_sonnet.resets_at ?? null;
   }
   if (response.seven_day_opus?.utilization != null) {
@@ -167,16 +170,11 @@ async function fetchUsage(
   accessToken: string,
 ): Promise<{ data: RateLimits | null; status: number }> {
   try {
-    const res = await httpsRequest(
-      USAGE_API_HOSTNAME,
-      USAGE_API_PATH,
-      'GET',
-      {
-        Authorization: `Bearer ${accessToken}`,
-        'anthropic-beta': 'oauth-2025-04-20',
-        'Content-Type': 'application/json',
-      },
-    );
+    const res = await httpsRequest(USAGE_API_HOSTNAME, USAGE_API_PATH, 'GET', {
+      Authorization: `Bearer ${accessToken}`,
+      'anthropic-beta': 'oauth-2025-04-20',
+      'Content-Type': 'application/json',
+    });
 
     if (res.status === 200) {
       const parsed = JSON.parse(res.body) as UsageApiResponse;
@@ -291,14 +289,20 @@ export async function getUsageAll(): Promise<UsageResult[]> {
 /**
  * 获取当前群绑定的 OneCLI secret name
  */
-export function getCurrentSecretName(chatJid: string, registeredGroups: Record<string, { folder: string }>): string | null {
+export function getCurrentSecretName(
+  chatJid: string,
+  registeredGroups: Record<string, { folder: string }>,
+): string | null {
   try {
     const group = registeredGroups[chatJid];
     if (!group) return null;
 
     const agentId = group.folder.toLowerCase().replace(/_/g, '-');
     const agents = JSON.parse(
-      execFileSync('onecli', ['agents', 'list'], { encoding: 'utf-8', timeout: 5000 }),
+      execFileSync('onecli', ['agents', 'list'], {
+        encoding: 'utf-8',
+        timeout: 5000,
+      }),
     ) as Array<{ id: string; identifier: string; isDefault?: boolean }>;
 
     const agent =
@@ -307,7 +311,10 @@ export function getCurrentSecretName(chatJid: string, registeredGroups: Record<s
     if (!agent) return null;
 
     const secrets = JSON.parse(
-      execFileSync('onecli', ['secrets', 'list'], { encoding: 'utf-8', timeout: 5000 }),
+      execFileSync('onecli', ['secrets', 'list'], {
+        encoding: 'utf-8',
+        timeout: 5000,
+      }),
     ) as Array<{ id: string; name: string }>;
 
     const agentSecrets = JSON.parse(

@@ -48,10 +48,7 @@ export function keywordSearch(
   return searchLike(query, topK);
 }
 
-function searchFts(
-  query: string,
-  topK: number,
-): KeywordResult[] {
+function searchFts(query: string, topK: number): KeywordResult[] {
   const ftsQuery = buildFtsQuery(query);
   if (!ftsQuery) return [];
 
@@ -89,10 +86,7 @@ function searchFts(
   }
 }
 
-function searchLike(
-  query: string,
-  topK: number,
-): KeywordResult[] {
+function searchLike(query: string, topK: number): KeywordResult[] {
   const tokens = extractTokens(query);
   if (tokens.length === 0) return [];
 

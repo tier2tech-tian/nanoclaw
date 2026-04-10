@@ -30,6 +30,7 @@ export interface IpcDeps {
   ) => void;
   onTasksChanged: () => void;
   onFeishuAuthRequest?: (chatJid: string, groupFolder: string) => Promise<void>;
+  renameChat?: (jid: string, name: string) => Promise<void>;
 }
 
 /**
@@ -122,6 +123,18 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   fs.unlinkSync(filePath);
                   continue;
                 }
+              }
+
+              if (data.type === 'rename_chat' && data.chatJid && data.name && deps.renameChat) {
+                const targetGroup = registeredGroups[data.chatJid];
+                if (isMain || (targetGroup && targetGroup.folder === sourceGroup)) {
+                  await deps.renameChat(data.chatJid, data.name);
+                  logger.info({ chatJid: data.chatJid, name: data.name, sourceGroup }, 'IPC rename_chat processed');
+                } else {
+                  logger.warn({ chatJid: data.chatJid, sourceGroup }, 'Unauthorized IPC rename_chat blocked');
+                }
+                fs.unlinkSync(filePath);
+                continue;
               }
 
               if (data.type === 'message' && data.chatJid && data.text) {
@@ -627,13 +640,17 @@ export async function processTaskIpc(
         const userId = (data.senderId as string) || '';
         // 阶段 1：立即存原文（不调 embedding API）
         const factId = crypto.randomUUID();
-        storeFactRaw(sourceGroup, {
-          id: factId,
-          content,
-          category: (data.category as string) || 'context',
-          confidence: 0.5,
-          source: 'agent',
-        }, userId);
+        storeFactRaw(
+          sourceGroup,
+          {
+            id: factId,
+            content,
+            category: (data.category as string) || 'context',
+            confidence: 0.5,
+            source: 'agent',
+          },
+          userId,
+        );
         logger.info({ sourceGroup, factId }, 'Memory stored (raw) via IPC');
 
         // 阶段 2：后台异步 LLM 标准化 + embedding
