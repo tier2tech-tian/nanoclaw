@@ -10,6 +10,9 @@ const envConfig = readEnvFile([
   'ASSISTANT_HAS_OWN_NUMBER',
   'ONECLI_URL',
   'TZ',
+  'CHAT_INDEX_ENABLED',
+  'QDRANT_URL',
+  'CHAT_INDEX_DEBOUNCE_MS',
 ]);
 
 export const ASSISTANT_NAME =
@@ -54,11 +57,14 @@ export const IPC_POLL_INTERVAL = 1000;
 
 // --- Chat Index ---
 export const CHAT_INDEX_ENABLED =
-  (process.env.CHAT_INDEX_ENABLED || '') === 'true';
+  (process.env.CHAT_INDEX_ENABLED || envConfig.CHAT_INDEX_ENABLED || '') ===
+  'true';
 export const QDRANT_URL =
-  process.env.QDRANT_URL || 'http://localhost:6333';
+  process.env.QDRANT_URL || envConfig.QDRANT_URL || 'http://localhost:6333';
 export const CHAT_INDEX_DEBOUNCE_MS = parseInt(
-  process.env.CHAT_INDEX_DEBOUNCE_MS || '5000',
+  process.env.CHAT_INDEX_DEBOUNCE_MS ||
+    envConfig.CHAT_INDEX_DEBOUNCE_MS ||
+    '5000',
   10,
 );
 export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10); // 30min default — how long to keep agent alive after last result
