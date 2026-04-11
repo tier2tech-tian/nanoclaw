@@ -557,6 +557,9 @@ export async function runContainerAgent(
   // 构建环境变量
   const localEnv = await buildLocalEnv(input, groupSessionsDir);
 
+  // agent-runner 需要知道自己的安装目录来定位 CLI
+  localEnv.AGENT_RUNNER_DIR = path.join(process.cwd(), 'container', 'agent-runner');
+
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const agentName = `nanoclaw-${safeName}-${Date.now()}`;
 

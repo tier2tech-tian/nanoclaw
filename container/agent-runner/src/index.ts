@@ -618,19 +618,19 @@ async function runQuery(
 
   const queryStartTime = Date.now();
   const override = containerInput.modelOverride;
+  const resolvedCliPath = path.resolve(
+    process.env.AGENT_RUNNER_DIR || '.',
+    'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js',
+  );
   log(`[query-start] sessionId=${sessionId || 'new'}, resumeAt=${resumeAt || 'latest'}, modelOverride=${override ? JSON.stringify(override) : 'none'}`);
+  log(`[query-start] AGENT_RUNNER_DIR=${process.env.AGENT_RUNNER_DIR}, cliPath=${resolvedCliPath}, exists=${fs.existsSync(resolvedCliPath)}`);
 
   const q = query({
     prompt: stream,
     options: {
-      pathToClaudeCodeExecutable: path.join(
-        __dirname,
-        '..',
-        'node_modules',
-        '@anthropic-ai',
-        'claude-agent-sdk',
-        'cli.js',
-      ),
+      pathToClaudeCodeExecutable: resolvedCliPath,
+      executable: 'node' as const,  // 显式指定用 node 运行 cli.js
+      stderr: (data: string) => log(`[cli-stderr] ${data.trim()}`),
       cwd: PATHS.queryCwd || PATHS.group,
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
