@@ -393,7 +393,7 @@ async function buildLocalEnv(
 
   return {
     HOME: process.env.HOME,
-    PATH: process.env.PATH,
+    PATH: `${path.dirname(process.execPath)}:${process.env.PATH}`,
     NODE_PATH: process.env.NODE_PATH,
     NODE_ENV: process.env.NODE_ENV || 'production',
     TZ: process.env.TZ || TIMEZONE,
@@ -558,7 +558,11 @@ export async function runContainerAgent(
   const localEnv = await buildLocalEnv(input, groupSessionsDir);
 
   // agent-runner 需要知道自己的安装目录来定位 CLI
-  localEnv.AGENT_RUNNER_DIR = path.join(process.cwd(), 'container', 'agent-runner');
+  localEnv.AGENT_RUNNER_DIR = path.join(
+    process.cwd(),
+    'container',
+    'agent-runner',
+  );
 
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const agentName = `nanoclaw-${safeName}-${Date.now()}`;
