@@ -1095,7 +1095,6 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
-  // Handle /remote-control and /remote-control-end commands
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: async (chatJid: string, msg: NewMessage) => {

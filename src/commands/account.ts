@@ -37,24 +37,32 @@ registerCommand({
 
     if (!args) {
       // 列出所有 secrets
-      const secrets = JSON.parse(
-        execSync('onecli secrets list', {
-          encoding: 'utf-8',
-          timeout: 5000,
-        }),
-      ) as Array<{ id: string; name: string; type: string }>;
-      const agents = JSON.parse(
-        execSync('onecli agents list', {
-          encoding: 'utf-8',
-          timeout: 5000,
-        }),
-      ) as Array<{
+      let secrets: Array<{ id: string; name: string; type: string }>;
+      let agents: Array<{
         id: string;
         name: string;
         identifier: string;
         secretMode: string;
         isDefault?: boolean;
       }>;
+      try {
+        secrets = JSON.parse(
+          execSync('onecli secrets list', {
+            encoding: 'utf-8',
+            timeout: 5000,
+          }),
+        );
+        agents = JSON.parse(
+          execSync('onecli agents list', {
+            encoding: 'utf-8',
+            timeout: 5000,
+          }),
+        );
+      } catch (err) {
+        logger.error({ err }, '/account: onecli 命令失败');
+        await channel.sendMessage(chatJid, '❌ 账号操作失败，onecli 不可用');
+        return;
+      }
 
       const agentId = group?.folder.toLowerCase().replace(/_/g, '-') || '';
       const currentAgent =
@@ -90,12 +98,19 @@ registerCommand({
       await channel.sendMessage(chatJid, reply);
     } else {
       // 切换到指定账号
-      const secrets = JSON.parse(
-        execSync('onecli secrets list', {
-          encoding: 'utf-8',
-          timeout: 5000,
-        }),
-      ) as Array<{ id: string; name: string }>;
+      let secrets: Array<{ id: string; name: string }>;
+      try {
+        secrets = JSON.parse(
+          execSync('onecli secrets list', {
+            encoding: 'utf-8',
+            timeout: 5000,
+          }),
+        );
+      } catch (err) {
+        logger.error({ err }, '/account: onecli 命令失败');
+        await channel.sendMessage(chatJid, '❌ 账号操作失败，onecli 不可用');
+        return;
+      }
       const target = secrets.find(
         (s) =>
           s.name === args ||
@@ -111,28 +126,40 @@ registerCommand({
       }
 
       const agentId = group?.folder.toLowerCase().replace(/_/g, '-') || '';
-      const agents = JSON.parse(
-        execSync('onecli agents list', {
-          encoding: 'utf-8',
-          timeout: 5000,
-        }),
-      ) as Array<{
+      let agents: Array<{
         id: string;
         identifier: string;
         isDefault?: boolean;
       }>;
+      try {
+        agents = JSON.parse(
+          execSync('onecli agents list', {
+            encoding: 'utf-8',
+            timeout: 5000,
+          }),
+        );
+      } catch (err) {
+        logger.error({ err }, '/account: onecli agents list 失败');
+        await channel.sendMessage(chatJid, '❌ 账号操作失败，onecli 不可用');
+        return;
+      }
       const agent =
         agents.find((a) => a.identifier === agentId) ||
         agents.find((a) => 'isDefault' in a && a.isDefault);
       if (agent) {
-        execSync(
-          `onecli agents set-secrets --id ${agent.id} --secret-ids ${target.id}`,
-          { encoding: 'utf-8', timeout: 5000 },
-        );
-        // 杀掉旧容器，让新消息用新 key 起新容器
+        try {
+          execSync(
+            `onecli agents set-secrets --id ${agent.id} --secret-ids ${target.id}`,
+            { encoding: 'utf-8', timeout: 5000 },
+          );
+        } catch (err) {
+          logger.error({ err }, '/account: 切换账号失败');
+          await channel.sendMessage(chatJid, '❌ 账号切换失败');
+          return;
+        }
+        // 杀掉旧容器，让新消息用新 key 起新容器（不删 session，保留上下文）
         if (group) {
           delete sessions[group.folder];
-          ctx.deleteSession(group.folder);
           queue.killGroup(chatJid);
         }
         await channel.sendMessage(
