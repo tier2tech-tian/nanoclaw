@@ -13,15 +13,14 @@
 ⚠️ 重要：路径必须是实际存在的宿主机绝对路径，不是示例。先确认文件存在再引用。
 ⚠️ 不要在代码块或反引号里写这个标记，否则编排层匹配不到。
 
-## ⛔ 禁止操作 NanoClaw 项目目录
+## ⛔ NanoClaw 项目目录注意事项
 
-绝对禁止在 `/Users/dajay/AI_Workspace/nanoclaw/` 目录下执行以下命令：
-- `npm install` / `npm ci` / `npm update` / `npm rebuild`
-- `npm run build` / `npx tsc`
-- 任何修改 `node_modules/` 的操作
+在 `/Users/dajay/AI_Workspace/nanoclaw/` 目录下：
+- ✅ 可以执行 `npm run build`（tsc 编译）
+- ⛔ 禁止执行 `npm install` / `npm ci` / `npm update` / `npm rebuild`
+- ⛔ 禁止删除或修改 `node_modules/` 下的任何文件
 
-原因：NanoClaw 是你自己的宿主进程，修改它的 node_modules 会导致主进程崩溃。
-如果需要改 NanoClaw 代码，只改源码文件（.ts），不要自己编译或安装依赖。
+原因：npm install 会破坏 native module（better-sqlite3），导致主进程崩溃。
 
 ## Internal thoughts
 
