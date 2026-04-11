@@ -119,15 +119,11 @@ describe('detectRateLimit', () => {
   });
 
   it('匹配 Claude Code 假成功限流 "You\'ve hit your limit"', () => {
-    expect(
-      detectRateLimit("You've hit your limit · resets 6pm"),
-    ).toBe(true);
+    expect(detectRateLimit("You've hit your limit · resets 6pm")).toBe(true);
   });
 
   it('匹配 smart quote 变体 "You\u2019ve hit your limit"', () => {
-    expect(
-      detectRateLimit('You\u2019ve hit your limit'),
-    ).toBe(true);
+    expect(detectRateLimit('You\u2019ve hit your limit')).toBe(true);
   });
 });
 
