@@ -71,6 +71,7 @@ function buildCard(
   headerColor?: string,
 ): string {
   const card: Record<string, unknown> = {
+    config: { wide_screen_mode: true },
     elements: [{ tag: 'markdown', content: text, text_size: 'normal' }],
   };
   // 只有明确传了标题才显示 header（进度卡片等），正式回复不带标题栏

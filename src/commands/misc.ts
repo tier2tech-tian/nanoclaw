@@ -57,10 +57,7 @@ registerCommand({
     if (group.isMain) return;
 
     if (!group.requiresTrigger) {
-      await channel.sendMessage(
-        chatJid,
-        '已经是免@模式，所有消息都会被处理',
-      );
+      await channel.sendMessage(chatJid, '已经是免@模式，所有消息都会被处理');
       return;
     }
 
@@ -107,9 +104,7 @@ registerCommand({
       return;
     }
 
-    const resolved = path.resolve(
-      args.replace(/^~/, process.env.HOME || '~'),
-    );
+    const resolved = path.resolve(args.replace(/^~/, process.env.HOME || '~'));
     if (!fs.existsSync(resolved)) {
       await channel.sendMessage(chatJid, `[cwd] 目录不存在: ${resolved}`);
       return;

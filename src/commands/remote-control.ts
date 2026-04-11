@@ -1,8 +1,5 @@
 import { logger } from '../logger.js';
-import {
-  startRemoteControl,
-  stopRemoteControl,
-} from '../remote-control.js';
+import { startRemoteControl, stopRemoteControl } from '../remote-control.js';
 import { registerCommand } from './registry.js';
 
 // /remote-control — 启动远程控制会话
