@@ -785,7 +785,8 @@ export function getRotateEnabled(): boolean {
   const row = db
     .prepare('SELECT value FROM account_rotate_config WHERE key = ?')
     .get('enabled') as { value: string } | undefined;
-  return row?.value === 'true';
+  // 默认开启自动轮换（DB 无记录时返回 true）
+  return row ? row.value === 'true' : true;
 }
 
 export function setRotateEnabled(enabled: boolean): void {

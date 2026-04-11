@@ -1791,7 +1791,9 @@ export class FeishuChannel implements Channel {
     };
 
     logger.info({ jid, text: text.slice(0, 80) }, '飞书消息分发到 onMessage');
-    this.opts.onMessage(jid, newMsg);
+    Promise.resolve(this.opts.onMessage(jid, newMsg)).catch((err) =>
+      logger.error({ jid, err }, 'onMessage handler failed'),
+    );
   }
 }
 

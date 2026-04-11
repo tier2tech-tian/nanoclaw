@@ -117,6 +117,18 @@ describe('detectRateLimit', () => {
     const stderr = `[debug] starting container\nError: 429 rate_limit_error\n[debug] exiting`;
     expect(detectRateLimit(stderr)).toBe(true);
   });
+
+  it('匹配 Claude Code 假成功限流 "You\'ve hit your limit"', () => {
+    expect(
+      detectRateLimit("You've hit your limit · resets 6pm"),
+    ).toBe(true);
+  });
+
+  it('匹配 smart quote 变体 "You\u2019ve hit your limit"', () => {
+    expect(
+      detectRateLimit('You\u2019ve hit your limit'),
+    ).toBe(true);
+  });
 });
 
 // --- DB 持久化测试 ---
@@ -126,8 +138,8 @@ describe('account_rotate_config DB', () => {
     _initTestDatabase();
   });
 
-  it('默认 rotateEnabled = false', () => {
-    expect(getRotateEnabled()).toBe(false);
+  it('默认 rotateEnabled = true（默认开启）', () => {
+    expect(getRotateEnabled()).toBe(true);
   });
 
   it('setRotateEnabled → getRotateEnabled 保持一致', () => {

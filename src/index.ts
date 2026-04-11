@@ -745,6 +745,48 @@ async function runAgent(
       return { status: 'error' };
     }
 
+    // Claude Code 有时以 status=success 返回限流消息（"You've hit your limit"）
+    // 检查 result 文本以捕获这种假成功
+    if (
+      !isRetry &&
+      output.result &&
+      detectRateLimit(output.result)
+    ) {
+      logger.warn(
+        { group: group.name },
+        '检测到假成功限流（result 包含 rate limit 关键词）',
+      );
+      const agentId = group.folder.toLowerCase().replace(/_/g, '-');
+      const rotateResult = rotateAccount(agentId);
+
+      if (rotateResult && !rotateResult.success) {
+        logger.warn({ group: group.name }, '所有账号配额已耗尽');
+        return { status: 'error', allExhausted: true };
+      }
+
+      if (rotateResult && rotateResult.success) {
+        delete sessions[group.folder];
+        deleteSession(group.folder);
+        logger.info(
+          { group: group.name, newSecret: rotateResult.newSecretName },
+          '假成功限流检测到，已轮换账号，重试中',
+        );
+        return runAgent(
+          group,
+          prompt,
+          chatJid,
+          onOutput,
+          latestUserMessage,
+          memorySenderId,
+          true,
+          modelOverride,
+        ).then((retryResult) => ({
+          ...retryResult,
+          rotatedTo: rotateResult.newSecretName,
+        }));
+      }
+    }
+
     return { status: 'success' };
   } catch (err) {
     logger.error({ group: group.name, err }, 'Agent error');

@@ -63,6 +63,7 @@ export function detectRateLimit(text: string): boolean {
     /overloaded/i,
     /quota.?exceeded/i,
     /too.?many.?requests/i,
+    /you['\u2019']ve hit your limit/i,
   ];
   return patterns.some((p) => p.test(text));
 }

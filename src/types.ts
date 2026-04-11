@@ -132,7 +132,10 @@ export interface UsageResult {
 }
 
 // Callback type that channels use to deliver inbound messages
-export type OnInboundMessage = (chatJid: string, message: NewMessage) => void;
+export type OnInboundMessage = (
+  chatJid: string,
+  message: NewMessage,
+) => void | Promise<void>;
 
 // Callback for chat metadata discovery.
 // name is optional — channels that deliver names inline (Telegram) pass it here;
