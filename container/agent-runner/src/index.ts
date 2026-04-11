@@ -624,6 +624,10 @@ async function runQuery(
   );
   log(`[query-start] sessionId=${sessionId || 'new'}, resumeAt=${resumeAt || 'latest'}, modelOverride=${override ? JSON.stringify(override) : 'none'}`);
   log(`[query-start] AGENT_RUNNER_DIR=${process.env.AGENT_RUNNER_DIR}, cliPath=${resolvedCliPath}, exists=${fs.existsSync(resolvedCliPath)}`);
+  // 日志：显示当前 proxy 用的 access token 前缀（用于验证 per-group 账号隔离）
+  const proxyUrl = process.env.HTTPS_PROXY || '';
+  const tokenMatch = proxyUrl.match(/x:([^@]{8})/);
+  log(`[account] proxy_token_prefix=${tokenMatch?.[1] || '(none)'}, group=${containerInput.groupFolder}`);
 
   const q = query({
     prompt: stream,

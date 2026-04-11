@@ -382,6 +382,42 @@ export async function getFeishuToken(
   }
 }
 
+/**
+ * 获取群对应的 OneCLI agent access token（用于 per-group 账号隔离）。
+ * 群的 chatJid 会被转为 identifier（如 fs:oc_xxx → fs-oc-xxx）去匹配 OneCLI agent。
+ * 找不到就 fallback 到 Default Agent。
+ */
+function getAgentAccessToken(chatJid: string): string | undefined {
+  try {
+    const agents: Array<{
+      id: string;
+      name: string;
+      identifier?: string;
+      accessToken: string;
+      isDefault?: boolean;
+    }> = JSON.parse(
+      execSync('onecli agents list', { encoding: 'utf-8', timeout: 5000 }),
+    );
+
+    // chatJid 如 "fs:oc_59801239..." → identifier "fs-oc-59801239..."
+    const identifier = chatJid.replace(/[^a-zA-Z0-9]/g, '-');
+    const agent =
+      agents.find((a) => a.identifier === identifier) ||
+      agents.find((a) => a.isDefault);
+
+    if (agent) {
+      logger.info(
+        { chatJid, agentName: agent.name, agentId: agent.id },
+        '群账号映射: 使用 OneCLI agent',
+      );
+      return agent.accessToken;
+    }
+  } catch (err) {
+    logger.warn({ err, chatJid }, '获取群 OneCLI agent token 失败，将用默认');
+  }
+  return undefined;
+}
+
 /** 构建子进程环境变量（精确过滤，不泄露宿主无关变量） */
 async function buildLocalEnv(
   input: ContainerInput,
@@ -390,6 +426,35 @@ async function buildLocalEnv(
   // OneCLI 代理注入（HTTPS_PROXY + CA 证书）
   const proxyEnv = await getOneCLIProxyEnv();
   const staticCreds = getStaticCredentials();
+
+  // 按群替换 access token（per-group 账号隔离）
+  const groupToken = getAgentAccessToken(input.chatJid || '');
+  if (groupToken && proxyEnv.HTTPS_PROXY) {
+    // 替换 proxy URL 里的 access token: http://x:<old_token>@host:port → http://x:<group_token>@host:port
+    proxyEnv.HTTPS_PROXY = proxyEnv.HTTPS_PROXY.replace(
+      /x:[^@]+@/,
+      `x:${groupToken}@`,
+    );
+    // 同步替换小写版本
+    if (proxyEnv.https_proxy) {
+      proxyEnv.https_proxy = proxyEnv.https_proxy.replace(
+        /x:[^@]+@/,
+        `x:${groupToken}@`,
+      );
+    }
+    if (proxyEnv.HTTP_PROXY) {
+      proxyEnv.HTTP_PROXY = proxyEnv.HTTP_PROXY.replace(
+        /x:[^@]+@/,
+        `x:${groupToken}@`,
+      );
+    }
+    if (proxyEnv.http_proxy) {
+      proxyEnv.http_proxy = proxyEnv.http_proxy.replace(
+        /x:[^@]+@/,
+        `x:${groupToken}@`,
+      );
+    }
+  }
 
   return {
     HOME: process.env.HOME,

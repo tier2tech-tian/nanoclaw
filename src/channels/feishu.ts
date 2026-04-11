@@ -743,7 +743,7 @@ export class FeishuChannel implements Channel {
     usage?: ContainerOutput['usage'],
     thinking?: 'adaptive' | 'disabled',
   ): Promise<void> {
-    if (usage || text.length > CARD_THRESHOLD) {
+    if (usage || shouldUseCard(text)) {
       const elements: unknown[] = [
         { tag: 'markdown', content: text, text_size: 'normal' },
       ];

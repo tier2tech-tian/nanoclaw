@@ -48,11 +48,11 @@ function stripUploadMentions(
 
   const facts = memoryData.facts as Array<{ content?: string }> | undefined;
   if (facts) {
-    memoryData.facts = facts.filter(
-      (f) => !f.content || !UPLOAD_SENTENCE_RE.test(f.content),
-    );
-    // Reset lastIndex after test()
-    UPLOAD_SENTENCE_RE.lastIndex = 0;
+    memoryData.facts = facts.filter((f) => {
+      if (!f.content) return true;
+      UPLOAD_SENTENCE_RE.lastIndex = 0;
+      return !UPLOAD_SENTENCE_RE.test(f.content);
+    });
   }
 
   return memoryData;

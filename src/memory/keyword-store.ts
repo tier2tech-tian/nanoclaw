@@ -31,7 +31,7 @@ function buildFtsQuery(raw: string): string | null {
   const tokens = extractTokens(raw);
   if (tokens.length === 0) return null;
   // trigram tokenizer 用 OR 组合（W2 修复：中文用 OR 避免过于严格）
-  return tokens.map((t) => `"${t}"`).join(' OR ');
+  return tokens.map((t) => `"${t.replace(/"/g, '')}"`).join(' OR ');
 }
 
 /**

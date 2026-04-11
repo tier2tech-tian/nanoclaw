@@ -340,6 +340,8 @@ export function storeFactRaw(
       // 忽略重复
     }
   }
+
+  invalidateFactsCache();
 }
 
 /**
@@ -401,6 +403,7 @@ export function updateFact(
     }
   }
 
+  invalidateFactsCache();
   return true;
 }
 

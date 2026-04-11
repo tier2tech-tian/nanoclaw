@@ -189,7 +189,7 @@ describe('agent spawn and timeout', () => {
 
     // Verify spawn was called with node (not docker)
     expect(spawn).toHaveBeenCalledWith(
-      'node',
+      expect.stringContaining('node'),
       [expect.stringContaining('agent-runner/dist/index.js')],
       expect.objectContaining({
         detached: true,

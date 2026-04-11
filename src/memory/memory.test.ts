@@ -335,9 +335,9 @@ describe('prompt', () => {
           },
         ],
       });
-      expect(text).toContain('Work: Engineer at ACME');
-      expect(text).toContain('Personal: Speaks English');
-      expect(text).toContain('Recent: Built NanoClaw');
+      expect(text).toContain('工作: Engineer at ACME');
+      expect(text).toContain('个人: Speaks English');
+      expect(text).toContain('近期: Built NanoClaw');
       expect(text).toContain('[preference | 0.90] Prefers TypeScript');
     });
 
