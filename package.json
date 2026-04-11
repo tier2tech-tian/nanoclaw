@@ -20,7 +20,8 @@
     "lint:fix": "eslint src/ --fix",
     "test": "vitest run",
     "test:watch": "vitest",
-    "postinstall": "npm rebuild better-sqlite3"
+    "postinstall": "if [ -f /tmp/_bsqlite3.node.bak ] && [ ! -f node_modules/better-sqlite3/build/Release/better_sqlite3.node ]; then mkdir -p node_modules/better-sqlite3/build/Release && cp /tmp/_bsqlite3.node.bak node_modules/better-sqlite3/build/Release/better_sqlite3.node; fi",
+    "preinstall": "cp node_modules/better-sqlite3/build/Release/better_sqlite3.node /tmp/_bsqlite3.node.bak 2>/dev/null || true"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.60.0",

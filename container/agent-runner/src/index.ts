@@ -623,6 +623,14 @@ async function runQuery(
   const q = query({
     prompt: stream,
     options: {
+      pathToClaudeCodeExecutable: path.join(
+        __dirname,
+        '..',
+        'node_modules',
+        '@anthropic-ai',
+        'claude-agent-sdk',
+        'cli.js',
+      ),
       cwd: PATHS.queryCwd || PATHS.group,
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
