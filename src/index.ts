@@ -706,16 +706,18 @@ async function runAgent(
       // 429 检测 + 自动轮换
       if (!isRetry && output.error && detectRateLimit(output.error)) {
         const agentId = group.folder.toLowerCase().replace(/_/g, '-');
+        logger.warn(
+          { group: group.name, agentId, error: output.error?.slice(0, 200) },
+          '检测到限流错误，尝试轮换账号',
+        );
         const rotateResult = rotateAccount(agentId);
 
         if (rotateResult && !rotateResult.success) {
-          // 所有账号耗尽
           logger.warn({ group: group.name }, '所有账号配额已耗尽');
           return { status: 'error', allExhausted: true };
         }
 
         if (rotateResult && rotateResult.success) {
-          // 清除 session，用新 token 重试
           delete sessions[group.folder];
           deleteSession(group.folder);
           logger.info(
@@ -736,6 +738,12 @@ async function runAgent(
             rotatedTo: rotateResult.newSecretName,
           }));
         }
+
+        // rotateAccount 返回 null（未开启/防抖/onecli 错误等）
+        logger.warn(
+          { group: group.name, agentId },
+          '轮换未执行（可能：防抖中/onecli 错误/单账号），按原错误处理',
+        );
       }
 
       logger.error(
@@ -747,16 +755,12 @@ async function runAgent(
 
     // Claude Code 有时以 status=success 返回限流消息（"You've hit your limit"）
     // 检查 result 文本以捕获这种假成功
-    if (
-      !isRetry &&
-      output.result &&
-      detectRateLimit(output.result)
-    ) {
-      logger.warn(
-        { group: group.name },
-        '检测到假成功限流（result 包含 rate limit 关键词）',
-      );
+    if (!isRetry && output.result && detectRateLimit(output.result)) {
       const agentId = group.folder.toLowerCase().replace(/_/g, '-');
+      logger.warn(
+        { group: group.name, agentId, result: output.result?.slice(0, 200) },
+        '检测到假成功限流（result 包含 rate limit 关键词），尝试轮换',
+      );
       const rotateResult = rotateAccount(agentId);
 
       if (rotateResult && !rotateResult.success) {
@@ -785,6 +789,13 @@ async function runAgent(
           rotatedTo: rotateResult.newSecretName,
         }));
       }
+
+      // rotateAccount 返回 null
+      logger.warn(
+        { group: group.name, agentId },
+        '假成功限流但轮换未执行，将限流消息当错误返回',
+      );
+      return { status: 'error' };
     }
 
     return { status: 'success' };
