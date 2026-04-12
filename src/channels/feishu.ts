@@ -45,7 +45,16 @@ const FILE_SEND_PATTERN = /\[(?:文件|file):\s*(\/[^\]\s]+)\]/gi;
 
 // 飞书图片 API 支持的格式（234011: Can't recognize image format 之外的都走文件通道）
 const FEISHU_IMAGE_EXTS = new Set([
-  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.tif', '.ico', '.heic',
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.gif',
+  '.bmp',
+  '.webp',
+  '.tiff',
+  '.tif',
+  '.ico',
+  '.heic',
 ]);
 
 /** 根据扩展名推断飞书文件类型 */
@@ -664,7 +673,10 @@ export class FeishuChannel implements Channel {
           try {
             await this.sendImageMsg(chatId, imgPath, groupFolder);
           } catch (imgErr) {
-            logger.warn({ err: imgErr, path: imgPath }, '图片 API 失败，fallback 文件通道');
+            logger.warn(
+              { err: imgErr, path: imgPath },
+              '图片 API 失败，fallback 文件通道',
+            );
             await this.sendFileMsg(chatId, imgPath, groupFolder);
           }
         } else {
@@ -672,7 +684,10 @@ export class FeishuChannel implements Channel {
         }
       } catch (err) {
         errors.push(err as Error);
-        logger.error({ err, path: imgPath }, '飞书媒体发送失败（图片+文件通道均失败）');
+        logger.error(
+          { err, path: imgPath },
+          '飞书媒体发送失败（图片+文件通道均失败）',
+        );
       }
     }
 
