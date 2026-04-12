@@ -327,6 +327,10 @@ export class ChatIndex {
   /** 入队新消息用于索引 */
   enqueue(item: EnqueueItem): void {
     if (!CHAT_INDEX_ENABLED) return;
+    logger.info(
+      { group: item.group_folder, queueLen: this.queue.length + 1 },
+      'chatIndex.enqueue: 消息入队',
+    );
     this.queue.push(item);
     this.scheduleIndex();
   }
@@ -361,6 +365,7 @@ export class ChatIndex {
 
     const items = [...this.queue];
     this.queue = [];
+    logger.info({ count: items.length }, 'chatIndex.batchIndex: 开始批量索引');
 
     const db = getDb();
 

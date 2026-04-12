@@ -460,6 +460,23 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           await channel.sendMessage(chatJid, text);
           outputSentToUser = true;
           agentReplies.push(text);
+
+          // 实时索引聊天记录（不等 agent 退出，因为 agent 可能跑数小时）
+          if (CHAT_INDEX_ENABLED) {
+            const latestUserMsg = missedMessages[missedMessages.length - 1];
+            if (latestUserMsg) {
+              getChatIndex().enqueue({
+                userContent: latestUserMsg.content,
+                botContent: text,
+                userMsgId: latestUserMsg.id,
+                botMsgId: `bot_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                chat_jid: chatJid,
+                group_folder: group.folder,
+                sender_name: latestUserMsg.sender_name || '用户',
+                timestamp: latestUserMsg.timestamp || new Date().toISOString(),
+              });
+            }
+          }
         }
         // Only reset idle timer on actual results, not session-update markers (result: null)
         resetIdleTimer();
@@ -525,11 +542,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     return false;
   }
 
-  // Bot 回复入库 + 聊天索引
+  // Bot 回复入库
+  const botReplyText = agentReplies.join('\n');
+  const botMsgId = `bot_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   if (agentReplies.length > 0) {
-    const botReplyText = agentReplies.join('\n');
-    const botMsgId = `bot_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    // 存 bot 回复到 messages 表
     try {
       storeMessage({
         id: botMsgId,
@@ -544,24 +560,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     } catch (err) {
       logger.warn({ err }, 'Bot 回复入库失败，不影响主流程');
     }
-
-    // 聊天记录索引
-    if (CHAT_INDEX_ENABLED) {
-      const latestUserMsg = missedMessages[missedMessages.length - 1];
-      if (latestUserMsg) {
-        getChatIndex().enqueue({
-          userContent: latestUserMsg.content,
-          botContent: botReplyText,
-          userMsgId: latestUserMsg.id,
-          botMsgId,
-          chat_jid: chatJid,
-          group_folder: group.folder,
-          sender_name: latestUserMsg.sender_name || '用户',
-          timestamp: latestUserMsg.timestamp || new Date().toISOString(),
-        });
-      }
-    }
   }
+
+  // chatIndex 已在 onOutput 回调中实时索引，此处无需重复
 
   // R8.1: 对话完成后，收集 Agent 回复 + 用户消息一起入队记忆更新
   if (isMemoryEnabled()) {

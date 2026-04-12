@@ -4,6 +4,18 @@ import path from 'path';
 import { readEnvFile } from './env.js';
 import { isValidTimezone } from './timezone.js';
 
+// 确保本地服务不走 http_proxy（OneCLI credential proxy 会设 http_proxy，
+// 但 Qdrant 等本地服务必须直连）
+if (process.env.http_proxy || process.env.HTTP_PROXY) {
+  const existing = process.env.NO_PROXY || process.env.no_proxy || '';
+  const locals = new Set(existing.split(',').map((s) => s.trim()).filter(Boolean));
+  locals.add('localhost');
+  locals.add('127.0.0.1');
+  const merged = [...locals].join(',');
+  process.env.NO_PROXY = merged;
+  process.env.no_proxy = merged;
+}
+
 // Read config values from .env (falls back to process.env).
 const envConfig = readEnvFile([
   'ASSISTANT_NAME',
