@@ -15,7 +15,7 @@ import {
   completeSession,
   deleteSession,
 } from '../progress-server.js';
-import { Channel, NewMessage } from '../types.js';
+import { Channel, NewMessage, SendMessageOptions } from '../types.js';
 
 import { registerChannel, ChannelOpts } from './registry.js';
 
@@ -42,6 +42,11 @@ const IMAGE_SEND_PATTERN =
 
 // 发送文件路径检测模式：[文件: path]、[file: path]
 const FILE_SEND_PATTERN = /\[(?:文件|file):\s*(\/[^\]\s]+)\]/gi;
+
+// 飞书图片 API 支持的格式（234011: Can't recognize image format 之外的都走文件通道）
+const FEISHU_IMAGE_EXTS = new Set([
+  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.tif', '.ico', '.heic',
+]);
 
 /** 根据扩展名推断飞书文件类型 */
 function feishuFileType(filename: string): string {
@@ -454,8 +459,18 @@ export class FeishuChannel implements Channel {
     return jid.startsWith(JID_PREFIX);
   }
 
-  async sendMessage(jid: string, text: string): Promise<void> {
+  async sendMessage(
+    jid: string,
+    text: string,
+    options?: SendMessageOptions,
+  ): Promise<void> {
     const chatId = chatIdFromJid(jid);
+
+    // 命令回复：直接发消息，跳过进度卡片逻辑，避免打断正在运行的 agent
+    if (options?.isCommandReply) {
+      await this.sendPlainOrCard(chatId, text);
+      return;
+    }
 
     // 进度消息 → 聚合到进度卡片（支持 JSON 格式含 detail，或纯文本 emoji 开头）
     const isProgressJson = PROGRESS_JSON_PATTERN.test(text);
@@ -575,95 +590,118 @@ export class FeishuChannel implements Channel {
     // cleanupProgressCard 会清理 pendingUsage/thinkingMode/progressCards
     await this.cleanupProgressCard(jid);
 
-    // 检测文本中的图片路径，提取并发送
-    const imageMatches: string[] = [];
-    let m: RegExpExecArray | null;
-    IMAGE_SEND_PATTERN.lastIndex = 0;
-    while ((m = IMAGE_SEND_PATTERN.exec(text)) !== null) {
-      imageMatches.push(m[1] || m[2]);
-    }
-
-    // 检测文件路径
-    const fileMatches: string[] = [];
-    FILE_SEND_PATTERN.lastIndex = 0;
-    while ((m = FILE_SEND_PATTERN.exec(text)) !== null) {
-      fileMatches.push(m[1]);
-    }
-
+    // 统一媒体提取与发送（图片/文件标记提取、文本发送、媒体上传，互不阻塞）
     const groupFolder = this.getGroupFolder(jid);
+    await this.extractAndSendMedia(chatId, text, groupFolder, usage, thinking);
+  }
 
-    if (imageMatches.length > 0 && groupFolder) {
-      IMAGE_SEND_PATTERN.lastIndex = 0;
-      FILE_SEND_PATTERN.lastIndex = 0;
-      const remainingText = text
-        .replace(IMAGE_SEND_PATTERN, '')
-        .replace(FILE_SEND_PATTERN, '')
-        .trim();
+  /** 统一路径解析：容器路径 /workspace/group/xxx → 宿主机路径，绝对路径直接用 */
+  private resolveMediaPath(inputPath: string, groupFolder: string): string {
+    if (inputPath.startsWith('/workspace/group/')) {
+      const relativePath = inputPath.replace(/^\/workspace\/group\//, '');
+      return path.join(resolveGroupFolderPath(groupFolder), relativePath);
+    }
+    // 正则只匹配以 / 开头的路径，此处必为绝对路径
+    return inputPath;
+  }
+
+  /** 统一媒体标记提取与发送：从文本中提取 [图片:] [文件:] 标记，上传并发送，文本/媒体互不阻塞 */
+  private async extractAndSendMedia(
+    chatId: string,
+    text: string,
+    groupFolder: string | null,
+    usage?: ContainerOutput['usage'],
+    thinking?: 'adaptive' | 'disabled',
+  ): Promise<void> {
+    // 用 matchAll + new RegExp 副本避免全局正则 lastIndex 状态污染
+    const imageMatches = [
+      ...text.matchAll(new RegExp(IMAGE_SEND_PATTERN.source, 'gi')),
+    ].map((m) => m[1] || m[2]);
+    const fileMatches = [
+      ...text.matchAll(new RegExp(FILE_SEND_PATTERN.source, 'gi')),
+    ].map((m) => m[1]);
+
+    const hasMedia = imageMatches.length > 0 || fileMatches.length > 0;
+
+    // 无标记 → 直接发文本
+    if (!hasMedia) {
+      await this.sendPlainOrCard(chatId, text, usage, thinking);
+      return;
+    }
+
+    // groupFolder 为 null → 无法上传媒体，原文本直接发
+    if (!groupFolder) {
+      logger.warn('群未注册 groupFolder，跳过媒体提取，原文本直接发送');
+      await this.sendPlainOrCard(chatId, text, usage, thinking);
+      return;
+    }
+
+    // strip 标记，合并连续空白，发送剩余文本
+    const remainingText = text
+      .replace(new RegExp(IMAGE_SEND_PATTERN.source, 'gi'), '')
+      .replace(new RegExp(FILE_SEND_PATTERN.source, 'gi'), '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+
+    let textSent = !remainingText; // 无文本需要发则视为成功
+    if (remainingText) {
       try {
-        if (remainingText)
-          await this.sendPlainOrCard(chatId, remainingText, usage, thinking);
-        for (const imgPath of imageMatches) {
+        await this.sendPlainOrCard(chatId, remainingText, usage, thinking);
+        textSent = true;
+      } catch (err) {
+        logger.warn({ err }, '飞书文本卡片发送失败，媒体发送继续');
+      }
+    }
+
+    const errors: Error[] = [];
+
+    // 逐个发送图片标记：支持的格式走图片 API，不支持的走文件 API，图片 API 失败 fallback 文件 API
+    for (const imgPath of imageMatches) {
+      const ext = path.extname(imgPath).toLowerCase();
+      const useImageApi = FEISHU_IMAGE_EXTS.has(ext);
+      try {
+        if (useImageApi) {
           try {
             await this.sendImageMsg(chatId, imgPath, groupFolder);
-          } catch (err) {
-            logger.warn({ err, path: imgPath }, '飞书图片发送失败，降级为文本');
-            await this.sendPlainOrCard(chatId, `[图片发送失败: ${imgPath}]`);
+          } catch (imgErr) {
+            logger.warn({ err: imgErr, path: imgPath }, '图片 API 失败，fallback 文件通道');
+            await this.sendFileMsg(chatId, imgPath, groupFolder);
           }
+        } else {
+          await this.sendFileMsg(chatId, imgPath, groupFolder);
         }
-        for (const filePath of fileMatches) {
-          try {
-            await this.sendFileMsg(chatId, filePath, groupFolder);
-          } catch (err) {
-            logger.warn(
-              { err, path: filePath },
-              '飞书文件发送失败，降级为文本',
-            );
-            await this.sendPlainOrCard(chatId, `[文件发送失败: ${filePath}]`);
-          }
-        }
-        return;
       } catch (err) {
-        logger.error({ err }, '飞书发送消息失败');
-        throw err;
+        errors.push(err as Error);
+        logger.error({ err, path: imgPath }, '飞书媒体发送失败（图片+文件通道均失败）');
       }
     }
 
-    if (fileMatches.length > 0 && groupFolder) {
-      FILE_SEND_PATTERN.lastIndex = 0;
-      const remainingText = text.replace(FILE_SEND_PATTERN, '').trim();
+    // 逐个发送文件标记
+    for (const filePath of fileMatches) {
       try {
-        if (remainingText)
-          await this.sendPlainOrCard(chatId, remainingText, usage, thinking);
-        for (const filePath of fileMatches) {
-          try {
-            await this.sendFileMsg(chatId, filePath, groupFolder);
-          } catch (err) {
-            logger.warn(
-              { err, path: filePath },
-              '飞书文件发送失败，降级为文本',
-            );
-            await this.sendPlainOrCard(chatId, `[文件发送失败: ${filePath}]`);
-          }
-        }
-        return;
+        await this.sendFileMsg(chatId, filePath, groupFolder);
       } catch (err) {
-        logger.error({ err }, '飞书发送消息失败');
-        throw err;
+        errors.push(err as Error);
+        logger.error({ err, path: filePath }, '飞书文件发送失败');
       }
     }
 
-    try {
-      await this.sendPlainOrCard(chatId, text, usage, thinking);
-    } catch (err) {
-      logger.error({ err }, '飞书发送消息失败');
-      throw err;
+    // 文本和全部媒体都失败时，向调用方抛出错误
+    if (
+      !textSent &&
+      errors.length === imageMatches.length + fileMatches.length
+    ) {
+      throw new Error(
+        `飞书消息发送全部失败 (${errors.length} 个媒体): ${errors[0]?.message}`,
+      );
     }
   }
 
   /** IPC send_message 专用：直接发消息，不触发进度卡片清理逻辑 */
   async sendDirectMessage(jid: string, text: string): Promise<void> {
     const chatId = chatIdFromJid(jid);
-    await this.sendPlainOrCard(chatId, text);
+    const groupFolder = this.getGroupFolder(jid);
+    await this.extractAndSendMedia(chatId, text, groupFolder);
   }
 
   /** 修改飞书群名称 */
@@ -736,7 +774,7 @@ export class FeishuChannel implements Channel {
     }
   }
 
-  /** 发送纯文本或卡片消息（内部方法）。有 usage 时强制走卡片并追加脚注 */
+  /** 发送纯文本或卡片消息（内部方法）。有 usage 时强制走卡片并追加脚注，卡片失败自动降级纯文本 */
   private async sendPlainOrCard(
     chatId: string,
     text: string,
@@ -748,17 +786,30 @@ export class FeishuChannel implements Channel {
         { tag: 'markdown', content: text, text_size: 'normal' },
       ];
       if (usage) appendUsageFooter(elements, usage, thinking);
-      await this.client.im.message.create({
-        data: {
-          receive_id: chatId,
-          msg_type: 'interactive',
-          content: JSON.stringify({
-            schema: '2.0',
-            body: { elements },
-          }),
-        },
-        params: { receive_id_type: 'chat_id' },
-      });
+      try {
+        await this.client.im.message.create({
+          data: {
+            receive_id: chatId,
+            msg_type: 'interactive',
+            content: JSON.stringify({
+              schema: '2.0',
+              body: { elements },
+            }),
+          },
+          params: { receive_id_type: 'chat_id' },
+        });
+      } catch (cardErr) {
+        // 卡片发送失败（如 invalid image keys），降级为纯文本
+        logger.warn({ err: cardErr }, '飞书卡片发送失败，降级为纯文本');
+        await this.client.im.message.create({
+          data: {
+            receive_id: chatId,
+            msg_type: 'text',
+            content: JSON.stringify({ text }),
+          },
+          params: { receive_id_type: 'chat_id' },
+        });
+      }
     } else {
       await this.client.im.message.create({
         data: {
@@ -1406,11 +1457,7 @@ export class FeishuChannel implements Channel {
     containerPath: string,
     groupFolder: string,
   ): Promise<void> {
-    const relativePath = containerPath.replace(/^\/workspace\/group\//, '');
-    const hostPath = path.join(
-      resolveGroupFolderPath(groupFolder),
-      relativePath,
-    );
+    const hostPath = this.resolveMediaPath(containerPath, groupFolder);
 
     if (!fs.existsSync(hostPath)) {
       throw new Error(`图片文件不存在: ${hostPath}`);
@@ -1453,21 +1500,13 @@ export class FeishuChannel implements Channel {
     });
   }
 
-  /** 上传并发送文件消息（支持容器路径 /workspace/group/ 和宿主机绝对路径） */
+  /** 上传并发送文件消息 */
   private async sendFileMsg(
     chatId: string,
     inputPath: string,
     groupFolder: string,
   ): Promise<void> {
-    let hostPath: string;
-    if (inputPath.startsWith('/workspace/group/')) {
-      // 兼容旧的容器路径写法
-      const relativePath = inputPath.replace(/^\/workspace\/group\//, '');
-      hostPath = path.join(resolveGroupFolderPath(groupFolder), relativePath);
-    } else {
-      // 宿主机绝对路径直接用
-      hostPath = inputPath;
-    }
+    const hostPath = this.resolveMediaPath(inputPath, groupFolder);
 
     if (!fs.existsSync(hostPath)) {
       throw new Error(`文件不存在: ${hostPath}`);
