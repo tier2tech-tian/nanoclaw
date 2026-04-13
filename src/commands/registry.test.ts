@@ -200,7 +200,9 @@ describe('dispatch', () => {
 
     expect(handled).toBe(true);
     const sendMsg = deps.channels[0].sendMessage;
-    expect(sendMsg).toHaveBeenCalledWith('test-jid', '命令执行失败: 爆炸了');
+    expect(sendMsg).toHaveBeenCalledWith('test-jid', '命令执行失败: 爆炸了', {
+      isCommandReply: true,
+    });
   });
 });
 

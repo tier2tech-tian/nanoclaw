@@ -69,12 +69,19 @@ export async function dispatch(
   // 提取 args
   const args = trimmed.slice(matched.name.length).trim();
 
+  // 包装 channel：命令回复自动带 isCommandReply，避免打断正在运行的 agent
+  const commandChannel: typeof channel = {
+    ...channel,
+    sendMessage: (jid: string, text: string) =>
+      channel.sendMessage(jid, text, { isCommandReply: true }),
+  };
+
   try {
     await matched.handler({
       chatJid: deps.chatJid,
       args,
       group: deps.group,
-      channel,
+      channel: commandChannel,
       msg: deps.msg,
       sessions: deps.sessions,
       queue: deps.queue,
@@ -84,7 +91,7 @@ export async function dispatch(
     });
   } catch (err) {
     logger.error({ err, cmd: matched.name }, '命令执行失败');
-    await channel
+    await commandChannel
       .sendMessage(deps.chatJid, `命令执行失败: ${(err as Error).message}`)
       .catch(() => {});
   }

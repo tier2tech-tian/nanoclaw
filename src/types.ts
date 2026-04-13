@@ -85,10 +85,19 @@ export interface TaskRunLog {
 
 // --- Channel abstraction ---
 
+export interface SendMessageOptions {
+  // 命令回复：跳过进度卡片清理等副作用，避免打断正在运行的 agent
+  isCommandReply?: boolean;
+}
+
 export interface Channel {
   name: string;
   connect(): Promise<void>;
-  sendMessage(jid: string, text: string): Promise<void>;
+  sendMessage(
+    jid: string,
+    text: string,
+    options?: SendMessageOptions,
+  ): Promise<void>;
   isConnected(): boolean;
   ownsJid(jid: string): boolean;
   disconnect(): Promise<void>;

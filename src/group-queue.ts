@@ -84,10 +84,13 @@ export class GroupQueue {
       if (!this.waitingGroups.includes(groupJid)) {
         this.waitingGroups.push(groupJid);
       }
-      logger.debug(
+      logger.info(
         { groupJid, activeCount: this.activeCount },
         'At concurrency limit, message queued',
       );
+
+      // 踢掉一个 idle 容器来腾出位子（drainGroup → drainWaiting 会拉起等待的群）
+      this.evictIdleContainer(groupJid);
       return;
     }
 
@@ -125,10 +128,11 @@ export class GroupQueue {
       if (!this.waitingGroups.includes(groupJid)) {
         this.waitingGroups.push(groupJid);
       }
-      logger.debug(
+      logger.info(
         { groupJid, taskId, activeCount: this.activeCount },
         'At concurrency limit, task queued',
       );
+      this.evictIdleContainer(groupJid);
       return;
     }
 
@@ -179,6 +183,9 @@ export class GroupQueue {
     const pid = state.process.pid;
     const name = state.containerName || groupJid;
     logger.info({ groupJid, pid, name }, 'killGroup: 终止容器进程');
+
+    // 清除 pending 状态，防止 drainGroup 在进程退出后自动拉起新容器
+    state.pendingMessages = false;
 
     try {
       // 先尝试杀进程组
@@ -418,6 +425,29 @@ export class GroupQueue {
         );
       }
       // If neither pending, skip this group
+    }
+  }
+
+  /**
+   * 并发满时，踢掉一个 idle 容器来腾出位子。
+   * 优先踢别的群（不踢请求者自己），找最久没活动的 idle 容器。
+   */
+  private evictIdleContainer(requesterJid: string): void {
+    let candidate: { jid: string; state: GroupState } | null = null;
+
+    for (const [jid, s] of this.groups) {
+      if (jid === requesterJid) continue;
+      if (!s.active || !s.idleWaiting) continue;
+      candidate = { jid, state: s };
+      break; // 找到第一个就够了
+    }
+
+    if (candidate) {
+      logger.info(
+        { evicted: candidate.jid, forGroup: requesterJid },
+        'Evicting idle container to free concurrency slot',
+      );
+      this.closeStdin(candidate.jid);
     }
   }
 
