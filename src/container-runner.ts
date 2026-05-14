@@ -197,6 +197,8 @@ export interface ContainerInput {
     model?: string;
     thinking?: 'adaptive' | 'disabled';
   };
+  /** 使用交互式 CLI 模式替代 Agent SDK */
+  useCliMode?: boolean;
   /** 由 runContainerAgent 内部填充，调用方无需设置 */
   workspacePaths?: {
     group: string;

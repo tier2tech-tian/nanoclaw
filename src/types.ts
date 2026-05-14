@@ -30,6 +30,7 @@ export interface AllowedRoot {
 export interface ContainerConfig {
   additionalMounts?: AdditionalMount[];
   timeout?: number; // Default: 300000 (5 minutes)
+  useCliMode?: boolean; // 使用交互式 CLI 模式替代 Agent SDK
 }
 
 export interface RegisteredGroup {

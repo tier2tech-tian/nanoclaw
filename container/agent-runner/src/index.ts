@@ -37,6 +37,7 @@ interface ContainerInput {
     model?: string;
     thinking?: 'adaptive' | 'disabled';
   };
+  useCliMode?: boolean; // 使用交互式 CLI 模式替代 Agent SDK
   workspacePaths: {
     group: string;
     queryCwd?: string;
@@ -1135,69 +1136,194 @@ async function main(): Promise<void> {
     prompt = `[SCHEDULED TASK]\n\nScript output:\n${JSON.stringify(scriptResult.data, null, 2)}\n\nInstructions:\n${containerInput.prompt}`;
   }
 
-  // Query loop: run query → wait for IPC message → run new query → repeat
-  let resumeAt: string | undefined;
-  try {
-    while (true) {
-      log(
-        `Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`,
-      );
+  // 根据 useCliMode 选择运行模式
+  if (containerInput.useCliMode) {
+    // ─── CLI 模式：每轮 spawn claude --print --resume ───
+    log('[cli-mode] Using interactive CLI mode (no Agent SDK)');
+    const { runCliQuery, buildMcpConfig, cleanupMcpConfig } = await import('./cli-runner.js');
 
-      const queryResult = await runQuery(
-        prompt,
-        sessionId,
-        mcpServerPath,
-        containerInput,
-        sdkEnv,
-        resumeAt,
-      );
-      if (queryResult.newSessionId) {
-        sessionId = queryResult.newSessionId;
-      }
-      if (queryResult.lastAssistantUuid) {
-        resumeAt = queryResult.lastAssistantUuid;
-      }
+    // 构建 MCP 配置文件
+    const mcpConfigPath = buildMcpConfig(
+      mcpServerPath,
+      containerInput.chatJid,
+      containerInput.groupFolder,
+      containerInput.isMain,
+      PATHS.ipc,
+    );
 
-      // If _close was consumed during the query, exit immediately.
-      // Don't emit a session-update marker (it would reset the host's
-      // idle timer and cause a 30-min delay before the next _close).
-      if (queryResult.closedDuringQuery) {
-        log('Close sentinel consumed during query, exiting');
-        break;
-      }
+    // 加载 global context（SOUL.md / TOOLS.md / CLAUDE.md）
+    const contextParts: string[] = [];
+    const globalDir = PATHS.global;
+    const soulPath = globalDir ? path.join(globalDir, 'SOUL.md') : undefined;
+    if (soulPath && fs.existsSync(soulPath)) {
+      contextParts.push(fs.readFileSync(soulPath, 'utf-8'));
+    }
+    const toolsPath = globalDir ? path.join(globalDir, 'TOOLS.md') : undefined;
+    if (toolsPath && fs.existsSync(toolsPath)) {
+      contextParts.push(fs.readFileSync(toolsPath, 'utf-8'));
+    }
+    const globalClaudeMdPath = PATHS.globalClaudeMd;
+    if (globalClaudeMdPath && fs.existsSync(globalClaudeMdPath)) {
+      contextParts.push(fs.readFileSync(globalClaudeMdPath, 'utf-8'));
+    }
+    const systemPromptAppend = contextParts.length > 0 ? contextParts.join('\n\n---\n\n') : undefined;
 
-      // Emit session update so host can track it
-      writeOutput({ status: 'success', result: null, newSessionId: sessionId });
-
-      log('Query ended, waiting for next IPC message...');
-
-      // Wait for the next message or _close sentinel
-      const nextMessage = await waitForIpcMessage();
-      if (nextMessage === null) {
-        log('Close sentinel received, exiting');
-        break;
-      }
-
-      log(`Got new message (${nextMessage.text.length} chars), starting new query`);
-      prompt = prependContext(nextMessage.text, nextMessage.context);
-      // 应用 IPC 消息中的 modelOverride（下次 runQuery 会用）
-      if (nextMessage.modelOverride) {
-        containerInput.modelOverride = nextMessage.modelOverride;
-        log(`[ipc] modelOverride: ${JSON.stringify(nextMessage.modelOverride)}`);
-      } else {
-        containerInput.modelOverride = undefined;
+    // 额外目录
+    const extraDirs: string[] = [];
+    const extraBase = PATHS.extra;
+    if (extraBase && fs.existsSync(extraBase)) {
+      for (const entry of fs.readdirSync(extraBase)) {
+        const fullPath = path.join(extraBase, entry);
+        if (fs.statSync(fullPath).isDirectory()) {
+          extraDirs.push(fullPath);
+        }
       }
     }
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    log(`Agent error: ${errorMessage}`);
-    writeOutput({
-      status: 'error',
-      result: null,
-      newSessionId: sessionId,
-      error: errorMessage,
-    });
-    process.exit(1);
+
+    // 读取 settings.json 中的默认模型
+    let defaultModel = 'claude-opus-4-6';
+    try {
+      const settingsPath = path.join(PATHS.group, '..', '..', 'data', 'sessions', containerInput.groupFolder, '.claude', 'settings.json');
+      if (fs.existsSync(settingsPath)) {
+        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+        if (settings.model) defaultModel = settings.model;
+      }
+    } catch { /* 使用硬编码默认值 */ }
+
+    try {
+      while (true) {
+        const model = containerInput.modelOverride?.model || defaultModel;
+        log(`[cli-mode] Starting CLI query (session: ${sessionId || 'new'}, model: ${model})...`);
+
+        const queryResult = await runCliQuery(
+          {
+            prompt,
+            sessionId,
+            model,
+            cwd: PATHS.queryCwd || PATHS.group,
+            mcpConfigPath,
+            additionalDirs: extraDirs.length > 0 ? extraDirs : undefined,
+            systemPromptAppend,
+            env: sdkEnv,
+            allowedTools: [
+              'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep',
+              'WebSearch', 'WebFetch', 'Task', 'TaskOutput', 'TaskStop',
+              'TeamCreate', 'TeamDelete', 'SendMessage', 'TodoWrite',
+              'ToolSearch', 'Skill', 'NotebookEdit', 'mcp__nanoclaw__*',
+            ],
+            permissionMode: 'bypassPermissions',
+          },
+          writeOutput,
+          log,
+        );
+
+        if (queryResult.newSessionId) {
+          sessionId = queryResult.newSessionId;
+        }
+
+        // 检查是否在查询期间收到关闭信号
+        if (shouldClose()) {
+          log('[cli-mode] Close sentinel detected, exiting');
+          break;
+        }
+
+        // 发送 session 更新
+        writeOutput({ status: 'success', result: null, newSessionId: sessionId });
+
+        log('[cli-mode] Query ended, waiting for next IPC message...');
+
+        const nextMessage = await waitForIpcMessage();
+        if (nextMessage === null) {
+          log('[cli-mode] Close sentinel received, exiting');
+          break;
+        }
+
+        log(`[cli-mode] Got new message (${nextMessage.text.length} chars)`);
+        prompt = prependContext(nextMessage.text, nextMessage.context);
+        if (nextMessage.modelOverride) {
+          containerInput.modelOverride = nextMessage.modelOverride;
+        } else {
+          containerInput.modelOverride = undefined;
+        }
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log(`[cli-mode] Agent error: ${errorMessage}`);
+      writeOutput({
+        status: 'error',
+        result: null,
+        newSessionId: sessionId,
+        error: errorMessage,
+      });
+      process.exit(1);
+    } finally {
+      cleanupMcpConfig(mcpConfigPath);
+    }
+  } else {
+    // ─── SDK 模式：原有 query() 逻辑 ───
+    let resumeAt: string | undefined;
+    try {
+      while (true) {
+        log(
+          `Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`,
+        );
+
+        const queryResult = await runQuery(
+          prompt,
+          sessionId,
+          mcpServerPath,
+          containerInput,
+          sdkEnv,
+          resumeAt,
+        );
+        if (queryResult.newSessionId) {
+          sessionId = queryResult.newSessionId;
+        }
+        if (queryResult.lastAssistantUuid) {
+          resumeAt = queryResult.lastAssistantUuid;
+        }
+
+        // If _close was consumed during the query, exit immediately.
+        // Don't emit a session-update marker (it would reset the host's
+        // idle timer and cause a 30-min delay before the next _close).
+        if (queryResult.closedDuringQuery) {
+          log('Close sentinel consumed during query, exiting');
+          break;
+        }
+
+        // Emit session update so host can track it
+        writeOutput({ status: 'success', result: null, newSessionId: sessionId });
+
+        log('Query ended, waiting for next IPC message...');
+
+        // Wait for the next message or _close sentinel
+        const nextMessage = await waitForIpcMessage();
+        if (nextMessage === null) {
+          log('Close sentinel received, exiting');
+          break;
+        }
+
+        log(`Got new message (${nextMessage.text.length} chars), starting new query`);
+        prompt = prependContext(nextMessage.text, nextMessage.context);
+        // 应用 IPC 消息中的 modelOverride（下次 runQuery 会用）
+        if (nextMessage.modelOverride) {
+          containerInput.modelOverride = nextMessage.modelOverride;
+          log(`[ipc] modelOverride: ${JSON.stringify(nextMessage.modelOverride)}`);
+        } else {
+          containerInput.modelOverride = undefined;
+        }
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log(`Agent error: ${errorMessage}`);
+      writeOutput({
+        status: 'error',
+        result: null,
+        newSessionId: sessionId,
+        error: errorMessage,
+      });
+      process.exit(1);
+    }
   }
 }
 
