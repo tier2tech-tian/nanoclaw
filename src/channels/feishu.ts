@@ -105,7 +105,7 @@ function buildCard(
 ): string {
   const card: Record<string, unknown> = {
     config: { wide_screen_mode: true },
-    elements: [{ tag: 'markdown', content: text, text_size: 'normal' }],
+    elements: [{ tag: 'markdown', content: text, text_size: 'large' }],
   };
   // 只有明确传了标题才显示 header（进度卡片等），正式回复不带标题栏
   if (headerText) {
@@ -930,6 +930,13 @@ export class FeishuChannel implements Channel {
     }
   }
 
+  /** 结果卡片正文自定义字号：移动端 large(16px) 正好，PC 端 normal(14px) 避免显大 */
+  private static readonly CARD_TEXT_STYLE = {
+    text_size: {
+      nano_body: { default: 'normal', pc: 'normal', mobile: 'large' },
+    },
+  };
+
   /** 发送纯文本或卡片消息，返回飞书 message_id（用于 DB 关联） */
   private async sendPlainOrCard(
     chatId: string,
@@ -940,7 +947,7 @@ export class FeishuChannel implements Channel {
     logger.info({ chatId, textLen: text.length, hasUsage: !!usage, thinking }, '[sendPlainOrCard] 准备发送');
     if (usage || shouldUseCard(text)) {
       const elements: unknown[] = [
-        { tag: 'markdown', content: text, text_size: 'normal' },
+        { tag: 'markdown', content: text, text_size: 'nano_body' },
       ];
       if (usage) appendUsageFooter(elements, usage, thinking);
       try {
@@ -950,6 +957,7 @@ export class FeishuChannel implements Channel {
             msg_type: 'interactive',
             content: JSON.stringify({
               schema: '2.0',
+              config: { style: FeishuChannel.CARD_TEXT_STYLE },
               body: { elements },
             }),
           },
@@ -966,7 +974,7 @@ export class FeishuChannel implements Channel {
             const splitElements: unknown[] = chunks.map((chunk) => ({
               tag: 'markdown',
               content: chunk,
-              text_size: 'normal',
+              text_size: 'nano_body',
             }));
             if (usage) appendUsageFooter(splitElements, usage, thinking);
             const resp = await this.client.im.message.create({
@@ -975,6 +983,7 @@ export class FeishuChannel implements Channel {
                 msg_type: 'interactive',
                 content: JSON.stringify({
                   schema: '2.0',
+                  config: { style: FeishuChannel.CARD_TEXT_STYLE },
                   body: { elements: splitElements },
                 }),
               },
