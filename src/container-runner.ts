@@ -308,6 +308,29 @@ export interface ContainerOutput {
     /** 最后一轮 API 调用的实际 context 大小（input + output tokens） */
     lastTurnContext?: number;
   };
+  /**
+   * cc-in-vm 可观测落库专用旁路帧（status:'progress' + result:null 时携带）。
+   * nanoclaw 原生 host 因 result 为 null 在 mainOnOutput 守卫处直接跳过；
+   * 仅 nine cc-in-vm passthrough 读取，落 agent_messages + context_xray。
+   */
+  obs?:
+    | {
+        kind: 'assistant_round';
+        content: unknown;
+        toolCalls: Array<{ id: string; name: string; arguments: unknown }>;
+        stopReason: string | null;
+        model?: string;
+        usage?: {
+          inputTokens: number;
+          outputTokens: number;
+          cacheReadInputTokens: number;
+          cacheCreationInputTokens: number;
+        };
+      }
+    | {
+        kind: 'tool_results';
+        toolResults: Array<{ toolCallId: string; content: string; isError: boolean }>;
+      };
 }
 
 // ---- 路径与环境 ----

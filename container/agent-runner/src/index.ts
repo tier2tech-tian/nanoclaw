@@ -89,6 +89,32 @@ interface ContainerOutput {
     /** 最后一轮 API 调用的实际 context 大小 */
     lastTurnContext?: number;
   };
+  /**
+   * cc-in-vm 可观测落库专用「旁路帧」。仅在 status:'progress' + result:null 时携带，
+   * nanoclaw 原生 host 因 result 为 null 在 mainOnOutput 守卫处直接跳过（零回归），
+   * 仅 nine cc-in-vm passthrough 读取它落 agent_messages + context_xray。
+   */
+  obs?:
+    | {
+        kind: 'assistant_round';
+        /** 该轮 assistant 的原始 SDK content blocks（text + tool_use），或纯字符串 */
+        content: unknown;
+        /** 从 content 抽出的工具调用（带完整结构化 input），供配对与 tool_calls 落库 */
+        toolCalls: Array<{ id: string; name: string; arguments: unknown }>;
+        stopReason: string | null;
+        model?: string;
+        /** 该轮精确 token/cache 账（非累计，单轮） */
+        usage?: {
+          inputTokens: number;
+          outputTokens: number;
+          cacheReadInputTokens: number;
+          cacheCreationInputTokens: number;
+        };
+      }
+    | {
+        kind: 'tool_results';
+        toolResults: Array<{ toolCallId: string; content: string; isError: boolean }>;
+      };
 }
 
 interface SessionEntry {
@@ -1150,6 +1176,43 @@ async function runQuery(
         const outputT = rawMsgUsage.output_tokens ?? 0;
         lastAssistantUsage = { inputTokens: totalContext, outputTokens: outputT };
       }
+
+      // cc-in-vm 可观测落库：每轮 assistant 的原始 content blocks + 该轮精确 usage。
+      // 走 result:null 的旁路帧，nanoclaw 原生 host 直接跳过，只有 nine passthrough 读 obs。
+      const contentBlocks = innerMsg?.content;
+      if (contentBlocks !== undefined) {
+        const toolCalls: Array<{ id: string; name: string; arguments: unknown }> = [];
+        if (Array.isArray(contentBlocks)) {
+          for (const b of contentBlocks as Array<Record<string, unknown>>) {
+            if (b.type === 'tool_use' && b.name) {
+              toolCalls.push({
+                id: (b.id as string) || '',
+                name: b.name as string,
+                arguments: b.input ?? {},
+              });
+            }
+          }
+        }
+        writeOutput({
+          status: 'progress',
+          result: null,
+          obs: {
+            kind: 'assistant_round',
+            content: contentBlocks,
+            toolCalls,
+            stopReason: (innerMsg?.stop_reason as string | undefined) ?? null,
+            model: assistantModel,
+            usage: rawMsgUsage
+              ? {
+                  inputTokens: rawMsgUsage.input_tokens ?? 0,
+                  outputTokens: rawMsgUsage.output_tokens ?? 0,
+                  cacheReadInputTokens: rawMsgUsage.cache_read_input_tokens ?? 0,
+                  cacheCreationInputTokens: rawMsgUsage.cache_creation_input_tokens ?? 0,
+                }
+              : undefined,
+          },
+        });
+      }
     }
 
     // 工具调用进度输出 — 让宿主机能显示进度卡片
@@ -1243,9 +1306,11 @@ async function runQuery(
       }
       const userMsg = message as { message?: { content?: unknown[] } };
       const content = userMsg.message?.content;
+      // cc-in-vm 可观测落库：收齐本条 user 消息里的全部 tool_result（完整内容 + 配对 id）
+      const obsToolResults: Array<{ toolCallId: string; content: string; isError: boolean }> = [];
       if (Array.isArray(content)) {
         for (const block of content) {
-          const b = block as { type?: string; content?: unknown };
+          const b = block as { type?: string; content?: unknown; tool_use_id?: string; is_error?: boolean };
           if (b.type === 'tool_result' && b.content) {
             let resultText = '';
             if (typeof b.content === 'string') {
@@ -1256,6 +1321,12 @@ async function runQuery(
                 .map(c => c.text!)
                 .join('\n');
             }
+            // 落库收集：保留完整结果文本（不截断），配对 tool_use_id
+            obsToolResults.push({
+              toolCallId: b.tool_use_id || '',
+              content: resultText,
+              isError: b.is_error === true,
+            });
             if (resultText && resultText.trim().length > 0) {
               const short = resultText.trim().slice(0, 60) + (resultText.trim().length > 60 ? '...' : '');
               writeOutput({
@@ -1268,6 +1339,13 @@ async function runQuery(
             }
           }
         }
+      }
+      if (obsToolResults.length > 0) {
+        writeOutput({
+          status: 'progress',
+          result: null,
+          obs: { kind: 'tool_results', toolResults: obsToolResults },
+        });
       }
     }
 
