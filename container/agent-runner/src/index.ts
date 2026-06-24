@@ -36,6 +36,8 @@ import { buildSendMessageToolEnv } from './mcp-tool-policy.js';
 import { readGroupModelSettings } from './model-settings.js';
 import { resolveQueryCwdForSession } from './session-cwd.js';
 import { isFinalizingOnly } from './finalizing-tools.js';
+import { StderrRingBuffer, redactSensitive, buildTerminalFrame } from './error-classify.js';
+import { runHealthCheck } from './health-check.js';
 
 interface ContainerInput {
   prompt: string;
@@ -69,6 +71,14 @@ interface ContainerOutput {
   result: string | null;
   newSessionId?: string;
   error?: string;
+  /** 错误分类（0 消息场景的错误诊断） */
+  error_class?: string;
+  /** 脱敏后的 stderr 尾部（最多 500 字符） */
+  error_detail?: string;
+  /** CLI exit code（SDK 模式为 null） */
+  exit_code?: number | null;
+  /** query 执行耗时（毫秒） */
+  duration_ms?: number;
   /** progress 消息的子类型 */
   progressType?: 'tool_use' | 'tool_result' | 'thinking' | 'text';
   /** 可折叠面板的展开内容（markdown 格式） */
@@ -777,12 +787,15 @@ async function runQuery(
   mcpServerPath: string,
   containerInput: ContainerInput,
   sdkEnv: Record<string, string | undefined>,
+  resolvedCliPath: string,
   resumeAt?: string,
 ): Promise<{
   newSessionId?: string;
   lastAssistantUuid?: string;
   closedDuringQuery: boolean;
+  hadTerminalError: boolean;
 }> {
+  const stderrBuffer = new StderrRingBuffer();
   const stream = new MessageStream();
   stream.push(prompt);
 
@@ -851,6 +864,7 @@ async function runQuery(
   let lastAssistantModel: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
+  let assistantMessageCount = 0;
   let lastAssistantUsage: { inputTokens: number; outputTokens: number } | undefined;
 
   // 💬 事件驱动去重：缓存当前 assistant message 的最后一段 text block，等下一个 message 决定命运
@@ -938,12 +952,8 @@ async function runQuery(
 
   const queryStartTime = Date.now();
   const override = containerInput.modelOverride;
-  const resolvedCliPath = path.resolve(
-    process.env.AGENT_RUNNER_DIR || '.',
-    'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js',
-  );
   log(`[query-start] sessionId=${sessionId || 'new'}, resumeAt=${resumeAt || 'latest'}, modelOverride=${override ? JSON.stringify(override) : 'none'}`);
-  log(`[query-start] AGENT_RUNNER_DIR=${process.env.AGENT_RUNNER_DIR}, cliPath=${resolvedCliPath}, exists=${fs.existsSync(resolvedCliPath)}`);
+  log(`[query-start] cliPath=${resolvedCliPath}`);
   // 日志：显示当前 proxy 用的 access token 前缀（用于验证 per-group 账号隔离）
   const proxyUrl = process.env.HTTPS_PROXY || '';
   const tokenMatch = proxyUrl.match(/x:([^@]{8})/);
@@ -1001,7 +1011,10 @@ async function runQuery(
       model: targetModel,
       pathToClaudeCodeExecutable: resolvedCliPath,
       executable: 'node' as const,  // 显式指定用 node 运行 cli.js
-      stderr: (data: string) => log(`[cli-stderr] ${data.trim()}`),
+      stderr: (data: string) => {
+        stderrBuffer.append(data);
+        log(`[cli-stderr] ${redactSensitive(data.trim())}`);
+      },
       cwd: resolvedQueryCwd.cwd,
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
@@ -1094,6 +1107,7 @@ async function runQuery(
   };
   let modelSettingsApplied = false;
 
+  let sdkError: Error | null = null;
   try {
   for await (const message of q) {
     messageCount++;
@@ -1138,8 +1152,9 @@ async function runQuery(
       lastAssistantUuid = (message as { uuid: string }).uuid;
     }
 
-    // 记录最后一次 assistant 消息的 model 和 usage
+    // 记录 assistant 消息数（用于 terminal frame 判定"0 条 assistant 消息"）
     if (message.type === 'assistant') {
+      assistantMessageCount++;
       const raw = message as Record<string, unknown>;
       const innerMsg = raw.message as Record<string, unknown> | undefined;
       // BetaMessage.model 是实际 API 调用使用的模型名
@@ -1405,6 +1420,12 @@ async function runQuery(
       });
     }
   }
+  } catch (err) {
+    // SDK iterator 异常：把 err.message 追加到 stderr buffer 用于错误分类
+    const errMsg = err instanceof Error ? err.message : String(err);
+    stderrBuffer.append(errMsg);
+    sdkError = err instanceof Error ? err : new Error(errMsg);
+    log(`[sdk-error] ${redactSensitive(errMsg)}`);
   } finally {
     // 防御性清理：无论 for-await 正常结束、throw、还是 SDK 异常退出，
     // 都要清掉 pendingThought 的 timer，否则 30s 后 fallback timer 可能在
@@ -1432,10 +1453,35 @@ async function runQuery(
     }
   }
   const totalElapsed = ((Date.now() - queryStartTime) / 1000).toFixed(1);
+  const durationMs = Date.now() - queryStartTime;
   log(
     `Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}, totalTime: ${totalElapsed}s`,
   );
-  return { newSessionId, lastAssistantUuid, closedDuringQuery };
+
+  // 生成 terminal frame（错误分类 / 成功标记）
+  // 用 assistantMessageCount（message.type === 'assistant'）判断，
+  // 不用 messageCount（含 system/init 等非 assistant 事件）
+  // SDK query() 模式下无 CLI exit code，设为 null
+  const terminalFrame = buildTerminalFrame(assistantMessageCount, stderrBuffer, null, durationMs);
+  if (terminalFrame.status === 'error') {
+    log(`[terminal] error_class=${terminalFrame.error_class} exit_code=${terminalFrame.exit_code} duration_ms=${terminalFrame.duration_ms}`);
+    writeOutput({
+      status: 'error',
+      result: null,
+      error: `[${terminalFrame.error_class}] ${terminalFrame.error_detail}`,
+      error_class: terminalFrame.error_class,
+      error_detail: terminalFrame.error_detail,
+      exit_code: terminalFrame.exit_code,
+      duration_ms: terminalFrame.duration_ms,
+    });
+  }
+
+  return {
+    newSessionId,
+    lastAssistantUuid,
+    closedDuringQuery,
+    hadTerminalError: terminalFrame.status === 'error',
+  };
 }
 
 interface ScriptResult {
@@ -1602,6 +1648,23 @@ async function main(): Promise<void> {
     // Script says wake agent — enrich prompt with script data
     log(`Script wakeAgent=true, enriching prompt with data`);
     prompt = `[SCHEDULED TASK]\n\nScript output:\n${JSON.stringify(scriptResult.data, null, 2)}\n\nInstructions:\n${containerInput.prompt}`;
+  }
+
+  // ---- 启动前健检（仅 sdk 模式需要 CLI 路径检查） ----
+  let healthResult: Awaited<ReturnType<typeof runHealthCheck>> | null = null;
+  if (cliMode === 'sdk') {
+    healthResult = await runHealthCheck(log);
+    if (!healthResult.ok) {
+      log(`[health] FAILED: ${healthResult.error_class} — ${healthResult.error_detail}`);
+      writeOutput({
+        status: 'error',
+        result: null,
+        error: `[health-check] ${healthResult.error_detail}`,
+        error_class: healthResult.error_class,
+        error_detail: healthResult.error_detail,
+      });
+      process.exit(1);
+    }
   }
 
   // ---- 模式分叉：sdk / print / interactive ----
@@ -2153,6 +2216,7 @@ async function main(): Promise<void> {
         mcpServerPath,
         containerInput,
         sdkEnv,
+        healthResult!.cliPath!,
         resumeAt,
       );
       if (queryResult.newSessionId) {
@@ -2167,6 +2231,12 @@ async function main(): Promise<void> {
       // idle timer and cause a 30-min delay before the next _close).
       if (queryResult.closedDuringQuery) {
         log('Close sentinel consumed during query, exiting');
+        break;
+      }
+
+      // terminal error 已输出分类 error frame，不再发 success keepalive，直接退出
+      if (queryResult.hadTerminalError) {
+        log('[terminal] query ended with terminal error, exiting');
         break;
       }
 
@@ -2196,7 +2266,7 @@ async function main(): Promise<void> {
       }
     }
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
+    const errorMessage = redactSensitive(err instanceof Error ? err.message : String(err));
     log(`Agent error: ${errorMessage}`);
     writeOutput({
       status: 'error',
