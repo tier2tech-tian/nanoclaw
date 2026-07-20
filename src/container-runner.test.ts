@@ -721,3 +721,59 @@ describe('error 退出 + outputChain 时序', () => {
     expect(onOutput).not.toHaveBeenCalled();
   });
 });
+
+// --- detectRateLimit / detectRateLimitResult ---
+
+import { detectRateLimit, detectRateLimitResult } from './container-runner.js';
+
+describe('detectRateLimit', () => {
+  // 应匹配的限流消息
+  const positives = [
+    'Error: 429 Too Many Requests',
+    'rate_limit_error',
+    'overloaded_error',
+    "You've hit your usage limit",
+    "You've hit your session limit",
+    "You've hit your limit",
+    "You've reached your Fable 5 limit. /model to switch models.",
+    "You've reached your Fable-5 limit!",
+    "You've reached your Claude Opus 4.1 limit.",
+    "You've reached your claude-opus-4 limit.",
+    "You have reached your Fable 5 limit.",
+    'rate limit exceeded',
+    'quota exceeded',
+    'too many requests',
+  ];
+
+  for (const text of positives) {
+    it(`匹配: ${text.slice(0, 50)}`, () => {
+      expect(detectRateLimit(text)).toBe(true);
+    });
+  }
+
+  // 不应匹配的正常对话
+  const negatives = [
+    "You've reached your current design limit; the next step is to split the module.",
+    "You've reached your personal growth limit this quarter",
+    'normal conversation about limits',
+    'The 429 status code is used for rate limiting in HTTP',
+    'We discussed the rate limit policy yesterday',
+  ];
+
+  for (const text of negatives) {
+    it(`不匹配: ${text.slice(0, 50)}`, () => {
+      expect(detectRateLimit(text)).toBe(false);
+    });
+  }
+});
+
+describe('detectRateLimitResult', () => {
+  it('短文本限流消息返回 true', () => {
+    expect(detectRateLimitResult("You've reached your Fable 5 limit.")).toBe(true);
+  });
+
+  it('超 500 字符的引用限流消息返回 false（防误杀）', () => {
+    const long = "You've reached your Fable 5 limit. " + 'x'.repeat(500);
+    expect(detectRateLimitResult(long)).toBe(false);
+  });
+});
