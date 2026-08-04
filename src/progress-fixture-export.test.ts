@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import { buildProgressFixtureSnapshotForTest } from './channels/feishu.js';
@@ -57,6 +60,45 @@ describe('buildProgressFixtureSnapshotForTest', () => {
       });
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it('fixture 锁定完整卡片结构和全部 cases 的摘要', () => {
+    const fixture = JSON.parse(
+      readFileSync('test-fixtures/progress-card-v2.json', 'utf8'),
+    ) as {
+      schema: string;
+      behaviorCommit: string;
+      exporterCommit: string;
+      casesSha256: string;
+      normalization: { deletedJsonPointers: string[] };
+      cases: Array<{
+        snapshots: Array<{
+          card: {
+            schema: string;
+            config: { update_multi: boolean };
+            body: { elements: unknown[] };
+          };
+        }>;
+      }>;
+    };
+
+    expect(fixture.schema).toBe('nanoclaw-progress-card-fixture/v2');
+    expect(fixture.behaviorCommit).toBe(
+      '426b64dda3635995f1cc47ec330fa20392c17944',
+    );
+    expect(fixture.exporterCommit).toMatch(/^[0-9a-f]{40}$/u);
+    expect(fixture.normalization.deletedJsonPointers).toEqual([]);
+    expect(fixture.cases).toHaveLength(15);
+    expect(
+      createHash('sha256').update(JSON.stringify(fixture.cases)).digest('hex'),
+    ).toBe(fixture.casesSha256);
+    for (const fixtureCase of fixture.cases) {
+      for (const snapshot of fixtureCase.snapshots) {
+        expect(snapshot.card.schema).toBe('2.0');
+        expect(snapshot.card.config.update_multi).toBe(true);
+        expect(Array.isArray(snapshot.card.body.elements)).toBe(true);
+      }
     }
   });
 });
