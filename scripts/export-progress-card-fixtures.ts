@@ -117,7 +117,11 @@ const cases: Array<{ name: string; events: ProgressPresentationEvent[] }> = [
   {
     name: 'credentials_markdown_and_long_path_are_closed',
     events: [
-      { kind: 'narration', text: '检查 *链接* [点我](https://bad.example)。' },
+      {
+        kind: 'narration',
+        text:
+          '检查 *链接* [点我](https://bad.example)，并验证 OPENAI_API_KEY=plainsecretvalue。',
+      },
       tool('started', 'Read', 'secret-1', {
         file_path:
           'https://user:password@example.com/very/long/private/path/to/.env.production?token=sk-secret12345678',
