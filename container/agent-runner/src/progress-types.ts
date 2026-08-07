@@ -27,6 +27,10 @@ export function redactProgressText(text: string): string {
       /-----BEGIN(?: [A-Z]+)* PRIVATE KEY-----[\s\S]*?-----END(?: [A-Z]+)* PRIVATE KEY-----/giu,
       '[REDACTED_PRIVATE_KEY]',
     )
+    .replace(
+      /\b(Authorization|Cookie|Set-Cookie)\s*:\s*[^\r\n]+/giu,
+      '$1: [REDACTED]',
+    )
     .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]{8,}={0,2}/giu, 'Bearer [REDACTED]')
     .replace(
       /\b(?:sk-[A-Za-z0-9_-]{8,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|xox[baprs]-[A-Za-z0-9-]{8,}|AKIA[A-Z0-9]{12,})\b/gu,
@@ -111,6 +115,16 @@ export function boundProgressInput(
   for (const key of SAFE_STRING_KEYS) {
     const value = boundedString(source[key]);
     if (value !== undefined) bounded[key] = value;
+  }
+  if (
+    source.arguments &&
+    typeof source.arguments === 'object' &&
+    !Array.isArray(source.arguments)
+  ) {
+    const query = boundedString(
+      (source.arguments as Record<string, unknown>).query,
+    );
+    if (query !== undefined) bounded.arguments = { query };
   }
   if (Array.isArray(source.changes)) {
     bounded.changes = source.changes.slice(0, 20).flatMap((entry) => {

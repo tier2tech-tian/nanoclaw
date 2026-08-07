@@ -9,6 +9,7 @@ import {
   mapCodexTextProgress,
 } from '../container/agent-runner/src/codex-runner.js';
 import {
+  classifyProgressAction,
   createProgressPresentationState,
   reduceProgressPresentation,
 } from './progress-display.js';
@@ -215,20 +216,25 @@ describe('mapCodexProgress — 回归', () => {
     expect(out[0].result).toBe('⏹️ 已取消');
   });
 
-  it('结构化输入限制长度且不保留 MCP arguments', () => {
+  it('真实 MCP 事件跨层保留有界 query 且不泄露其他参数', () => {
     const out = mapCodexProgress(
       started({
         id: 'mcp-1',
         type: 'mcp_tool_call',
-        server: 'gitnexus',
-        tool: 'query',
-        arguments: { api_key: 'secret', query: 'x'.repeat(3_000) },
+        server: 'nanoclaw',
+        tool: 'search_chat',
+        arguments: { token: 'nested-secret', query: '过程卡片' },
       }),
     );
     expect(out[0].progress?.input).toEqual({
-      server: 'gitnexus',
-      tool: 'query',
+      server: 'nanoclaw',
+      tool: 'search_chat',
+      arguments: { query: '过程卡片' },
     });
+    expect(classifyProgressAction(out[0].progress!).title).toBe(
+      '正在搜索包含“过程卡片”的聊天记录',
+    );
+    expect(JSON.stringify(out[0].progress)).not.toContain('nested-secret');
   });
 
   it('跨层集成：codex rg 无匹配 exit 1 经映射+展示层渲染为"已搜索，无匹配"', () => {
@@ -271,7 +277,7 @@ describe('mapCodexProgress — 回归', () => {
     ['沙箱启动失败哨兵 -1', -1],
     ['信号终止 137', 137],
   ])(
-    '跨层集成：codex 探测型命令 %s 不触发窄覆盖，仍显示执行失败',
+    '跨层集成：codex 探测型命令 %s 不触发窄覆盖，保留动作和退出码',
     (_label, code) => {
       const completedOut = mapCodexProgress(
         completed({
@@ -298,7 +304,9 @@ describe('mapCodexProgress — 回归', () => {
         progress: completedOut[0].progress!,
       });
       expect(state.steps[0].status).toBe('failed');
-      expect(state.steps[0].title).toBe('执行失败');
+      expect(state.steps[0].title).toBe(
+        `tmp 中搜索“pattern”失败：退出码 ${code}`,
+      );
     },
   );
 
