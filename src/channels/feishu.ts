@@ -571,6 +571,30 @@ function buildProgressCard(
   });
 }
 
+/**
+ * 测试夹具专用：导出 reducer 状态对应的完整可见窗口和卡片 JSON。
+ * 只复用生产渲染路径，不参与消息发送，也不改变生产行为。
+ */
+export function buildProgressFixtureSnapshotForTest(
+  state: ProgressPresentationState,
+  options: {
+    frame?: number;
+    startTime?: number;
+  } = {},
+): { visibleSteps: ProgressStep[]; card: Record<string, unknown> } {
+  const visibleSteps = visiblePresentationSteps(state);
+  return {
+    visibleSteps,
+    card: JSON.parse(
+      buildProgressCard(
+        visibleSteps,
+        options.frame,
+        options.startTime,
+      ),
+    ) as Record<string, unknown>,
+  };
+}
+
 /** 各模型 context window 的兜底值（当 SDK 未返回时使用） */
 const CLAUDE_CONTEXT_WINDOW_FALLBACK: Record<string, number> = {
   'claude-opus-4': 1_000_000, // opus-4-8 为 1M context（CLI 二进制确认）
