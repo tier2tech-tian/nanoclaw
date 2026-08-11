@@ -26,6 +26,24 @@ describe('boundProgressInput', () => {
     ).toEqual({ command: 'npm test' });
   });
 
+  it('嵌套 MCP 参数只保留有界 query', () => {
+    expect(
+      boundProgressInput({
+        server: 'nanoclaw',
+        tool: 'search_chat',
+        arguments: {
+          query: 'x'.repeat(3_000),
+          token: 'nested-secret',
+          content: '不应透传的正文',
+        },
+      }),
+    ).toEqual({
+      server: 'nanoclaw',
+      tool: 'search_chat',
+      arguments: { query: 'x'.repeat(2_000) },
+    });
+  });
+
   it('文件变更列表有界', () => {
     const changes = Array.from({ length: 30 }, (_, index) => ({
       path: `/tmp/${index}.ts`,
@@ -121,6 +139,8 @@ describe('redactProgressText', () => {
   it('脱敏常见凭证 canary，同时保留普通测试输出', () => {
     const input = [
       'Authorization: Bearer bearer-canary-123456',
+      'Cookie: session=cookie-canary-123456',
+      'Set-Cookie: sid=set-cookie-canary-123456; HttpOnly',
       'OPENAI_API_KEY=sk-canary-1234567890',
       'https://user:pass@example.com/path?access_token=query-canary-123',
       '-----BEGIN PRIVATE KEY-----',
@@ -130,6 +150,8 @@ describe('redactProgressText', () => {
     ].join('\n');
     const output = redactProgressText(input);
     expect(output).not.toContain('bearer-canary');
+    expect(output).not.toContain('cookie-canary');
+    expect(output).not.toContain('set-cookie-canary');
     expect(output).not.toContain('sk-canary');
     expect(output).not.toContain('user:pass');
     expect(output).not.toContain('query-canary');

@@ -93,11 +93,227 @@ function started(
 }
 
 describe('classifyProgressAction', () => {
+  const informationValueCases: Array<
+    [string, StructuredProgress, string, string]
+  > = [
+    [
+      '读取文件',
+      started('Read', { file_path: '/workspace/src/progress-display.ts' }),
+      '正在读取 src/progress-display.ts',
+      '已读取 src/progress-display.ts',
+    ],
+    [
+      '搜索文件',
+      started('Grep', {
+        pattern: 'turn_end',
+        path: '/workspace/src/progress-display.ts',
+      }),
+      '正在 src/progress-display.ts 中搜索“turn_end”',
+      '已在 src/progress-display.ts 中搜索“turn_end”',
+    ],
+    [
+      '修改文件',
+      started('Edit', { file_path: '/workspace/src/progress-display.ts' }),
+      '正在修改 src/progress-display.ts',
+      '已修改 src/progress-display.ts',
+    ],
+    [
+      '原生文件变更',
+      started('file_change', {
+        changes: [{ path: '/workspace/src/progress-display.ts' }],
+      }),
+      '正在修改 src/progress-display.ts',
+      '已修改 src/progress-display.ts',
+    ],
+    [
+      '搜索公开资料',
+      started('web_search', { query: 'Claude Code hooks' }),
+      '正在搜索“Claude Code hooks”公开资料',
+      '已搜索“Claude Code hooks”公开资料',
+    ],
+    [
+      '分析调用关系',
+      started('gitnexus_context', { query: 'sendMessage' }),
+      '正在分析 sendMessage 的代码调用关系',
+      '已分析 sendMessage 的代码调用关系',
+    ],
+    [
+      '搜索聊天记录',
+      started('mcp_tool_call', {
+        tool: 'search_chat',
+        arguments: { query: '过程卡片' },
+      }),
+      '正在搜索包含“过程卡片”的聊天记录',
+      '已搜索包含“过程卡片”的聊天记录',
+    ],
+    [
+      '上传文档',
+      started('Bash', {
+        command: 'feishu-docs.mjs upload docs/plan.md --folder nanoclaw',
+      }),
+      '正在上传 docs/plan.md',
+      '已上传 docs/plan.md',
+    ],
+    [
+      '查看工作区状态',
+      started('Bash', { command: 'git status --short' }),
+      '正在查看工作区状态',
+      '已查看工作区状态',
+    ],
+    [
+      '检查代码差异',
+      started('Bash', { command: 'git diff -- src/progress-display.ts' }),
+      '正在检查 src/progress-display.ts 的代码差异',
+      '已检查 src/progress-display.ts 的代码差异',
+    ],
+    [
+      '查看提交历史',
+      started('Bash', { command: 'git log -5 --oneline' }),
+      '正在查看提交历史',
+      '已查看提交历史',
+    ],
+    [
+      '查看提交内容',
+      started('Bash', { command: 'git show HEAD' }),
+      '正在查看提交内容',
+      '已查看提交内容',
+    ],
+    [
+      '运行指定测试',
+      started('Bash', { command: 'node --test src/progress-display.test.ts' }),
+      '正在运行 progress-display.test.ts 测试',
+      '已测试 progress-display.test.ts',
+    ],
+    [
+      '编译子项目',
+      started('Bash', { command: 'npm --prefix web run build' }),
+      '正在编译 web 项目',
+      '已编译 web 项目',
+    ],
+    [
+      '检查流水线',
+      started('Bash', { command: 'gh run view 123 --log-failed' }),
+      '正在检查流水线 #123 失败原因',
+      '已检查流水线 #123 失败原因',
+    ],
+    [
+      '处理代码评审',
+      started('Bash', { command: 'gh pr view 3197' }),
+      '正在处理 PR #3197',
+      '已处理 PR #3197',
+    ],
+    [
+      '读取飞书消息',
+      started('Bash', {
+        command: 'lark-cli im +chat-messages-list --chat-id oc_secret',
+      }),
+      '正在读取目标聊天消息',
+      '已读取目标聊天消息',
+    ],
+    [
+      '查询 DEV 日志',
+      started('Bash', {
+        command: 'ssh dev "curl $GRAFANA_URL/loki/api/v1/query_range"',
+      }),
+      '正在查询 DEV 链路日志',
+      '已查询 DEV 链路日志',
+    ],
+    [
+      '校验变更规范',
+      started('Bash', {
+        command: 'openspec validate readable-progress-cards --strict',
+      }),
+      '正在校验 readable-progress-cards 变更规范',
+      '已校验 readable-progress-cards 变更规范',
+    ],
+    [
+      '检查服务健康',
+      started('Bash', { command: 'curl -fsS http://service/health' }),
+      '正在检查 health 服务响应',
+      '已检查 health 服务响应',
+    ],
+    [
+      '检查 DEV 环境',
+      started('Bash', { command: 'ssh dev uname -a' }),
+      '正在检查 DEV 远程环境',
+      '已检查 DEV 远程环境',
+    ],
+    [
+      '应用文件补丁',
+      started('Bash', {
+        command:
+          "apply_patch <<'PATCH'\n*** Begin Patch\n*** Update File: src/progress-display.ts\n*** End Patch\nPATCH",
+      }),
+      '正在修改 src/progress-display.ts',
+      '已修改 src/progress-display.ts',
+    ],
+    [
+      '按名称查找文件',
+      started('Bash', { command: "find src -name '*.ts'" }),
+      '正在 src 中查找“*.ts”',
+      '已在 src 中查找“*.ts”',
+    ],
+    [
+      '查看目录',
+      started('Bash', { command: 'ls -la src' }),
+      '正在查看 src 目录',
+      '已查看 src 目录',
+    ],
+    [
+      '查看工作目录',
+      started('Bash', { command: 'pwd' }),
+      '正在查看工作目录',
+      '已查看工作目录',
+    ],
+    [
+      '删除明确对象',
+      started('Bash', { command: 'rm -rf build' }),
+      '正在删除 build',
+      '已删除 build',
+    ],
+  ];
+
+  it('信息价值审计固定为 26 类', () => {
+    expect(informationValueCases).toHaveLength(26);
+  });
+
+  it.each(informationValueCases)(
+    '%s 不丢操作对象',
+    (_name, progress, expected, expectedCompleted) => {
+      const action = classifyProgressAction(progress);
+      expect(action.title).toBe(expected);
+      expect(action.actionSummary).toBeTruthy();
+      expect(action.completedTitle).toBe(expectedCompleted);
+    },
+  );
+
+  it.each(informationValueCases)(
+    '%s 完成后仍保留操作对象',
+    (_name, progress, _expected, expectedCompleted) => {
+      let state = createProgressPresentationState();
+      state = reduceProgressPresentation(state, {
+        kind: 'tool',
+        progress,
+      });
+      state = reduceProgressPresentation(state, {
+        kind: 'tool',
+        progress: {
+          ...progress,
+          lifecycle: 'completed',
+          exitCode: 0,
+        },
+      });
+
+      expect(state.phases).toHaveLength(1);
+      expect(state.phases[0].outcome).toBe(expectedCompleted);
+    },
+  );
+
   const cases: Array<[string, StructuredProgress, string]> = [
     [
       '读取文件',
       started('Read', { file_path: '/tmp/config.ts' }),
-      '正在读取 /tmp/config.ts',
+      '正在读取 config.ts',
     ],
     [
       '搜索模型配置',
@@ -107,7 +323,7 @@ describe('classifyProgressAction', () => {
     [
       '修改文件',
       started('Edit', { file_path: '/tmp/config.ts' }),
-      '正在修改 /tmp/config.ts',
+      '正在修改 config.ts',
     ],
     ['运行测试', started('Bash', { command: 'npm test' }), '正在运行测试'],
     [
@@ -135,14 +351,14 @@ describe('classifyProgressAction', () => {
     [
       '检查流水线',
       started('Bash', { command: 'gh run view 123 --log-failed' }),
-      '正在检查流水线失败原因',
+      '正在检查流水线 #123 失败原因',
     ],
     [
       '读取飞书消息',
       started('Bash', {
         command: 'lark-cli im +chat-messages-list --chat-id oc_xxx',
       }),
-      '正在读取飞书消息',
+      '正在读取目标聊天消息',
     ],
     [
       '搜索网页',
@@ -154,19 +370,19 @@ describe('classifyProgressAction', () => {
       started('Bash', {
         command: 'feishu-docs.mjs upload plan.md --folder nanoclaw',
       }),
-      '正在上传文档',
+      '正在上传 plan.md',
     ],
     [
       '删除远程分支',
       started('Bash', { command: 'git push origin --delete old-branch' }),
-      '正在删除远程分支',
+      '正在删除 old-branch',
     ],
     [
       '校验 OpenSpec',
       started('Bash', {
         command: 'openspec validate readable-progress --strict',
       }),
-      '正在校验变更规范',
+      '正在校验 readable-progress 变更规范',
     ],
     [
       '应用补丁',
@@ -210,7 +426,7 @@ describe('classifyProgressAction', () => {
           },
         ],
       }),
-      '正在修改 /workspace/src/progress-display.ts',
+      '正在修改 src/progress-display.ts',
     ],
     [
       'Codex 原生多文件变更',
@@ -231,17 +447,17 @@ describe('classifyProgressAction', () => {
     [
       '检查流水线状态',
       started('Bash', { command: 'gh run view 123' }),
-      '正在检查交付流水线',
+      '正在检查流水线 #123',
     ],
     [
       '检查服务',
       started('Bash', { command: 'curl -fsS http://service/health' }),
-      '正在检查服务响应',
+      '正在检查 health 服务响应',
     ],
     [
       '检查远程环境',
       started('Bash', { command: 'ssh dev uname -a' }),
-      '正在检查远程环境',
+      '正在检查 DEV 远程环境',
     ],
     [
       '分析调用关系',
@@ -338,8 +554,8 @@ describe('classifyProgressAction', () => {
     );
 
     expect(action).toMatchObject({
-      completedTitle: '已修改 /workspace/src/progress-display.ts',
-      actionSummary: '修改 /workspace/src/progress-display.ts',
+      completedTitle: '已修改 src/progress-display.ts',
+      actionSummary: '修改 src/progress-display.ts',
     });
   });
 
@@ -352,7 +568,7 @@ describe('classifyProgressAction', () => {
     [
       'git log 不把后续管道参数当文件名',
       `/bin/zsh -lc "git log -1 --oneline; node query.mjs --last 300"`,
-      '正在检查代码和历史',
+      '正在查看提交历史',
     ],
     [
       'git blame 仍展示真实文件名',
@@ -380,8 +596,8 @@ describe('classifyProgressAction', () => {
     [
       'Read 文件名',
       started('Read', { file_path: '/workspace/src/progress-display.ts' }),
-      '正在读取 /workspace/src/progress-display.ts',
-      '读取 /workspace/src/progress-display.ts',
+      '正在读取 src/progress-display.ts',
+      '读取 src/progress-display.ts',
     ],
     [
       'Grep 关键词和文件',
@@ -389,14 +605,14 @@ describe('classifyProgressAction', () => {
         pattern: 'turn_end',
         path: '/workspace/src/progress-display.ts',
       }),
-      '正在 /workspace/src/progress-display.ts 中搜索“turn_end”',
-      '在 /workspace/src/progress-display.ts 中搜索“turn_end”',
+      '正在 src/progress-display.ts 中搜索“turn_end”',
+      '在 src/progress-display.ts 中搜索“turn_end”',
     ],
     [
       'Edit 文件名',
       started('Edit', { file_path: '/workspace/src/progress-display.ts' }),
-      '正在修改 /workspace/src/progress-display.ts',
-      '修改 /workspace/src/progress-display.ts',
+      '正在修改 src/progress-display.ts',
+      '修改 src/progress-display.ts',
     ],
     [
       '测试文件',
@@ -420,7 +636,7 @@ describe('classifyProgressAction', () => {
     });
   });
 
-  it('路径保留上下文且敏感 query 安全降级', () => {
+  it('未知绝对路径只保留文件名', () => {
     const read = classifyProgressAction(
       started('Read', {
         file_path: '/Users/dajay/private/project/src/config.ts',
@@ -429,9 +645,7 @@ describe('classifyProgressAction', () => {
     const search = classifyProgressAction(
       started('Grep', { pattern: 'Bearer secret-token-123456789' }),
     );
-    expect(read.title).toBe(
-      '正在读取 /Users/dajay/private/project/src/config.ts',
-    );
+    expect(read.title).toBe('正在读取 config.ts');
     expect(search.title).toBe('正在搜索相关内容');
     expect(search.title).not.toContain('secret-token');
     expect(
@@ -441,24 +655,30 @@ describe('classifyProgressAction', () => {
     ).toBe('正在读取 敏感配置文件');
   });
 
-  it('超长路径截掉头部保尾段（保住文件名和后段目录）', () => {
+  it('只有可信 workspace 绝对路径展示项目相对路径', () => {
     const action = classifyProgressAction(
       started('Read', {
-        file_path:
-          '/Users/dajay/AI_Workspace/nanoclaw/groups/fs_oc_x/images/photo.jpg',
+        file_path: '/workspace/images/photo.jpg',
       }),
     );
-    expect(action.title.startsWith('正在读取 …')).toBe(true);
-    expect(action.title.endsWith('images/photo.jpg')).toBe(true);
-    expect(Array.from(action.title.replace('正在读取 ', '')).length).toBe(48);
+    expect(action.title).toBe('正在读取 images/photo.jpg');
+  });
+
+  it('绝对路径中的目录名不被误当项目边界', () => {
+    const action = classifyProgressAction(
+      started('Read', {
+        file_path: '/Users/x/backups/docs/customer/contracts/a.pdf',
+      }),
+    );
+    expect(action.title).toBe('正在读取 a.pdf');
   });
 
   it('超过 64 字符的长哈希文件名不再放弃，截头保留扩展名', () => {
     const longName = `om_${'a'.repeat(80)}.jpg`;
     const action = classifyProgressAction(
-      started('Read', { file_path: `/images/${longName}` }),
+      started('Read', { file_path: `/workspace/images/${longName}` }),
     );
-    expect(action.title).toBe('正在读取 /images/….jpg');
+    expect(action.title).toBe('正在读取 images/….jpg');
   });
 
   it('路径中含 token 段被涂抹时退回纯文件名', () => {
@@ -520,11 +740,11 @@ describe('classifyProgressAction', () => {
   it.each([
     ['正斜杠', 'C:/Users/dajay/project/src/file.ts'],
     ['反斜杠', 'C:\\Users\\dajay\\project\\src\\file.ts'],
-  ])('Windows 盘符路径（%s）保留路径上下文', (_label, filePath) => {
+  ])('Windows 盘符路径（%s）只保留文件名', (_label, filePath) => {
     const action = classifyProgressAction(
       started('Read', { file_path: filePath }),
     );
-    expect(action.title).toBe('正在读取 C:/Users/dajay/project/src/file.ts');
+    expect(action.title).toBe('正在读取 file.ts');
   });
 
   it('非首段的冒号仍被白名单拒绝', () => {
@@ -545,15 +765,11 @@ describe('classifyProgressAction', () => {
       "sed -n '620,700p' src/progress-display.ts",
       '正在读取 src/progress-display.ts',
     ],
-    [
-      'Bash cat',
-      'cat /workspace/package.json',
-      '正在读取 /workspace/package.json',
-    ],
+    ['Bash cat', 'cat /workspace/package.json', '正在读取 package.json'],
   ])('%s 从命令提取安全对象', (_name, command, expected) => {
-    expect(
-      classifyProgressAction(started('Bash', { command })).title,
-    ).toBe(expected);
+    expect(classifyProgressAction(started('Bash', { command })).title).toBe(
+      expected,
+    );
   });
 
   it.each([
@@ -586,6 +802,41 @@ describe('classifyProgressAction', () => {
     expect(action.confidence).toBe('fallback');
   });
 
+  it.each([
+    `python -c "print('gh pr view 123')"`,
+    `/usr/bin/python -c "print('gh pr view 123')"`,
+    `/usr/bin/python3.12 -c "print('pytest')"`,
+    `/usr/bin/ruby -e "puts 'vitest'"`,
+    `env python -c "print('gh pr view 123')"`,
+    `env -u PYTHONPATH python -c "print('gh pr view 123')"`,
+    `env -C /tmp python3.12 -c "print('pytest')"`,
+    `env -S "python -c 'print(gh pr view 1)'"`,
+    `command -v python -c "print('gh pr view 1')"`,
+    `C:\\Python312\\python.exe -c "print('gh pr view 123')"`,
+    `"C:\\Python312\\python.exe" -c "print('gh pr view 1')"`,
+    `"C:\\Program Files\\Python312\\python.exe" -c "print('gh pr view 1')"`,
+    `"/usr/bin/python3.12" -c "print('pytest')"`,
+    `/bin/zsh -lc "\\"/usr/bin/python3.12\\" -c \\"print('pytest')\\""`,
+    `TOKEN=value command /usr/bin/perl -e "print 'jest'"`,
+    `python -c "print('pytest')"`,
+    `ruby -e "puts 'vitest'"`,
+    `perl -e "print 'jest'"`,
+    `node -e "console.log('node --test x')"`,
+  ])('解释器脚本正文不误命中业务子串：%s', (command) => {
+    const action = classifyProgressAction(started('Bash', { command }));
+    expect(action.title).toBe('正在运行脚本');
+    expect(action.category).toBe('script');
+  });
+
+  it.each([
+    ['python -m pytest tests/test_api.py', '正在运行 test_api.py 测试'],
+    ['node --test src/progress-display.test.ts', '正在运行 progress-display.test.ts 测试'],
+  ])('解释器显式测试参数仍按测试展示：%s', (command, expected) => {
+    expect(classifyProgressAction(started('Bash', { command })).title).toBe(
+      expected,
+    );
+  });
+
   it('未知命令无阶段时使用中性文案且不泄露命令', () => {
     const action = classifyProgressAction(
       started('Bash', { command: './foo --bar secret' }),
@@ -610,7 +861,7 @@ describe('classifyProgressAction', () => {
     expect(visible).not.toContain('oc_secret');
     expect(visible).not.toContain('10.0.0.8');
     expect(visible).not.toContain('phase-secret');
-    expect(visible).toContain('[REDACTED]');
+    expect(visible).toContain('相关文件');
   });
 
   it('MCP 工具名恢复为业务动作', () => {
@@ -621,7 +872,56 @@ describe('classifyProgressAction', () => {
         arguments: { query: '过程卡片' },
       }),
     );
-    expect(action.title).toBe('正在搜索聊天记录');
+    expect(action.title).toBe('正在搜索包含“过程卡片”的聊天记录');
+  });
+
+  it('补充对象后仍守住凭证、敏感文件和内部地址红线', () => {
+    const nestedSecret = classifyProgressAction(
+      started('mcp_tool_call', {
+        tool: 'search_chat',
+        arguments: { query: 'Authorization: Basic canary-secret-123456' },
+      }),
+    );
+    const sensitiveUpload = classifyProgressAction(
+      started('Bash', { command: 'feishu-docs.mjs upload .env' }),
+    );
+    const internalEndpoint = classifyProgressAction(
+      started('Bash', {
+        command: 'curl https://user:pass@10.0.0.8/private/health',
+      }),
+    );
+    const unknown = classifyProgressAction(
+      started('Bash', { command: 'custom-tool --token canary-secret-123456' }),
+    );
+    const visible = [
+      nestedSecret.title,
+      sensitiveUpload.title,
+      internalEndpoint.title,
+      unknown.title,
+    ].join(' ');
+
+    expect(nestedSecret.title).toBe('正在搜索聊天记录');
+    expect(sensitiveUpload.title).toBe('正在上传敏感配置文件');
+    expect(internalEndpoint.title).toBe('正在检查 health 服务响应');
+    expect(unknown.title).toBe('正在执行系统检查');
+    expect(visible).not.toMatch(/canary|user:pass|10\.0\.0\.8/u);
+  });
+
+  it.each([
+    ['/bin/zsh -lc "ls -la src"', '正在查看 src 目录'],
+    ['/bin/bash -c "rm -rf build"', '正在删除 build'],
+  ])('标准 shell 外壳内仍提取操作对象：%s', (command, expected) => {
+    expect(classifyProgressAction(started('Bash', { command })).title).toBe(
+      expected,
+    );
+  });
+
+  it('相对路径穿越不进入卡片，只保留文件名', () => {
+    const action = classifyProgressAction(
+      started('Read', { file_path: '../../private/config.ts' }),
+    );
+    expect(action.title).toBe('正在读取 config.ts');
+    expect(action.title).not.toContain('private');
   });
 });
 
@@ -673,13 +973,13 @@ describe('reduceProgressPresentation', () => {
         status: 'completed',
         categories: ['read', 'search', 'change', 'test'],
         actionSummaries: [
-          '读取 /tmp/input.txt',
+          '读取 input.txt',
           '搜索“needle”',
-          '修改 /tmp/output.txt',
+          '修改 output.txt',
           '测试 fixture.test.mjs',
         ],
         outcome:
-          '已读取 /tmp/input.txt、搜索“needle”、修改 /tmp/output.txt，并测试 fixture.test.mjs（1 项通过）',
+          '已读取 input.txt、搜索“needle”、修改 output.txt，并测试 fixture.test.mjs（1 项通过）',
       }),
     ]);
   });
@@ -706,7 +1006,7 @@ describe('reduceProgressPresentation', () => {
         source: 'narration',
         categories: ['read', 'search'],
         toolCallIds: ['late-read', 'late-grep'],
-        outcome: '已读取 /tmp/input.txt，并搜索“needle”',
+        outcome: '已读取 input.txt，并搜索“needle”',
       }),
     ]);
     expect(state.steps.every((step) => step.phaseId === 'phase-1')).toBe(true);
@@ -859,8 +1159,8 @@ describe('reduceProgressPresentation', () => {
       state = complete(state, id);
     }
 
-    expect((state as any).phases[0].actionSummaries).toEqual(['读取 /tmp/c.ts']);
-    expect((state as any).phases[0].outcome).toBe('已读取 /tmp/c.ts');
+    expect((state as any).phases[0].actionSummaries).toEqual(['读取 c.ts']);
+    expect((state as any).phases[0].outcome).toBe('已读取 c.ts');
   });
 
   it('并行工具先完成一个时仍展示另一个运行中的动作', () => {
@@ -884,7 +1184,50 @@ describe('reduceProgressPresentation', () => {
     });
   });
 
-  it('失败终态保留阶段目标和原动作', () => {
+  it.each([
+    ['失败先到', ['fail', 'complete']],
+    ['成功先到', ['complete', 'fail']],
+  ])('并行步骤%s都保留失败终态', (_label, order) => {
+    let state = reduceProgressPresentation(createProgressPresentationState(), {
+      kind: 'narration',
+      text: '并行验证修复。',
+    });
+    state = reduceProgressPresentation(state, {
+      kind: 'tool',
+      progress: started('Bash', { command: 'npm test' }, 'parallel-fail'),
+    });
+    state = reduceProgressPresentation(state, {
+      kind: 'tool',
+      progress: started(
+        'Read',
+        { file_path: '/workspace/src/config.ts' },
+        'parallel-ok',
+      ),
+    });
+
+    for (const terminal of order) {
+      state =
+        terminal === 'fail'
+          ? reduceProgressPresentation(state, {
+              kind: 'tool',
+              progress: {
+                provider: 'codex',
+                lifecycle: 'failed',
+                toolName: 'command_execution',
+                toolCallId: 'parallel-fail',
+                exitCode: 1,
+              },
+            })
+          : complete(state, 'parallel-ok');
+    }
+
+    expect((state as any).phases[0]).toMatchObject({
+      status: 'failed',
+      outcome: '运行测试失败：退出码 1',
+    });
+  });
+
+  it('失败终态没有具体错误时保留退出码', () => {
     let state = reduceProgressPresentation(createProgressPresentationState(), {
       kind: 'narration',
       text: '验证失败状态展示。',
@@ -908,9 +1251,158 @@ describe('reduceProgressPresentation', () => {
       expect.objectContaining({
         goal: '验证失败状态展示。',
         status: 'failed',
-        outcome: '执行系统检查失败',
+        outcome: '执行系统检查失败：退出码 7',
       }),
     ]);
+  });
+
+  it('失败终态在动作后展示首条有效错误原因', () => {
+    let state = reduceProgressPresentation(createProgressPresentationState(), {
+      kind: 'narration',
+      text: '验证归档命令。',
+    });
+    state = reduceProgressPresentation(state, {
+      kind: 'tool',
+      progress: started(
+        'Bash',
+        { command: 'unzip archive.zip' },
+        'fail-detail',
+      ),
+    });
+    state = reduceProgressPresentation(state, {
+      kind: 'tool',
+      progress: {
+        provider: 'claude',
+        lifecycle: 'failed',
+        toolName: 'tool_result',
+        toolCallId: 'fail-detail',
+        exitCode: 2,
+        resultSummary:
+          'Exit code 2\n\u001b[31mcheckdir error: cannot create archive\u001b[0m\nmore detail',
+      },
+    });
+
+    expect(state.steps[0].title).toBe(
+      '执行系统检查失败：checkdir error: cannot create archive',
+    );
+    expect((state as any).phases[0].outcome).toBe(
+      '执行系统检查失败：checkdir error: cannot create archive',
+    );
+  });
+
+  it('失败原因跳过凭证行并限制为单行', () => {
+    let state = reduceProgressPresentation(createProgressPresentationState(), {
+      kind: 'tool',
+      progress: started('Bash', { command: './deploy.sh' }, 'fail-secret'),
+    });
+    state = reduceProgressPresentation(state, {
+      kind: 'tool',
+      progress: {
+        provider: 'codex',
+        lifecycle: 'failed',
+        toolName: 'command_execution',
+        toolCallId: 'fail-secret',
+        exitCode: 1,
+        resultSummary:
+          'Authorization: Basic secret-canary-123456\nrequest rejected by gateway\nthird line',
+      },
+    });
+
+    expect(state.steps[0].title).toContain('request rejected by gateway');
+    expect(state.steps[0].title).not.toContain('secret-canary');
+    expect(state.steps[0].title).not.toContain('Authorization');
+    expect(state.steps[0].title).not.toContain('\n');
+  });
+
+  it('失败原因的标题、完成标题、步骤和阶段终态都不泄露敏感信息', () => {
+    let state = reduceProgressPresentation(createProgressPresentationState(), {
+      kind: 'narration',
+      text: '验证失败详情。',
+    });
+    const action = classifyProgressAction(
+      started('mcp_tool_call', {
+        tool: 'search_chat',
+        arguments: { query: 'Cookie: session=cookie-canary' },
+      }),
+    );
+    expect(`${action.title} ${action.completedTitle}`).not.toContain(
+      'cookie-canary',
+    );
+
+    state = reduceProgressPresentation(state, {
+      kind: 'tool',
+      progress: started('Bash', { command: './deploy.sh' }, 'leak-failure'),
+    });
+    state = reduceProgressPresentation(state, {
+      kind: 'tool',
+      progress: {
+        provider: 'codex',
+        lifecycle: 'failed',
+        toolName: 'command_execution',
+        toolCallId: 'leak-failure',
+        exitCode: 1,
+        resultSummary:
+          'Cookie: session=cookie-canary\nfailed at fs_oc_canary dlg_canary https://secret.internal C:\\Users\\secret\\file.txt',
+      },
+    });
+
+    const visible = `${state.steps[0].title} ${(state as any).phases[0].outcome}`;
+    expect(visible).not.toMatch(
+      /cookie-canary|fs_oc_canary|dlg_canary|secret\.internal|C:\\Users/iu,
+    );
+  });
+
+  it.each([
+    ['/Users/张三/秘密/file.txt', '/Users/张三'],
+    ['/Users/dajay/My Projects/private/file.txt', 'Projects/private'],
+    ['"/Users/dajay/My Projects/private/file.txt"', 'Projects/private'],
+    ['C:\\Users\\大杰\\My Projects\\secret.txt', 'Projects\\secret'],
+    ['\\\\server\\private share\\secret.txt', 'share\\secret'],
+    ['redis://cache.secret.internal:6379', 'cache.secret.internal'],
+    ['grpc://api.secret.internal:9090', 'api.secret.internal'],
+  ])('失败原因脱敏 Unicode/空格路径与非 HTTP 内网地址：%s', (summary, forbidden) => {
+    let state = reduceProgressPresentation(createProgressPresentationState(), {
+      kind: 'narration',
+      text: '验证失败边界。',
+    });
+    state = reduceProgressPresentation(state, {
+      kind: 'tool',
+      progress: started('Bash', { command: './deploy.sh' }, 'boundary-fail'),
+    });
+    state = reduceProgressPresentation(state, {
+      kind: 'tool',
+      progress: {
+        provider: 'codex',
+        lifecycle: 'failed',
+        toolName: 'command_execution',
+        toolCallId: 'boundary-fail',
+        exitCode: 1,
+        resultSummary: `failed at ${summary}`,
+      },
+    });
+
+    const visible = `${state.steps[0].title} ${state.phases[0].outcome}`;
+    expect(visible).not.toContain(forbidden);
+  });
+
+  it('引号包裹的 Unix 路径脱敏后不留单边引号', () => {
+    let state = reduceProgressPresentation(createProgressPresentationState(), {
+      kind: 'tool',
+      progress: started('Bash', { command: './deploy.sh' }, 'quoted-path'),
+    });
+    state = reduceProgressPresentation(state, {
+      kind: 'tool',
+      progress: {
+        provider: 'codex',
+        lifecycle: 'failed',
+        toolName: 'command_execution',
+        toolCallId: 'quoted-path',
+        exitCode: 1,
+        resultSummary:
+          'failed at "/Users/dajay/My Projects/private/file.txt" then retry',
+      },
+    });
+    expect(state.steps[0].title).toBe('执行系统检查失败：failed at 相关文件');
   });
 
   it('阶段上下文持续生效且不会被四十个工具步骤挤掉', () => {
@@ -960,11 +1452,16 @@ describe('reduceProgressPresentation', () => {
       '继续。构建物已经完整复制并逐文件一致；我现在只核验重启是否生效。',
     ],
     ['先看第一行。\n第二行不进标题。', '先看第一行。'],
-  ])('标题保留 narration 原文首行不做智能摘要：%s', (narration, expectedGoal) => {
-    let state = reduceProgressPresentation(createProgressPresentationState(), {
+  ])(
+    '标题保留 narration 原文首行不做智能摘要：%s',
+    (narration, expectedGoal) => {
+      let state = reduceProgressPresentation(
+        createProgressPresentationState(),
+        {
       kind: 'narration',
       text: narration,
-    });
+        },
+      );
     state = reduceProgressPresentation(state, {
       kind: 'tool',
       progress: started(
@@ -974,7 +1471,8 @@ describe('reduceProgressPresentation', () => {
       ),
     });
     expect((state as any).phases[0].goal).toBe(expectedGoal);
-  });
+    },
+  );
 
   it('narration 即时建 Phase，无需等待首个工具', () => {
     const state = reduceProgressPresentation(
@@ -1057,20 +1555,30 @@ describe('reduceProgressPresentation', () => {
           'plan-mid',
         ),
     ],
-    ['TaskCreate', () => started('TaskCreate', { subject: '新任务' }, 'plan-mid')],
+    [
+      'TaskCreate',
+      () => started('TaskCreate', { subject: '新任务' }, 'plan-mid'),
+    ],
     [
       'TaskUpdate',
-      () => started('TaskUpdate', { taskId: '9', status: 'in_progress' }, 'plan-mid'),
+      () =>
+        started(
+      'TaskUpdate',
+          { taskId: '9', status: 'in_progress' },
+          'plan-mid',
+        ),
     ],
-  ])('narration 之后的 %s 不清掉活跃 narration，后续工具仍归属 narration', (
-    _label,
-    makePlanControl,
-  ) => {
+  ])(
+    'narration 之后的 %s 不清掉活跃 narration，后续工具仍归属 narration',
+    (_label, makePlanControl) => {
     // 预置 planTaskId=9 的计划任务，确保 TaskUpdate 命中成功分支（真实覆盖）
-    let state = reduceProgressPresentation(createProgressPresentationState(), {
+      let state = reduceProgressPresentation(
+        createProgressPresentationState(),
+        {
       kind: 'tool',
       progress: started('TaskCreate', { subject: '既有任务' }, 'tc-seed'),
-    });
+        },
+      );
     state = reduceProgressPresentation(state, {
       kind: 'tool',
       progress: {
@@ -1092,14 +1600,15 @@ describe('reduceProgressPresentation', () => {
     });
     state = reduceProgressPresentation(state, {
       kind: 'tool',
-      progress: started('Read', { file_path: '/tmp/a.txt' }, 'after-plan'),
+        progress: started('Read', { file_path: '/tmp/a.txt' }, 'after-plan'),
     });
     expect(state.steps.at(-1)?.phaseId).toBe(narrationId);
     const narrationPhase = (state as any).phases.find(
       (phase: any) => phase.id === narrationId,
     );
-    expect(narrationPhase.currentAction).toBe('正在读取 /tmp/a.txt');
-  });
+      expect(narrationPhase.currentAction).toBe('正在读取 a.txt');
+    },
+  );
 
   it('连续 narration 累加超过 4000 code point 时状态层截断存储', () => {
     let state = reduceProgressPresentation(createProgressPresentationState(), {
@@ -1160,7 +1669,7 @@ describe('reduceProgressPresentation', () => {
         phase.currentAction,
       ]),
     ).toEqual([
-      ['fallback', '已读取 /tmp/a.py'],
+      ['fallback', '已读取 a.py'],
       ['fallback', '正在搜索“needle”'],
     ]);
     expect(state.activePhaseId).toBeUndefined();
@@ -1265,7 +1774,7 @@ describe('reduceProgressPresentation', () => {
         },
       });
       expect(state.steps[0].status).toBe('failed');
-      expect(state.steps[0].title).toBe('src 中搜索“needle”失败');
+      expect(state.steps[0].title).toBe('src 中搜索“needle”失败：退出码 1');
     });
 
     it.each([
@@ -1294,11 +1803,7 @@ describe('reduceProgressPresentation', () => {
         createProgressPresentationState(),
         {
           kind: 'tool',
-          progress: started(
-            'Bash',
-            { command: 'git diff --check' },
-            'diff-1',
-          ),
+          progress: started('Bash', { command: 'git diff --check' }, 'diff-1'),
         },
       );
       state = completeWithExit(state, 'diff-1', 1);
@@ -1316,7 +1821,7 @@ describe('reduceProgressPresentation', () => {
       );
       state = completeWithExit(state, 'err-1', 2);
       expect(state.steps[0].status).toBe('failed');
-      expect(state.steps[0].title).toBe('搜索“[bad”失败');
+      expect(state.steps[0].title).toBe('搜索“[bad”失败：退出码 2');
     });
 
     it('测试命令退出码非零渲染为原动作失败，阶段结果同步', () => {
@@ -1329,8 +1834,8 @@ describe('reduceProgressPresentation', () => {
       );
       state = completeWithExit(state, 'red-1', 1);
       expect(state.steps[0].status).toBe('failed');
-      expect(state.steps[0].title).toBe('运行测试失败');
-      expect(state.phases[0].outcome).toBe('运行测试失败');
+      expect(state.steps[0].title).toBe('运行测试失败：退出码 1');
+      expect(state.phases[0].outcome).toBe('运行测试失败：退出码 1');
     });
 
     it('curl 等检查命令退出码 1 不误标为发现差异，显示原动作失败', () => {
@@ -1347,7 +1852,7 @@ describe('reduceProgressPresentation', () => {
       );
       state = completeWithExit(state, 'curl-1', 1);
       expect(state.steps[0].status).toBe('failed');
-      expect(state.steps[0].title).toBe('检查服务响应失败');
+      expect(state.steps[0].title).toBe('检查 health 服务响应失败：退出码 1');
     });
 
     it('lifecycle=failed（无退出码）保留已脱敏的动作与对象', () => {
@@ -1372,12 +1877,8 @@ describe('reduceProgressPresentation', () => {
         },
       });
       expect(state.steps[0].status).toBe('failed');
-      expect(state.steps[0].title).toBe(
-        '读取 /workspace/src/config.ts 失败',
-      );
-      expect(state.phases[0].outcome).toBe(
-        '读取 /workspace/src/config.ts 失败',
-      );
+      expect(state.steps[0].title).toBe('读取 src/config.ts 失败');
+      expect(state.phases[0].outcome).toBe('读取 src/config.ts 失败');
     });
 
     it('探测无匹配的结果精确保留到 narration Phase 聚合', () => {
@@ -1425,7 +1926,7 @@ describe('reduceProgressPresentation', () => {
       );
       state = completeWithExit(state, 'compound-1', 1);
       expect(state.steps[0].status).toBe('failed');
-      expect(state.steps[0].title).toMatch(/失败$/u);
+      expect(state.steps[0].title).toMatch(/失败：退出码 1$/u);
       expect(state.steps[0].title).not.toContain('无匹配');
     });
 
@@ -1458,7 +1959,7 @@ describe('reduceProgressPresentation', () => {
       );
       state = completeWithExit(state, 'wrap-1', 1);
       expect(state.steps[0].status).toBe('failed');
-      expect(state.steps[0].title).toMatch(/失败$/u);
+      expect(state.steps[0].title).toMatch(/失败：退出码 1$/u);
       expect(state.steps[0].title).not.toContain('无匹配');
     });
 
@@ -1577,7 +2078,7 @@ describe('reduceProgressPresentation', () => {
       );
       state = completeWithExit(state, 'd-1', 1);
       expect(state.steps[0].status).toBe('failed');
-      expect(state.steps[0].title).toBe('执行系统检查失败');
+      expect(state.steps[0].title).toBe('执行系统检查失败：退出码 1');
     });
   });
 
@@ -1701,9 +2202,7 @@ describe('reduceProgressPresentation', () => {
     });
 
     expect(state.steps.at(-1)?.phase).toBe('运行长测试');
-    expect(state.steps.at(-1)?.title).toBe(
-      '正在运行 fixture.test.mjs 测试',
-    );
+    expect(state.steps.at(-1)?.title).toBe('正在运行 fixture.test.mjs 测试');
   });
 
   it('同一 toolCallId 的 started 更新原步骤，不重复追加', () => {
@@ -1736,7 +2235,7 @@ describe('reduceProgressPresentation', () => {
         exitCode: 1,
       },
     });
-    expect(state.steps[0].title).toBe('运行测试失败');
+    expect(state.steps[0].title).toBe('运行测试失败：退出码 1');
     expect(state.steps[0].status).toBe('failed');
 
     const unresolved = reduceProgressPresentation(state, { kind: 'turn_end' });

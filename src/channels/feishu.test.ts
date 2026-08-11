@@ -566,7 +566,7 @@ describe('FeishuChannel', () => {
       // 标题行 + 动作独立一行：动作行独享 48cp 预算，截中段保尾
       expect(entry.steps[0].title).toBe('核对进度展示链路。');
       expect(entry.steps[0].grayTail).toBe(
-        '已读取 /tmp/input.t….txt，并测试 fixture.test.mjs（1 项通过）',
+        '已读取 input.txt、搜索….txt，并测试 fixture.test.mjs（1 项通过）',
       );
       expect(entry.steps[0].narrationFull).toBe('核对进度展示链路。');
       expect(
@@ -587,7 +587,7 @@ describe('FeishuChannel', () => {
         '"content":"核对进度展示链路。\\n<font color=\\"grey\\">',
       );
       expect(serialized).toContain(
-        '<font color=\\"grey\\">已读取 &#47;tmp&#47;input&#46;t…&#46;txt，并测试 fixture&#46;test&#46;mjs（1 项通过）</font>',
+        '<font color=\\"grey\\">已读取 input&#46;txt、搜索…&#46;txt，并测试 fixture&#46;test&#46;mjs（1 项通过）</font>',
       );
       expect(serialized).not.toContain('已完成协作操作');
     });
@@ -899,6 +899,52 @@ describe('FeishuChannel', () => {
       expect(detail.length).toBeLessThanOrEqual(2000);
     });
 
+    it('失败结果的具体原因进入飞书卡片动作行', async () => {
+      const jid = 'fs:oc_progress_failure_reason';
+      await channel.sendMessage(
+        jid,
+        JSON.stringify({
+          title: '🔧 query',
+          progress: {
+            provider: 'claude',
+            lifecycle: 'started',
+            toolName: 'Bash',
+            toolCallId: 'failure-reason-1',
+            input: { command: './query' },
+          },
+        }),
+        { isProgress: true },
+      );
+      await channel.sendMessage(
+        jid,
+        JSON.stringify({
+          title: '❌ 执行失败',
+          progress: {
+            provider: 'claude',
+            lifecycle: 'failed',
+            toolName: 'tool_result',
+            toolCallId: 'failure-reason-1',
+            exitCode: 2,
+            resultSummary:
+              'Exit code 2\nODPS column project_name cannot be resolved',
+          },
+        }),
+        { isProgress: true },
+      );
+
+      const entry = (channel as any).progressCards.get(jid);
+      expect(entry.steps[0].grayTail).toBe(
+        '执行系统检查失败：ODPS column project_name cannot be res…',
+      );
+      const patchArg = mockPatch.mock.calls.at(-1)?.[0];
+      const serialized = JSON.stringify(
+        JSON.parse(patchArg?.data?.content ?? '{}'),
+      );
+      expect(serialized).toContain(
+        '执行系统检查失败：ODPS column project&#95;name cannot be res…',
+      );
+    });
+
     it('短结果摘要也写入过程记录', async () => {
       const jid = 'fs:oc_progress_short_summary';
       await channel.sendMessage(
@@ -1035,7 +1081,7 @@ describe('FeishuChannel', () => {
       const entry = (channel as any).progressCards.get(jid);
       expect(entry.steps).toHaveLength(1);
       expect(entry.steps[0].title).toBe('');
-      expect(entry.steps[0].grayTail).toBe('已读取 /tmp/notes.md');
+      expect(entry.steps[0].grayTail).toBe('已读取 notes.md');
     });
 
     it('无 narration 时工具动作独立成行并滚动保留最近三条', async () => {
@@ -1119,7 +1165,7 @@ describe('FeishuChannel', () => {
       expect(entry.steps).toHaveLength(1);
       expect(entry.steps[0].title).toBe('');
       expect(entry.steps[0].grayTail).toBe(
-        '读取 /workspace/src/config.ts 失败',
+        '读取 src/config.ts 失败',
       );
       expect(JSON.stringify(entry.steps)).not.toContain('should-not-reach-card');
     });
@@ -1155,7 +1201,7 @@ describe('FeishuChannel', () => {
 
       const entry = (channel as any).progressCards.get(jid);
       const phaseRow = entry.steps.at(-1);
-      expect(phaseRow.grayTail).toBe('正在读取 /tmp/notes.md');
+      expect(phaseRow.grayTail).toBe('正在读取 notes.md');
       const patchArg = mockPatch.mock.calls.at(-1)?.[0];
       const card = JSON.parse(patchArg?.data?.content ?? '{}') as {
         body: { elements: Array<Record<string, unknown>> };
@@ -1170,17 +1216,17 @@ describe('FeishuChannel', () => {
       expect(panel.header.title).toEqual({
         tag: 'markdown',
         content:
-          '分析进度卡渲染。\n<font color="grey">正在读取 &#47;tmp&#47;notes&#46;md</font>',
+          '分析进度卡渲染。\n<font color="grey">正在读取 notes&#46;md</font>',
       });
       expect(card.body.elements[panelIndex + 1]?.tag).not.toBe('markdown');
     });
 
     it.each([
-      ['删除线 ~~', '/tmp/~~hidden~~/file.ts', '~~', '&#126;&#126;'],
-      ['粗体 __', '/tmp/__bold__/file.ts', '__', '&#95;&#95;'],
+      ['删除线 ~~', '/tmp/~~hidden~~/file.ts', '~~'],
+      ['粗体 __', '/tmp/__bold__/file.ts', '__'],
     ])(
-      '路径中的飞书 markdown 语法（%s）被 HTML 实体转义',
-      async (_label, filePath, pair, entity) => {
+      '路径中的飞书 markdown 语法（%s）不进卡片并退回文件名',
+      async (_label, filePath, pair) => {
         const jid = `fs:oc_progress_md_escape_${pair === '~~' ? 'tilde' : 'underscore'}`;
         await channel.sendMessage(
           jid,
@@ -1200,7 +1246,7 @@ describe('FeishuChannel', () => {
         const patchArg = mockPatch.mock.calls.at(-1)?.[0];
         const content: string = patchArg?.data?.content ?? '{}';
         expect(content).not.toContain(pair);
-        expect(content).toContain(entity);
+        expect(content).toContain('正在读取 file&#46;ts');
       },
     );
 
@@ -1567,11 +1613,11 @@ describe('FeishuChannel', () => {
       expect(first.header).toEqual({
         tag: 'markdown',
         content:
-          '分析选区检测逻辑。\n<font color="grey">正在读取 &#47;tmp&#47;sel&#46;ts</font>',
+          '分析选区检测逻辑。\n<font color="grey">正在读取 sel&#46;ts</font>',
       });
       expect(first.sibling?.tag).not.toBe('markdown');
       expect(first.panelBody.split('\n').at(-1)).toBe(
-        '<font color="grey">正在读取 &#47;tmp&#47;sel&#46;ts</font>',
+        '<font color="grey">正在读取 sel&#46;ts</font>',
       );
 
       // 第二个工具事件到达后，两处同步刷新为最新动作
@@ -1986,7 +2032,7 @@ describe('FeishuChannel', () => {
             lifecycle: 'started',
             toolName: 'Read',
             toolCallId: 'read-budget',
-            input: { file_path: `/workspace/${longDir}/deep/callback.py` },
+            input: { file_path: `/workspace/src/${longDir}/deep/callback.py` },
           },
         }),
         { isProgress: true },

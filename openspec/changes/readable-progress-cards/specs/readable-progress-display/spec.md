@@ -164,7 +164,7 @@ Claude SDK、print/interactive、Codex 以及能提供工具事件的其他运�
 
 ### Requirement: 动作对象在运行态和完成态均可读
 
-默认卡片 SHALL 在结构化参数足够时展示安全、具体的操作对象。文件对象 SHALL 使用 basename，搜索对象 SHALL 使用脱敏且有界的关键词和目标文件，测试对象 SHALL 使用测试文件或套件名称。完成态 SHALL 聚合阶段内去重后的对象动作，不得退化为动作分类清单。
+默认卡片 SHALL 在结构化参数足够时展示安全、具体的操作对象。文件对象只有在 runner 传入可信 `/workspace/` 绝对路径时才 SHALL 剥离该前缀展示有界项目相对路径；其他 Unix、Windows 或 UNC 绝对路径 SHALL 降级为 basename，SHALL NOT 通过 `src/docs/test` 等目录名猜测项目边界。搜索对象 SHALL 使用脱敏且有界的关键词和目标文件，测试对象 SHALL 使用测试文件或套件名称。完成态 SHALL 聚合阶段内去重后的对象动作，不得退化为动作分类清单。
 
 #### Scenario: 文件搜索展示关键词和目标
 - **WHEN** Grep 在 `/workspace/src/progress-display.ts` 中搜索 `turn_end`

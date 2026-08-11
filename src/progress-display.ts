@@ -97,6 +97,10 @@ export function redactProgressText(text: string): string {
       /-----BEGIN(?: [A-Z]+)* PRIVATE KEY-----[\s\S]*?-----END(?: [A-Z]+)* PRIVATE KEY-----/giu,
       '[REDACTED_PRIVATE_KEY]',
     )
+    .replace(
+      /\b(Authorization|Cookie|Set-Cookie)\s*:\s*[^\r\n]+/giu,
+      '$1: [REDACTED]',
+    )
     .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]{8,}={0,2}/giu, 'Bearer [REDACTED]')
     .replace(
       /\b(?:sk-[A-Za-z0-9_-]{8,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|xox[baprs]-[A-Za-z0-9-]{8,}|AKIA[A-Z0-9]{12,})\b/gu,
@@ -209,6 +213,22 @@ function mcpToolOf(progress: StructuredProgress): string {
   return inputString(progress.input, 'tool').toLowerCase();
 }
 
+function nestedInputString(
+  progress: StructuredProgress,
+  key: string,
+): string {
+  const direct = inputString(progress.input, key);
+  if (direct) return direct;
+  for (const containerKey of ['arguments', 'input']) {
+    const container = progress.input?.[containerKey];
+    if (!container || typeof container !== 'object' || Array.isArray(container))
+      continue;
+    const value = (container as Record<string, unknown>)[key];
+    if (typeof value === 'string') return value;
+  }
+  return '';
+}
+
 const SENSITIVE_FILE_NAME =
   /^(?:\.env(?:\..*)?|.*(?:credential|password|secret|token|private[_-]?key).*)$/iu;
 
@@ -238,7 +258,6 @@ function safeBasename(value: string): string | undefined {
 
 /** 路径展示上限（code point）：超长截掉头部保尾段，"这个文件在哪"靠后段路径回答 */
 const PATH_DISPLAY_BUDGET = 48;
-
 /**
  * 文件路径展示：保留路径上下文（不再只给 basename），超长截头留尾。
  * 敏感文件名与用户文本清洗规则与 safeBasename 一致；路径整体被清洗
@@ -261,6 +280,8 @@ function displayPath(value: string): string | undefined {
   if (!name || name.length > 128 || !/[\p{L}\p{N}._-]/u.test(name))
     return undefined;
   if (SENSITIVE_FILE_NAME.test(name)) return '敏感配置文件';
+  if (segments.some((segment) => segment === '.' || segment === '..'))
+    return safeBasename(name);
   // 逐段清洗：sanitizeUserText 的"多段绝对路径→相关文件"整体涂抹规则
   // 不适用于这里（展示路径正是本函数的目的），但段内的 token/IP 涂抹
   // 规则照常生效，命中就退回纯文件名；内部 ID（om_/oc_ 等消息标识常出现
@@ -282,7 +303,14 @@ function displayPath(value: string): string | undefined {
     )
   )
     return safeBasename(name);
-  const safe = (/^[\\/]/u.test(raw) ? '/' : '') + sanitized.join('/');
+  const isAbsolute = /^[\\/]/u.test(raw) || /^[A-Za-z]:[\\/]/u.test(raw);
+  const trustedWorkspace = /^\/workspace(?:\/|$)/u.test(raw);
+  const visibleSegments = isAbsolute
+    ? trustedWorkspace
+      ? sanitized.slice(1)
+      : sanitized.slice(-1)
+    : sanitized;
+  const safe = visibleSegments.join('/');
   const cps = Array.from(safe);
   return cps.length > PATH_DISPLAY_BUDGET
     ? `…${cps.slice(-(PATH_DISPLAY_BUDGET - 1)).join('')}`
@@ -489,6 +517,94 @@ function shellGitHistoryObject(command: string): string | undefined {
   return candidate ? displayPath(candidate) : undefined;
 }
 
+function shellUploadObject(command: string): string | undefined {
+  const match = command.match(/\bupload\s+("[^"]+"|'[^']+'|[^\s;&|]+)/iu);
+  return match ? displayPath(cleanShellToken(match[1])) : undefined;
+}
+
+function shellDestructiveObject(command: string): string | undefined {
+  const match = command.match(
+    /(?:^|[;&|]\s*)rm\s+(?:-\S+\s+)*("[^"]+"|'[^']+'|[^\s;&|]+)/iu,
+  );
+  return match ? displayPath(cleanShellToken(match[1])) : undefined;
+}
+
+function shellGitDiffObject(command: string): string | undefined {
+  const match = command.match(/\bgit\s+diff\b[\s\S]*?\s--\s+([^\s;&|]+)/iu);
+  return match ? displayPath(cleanShellToken(match[1])) : undefined;
+}
+
+function buildProjectObject(command: string): string | undefined {
+  const match = command.match(
+    /\b(?:npm|pnpm|yarn)\s+--prefix\s+("[^"]+"|'[^']+'|[^\s;&|]+)/iu,
+  );
+  return match ? displayPath(cleanShellToken(match[1])) : undefined;
+}
+
+function commandNumber(command: string, pattern: RegExp): string | undefined {
+  const match = command.match(pattern);
+  return match?.[1] && /^\d{1,12}$/u.test(match[1]) ? match[1] : undefined;
+}
+
+function serviceEndpointObject(command: string): string | undefined {
+  const match = command.match(/https?:\/\/[^\s'"`]+/iu);
+  if (!match) return undefined;
+  try {
+    const url = new URL(match[0]);
+    return safeBasename(url.pathname);
+  } catch {
+    return undefined;
+  }
+}
+
+function remoteEnvironmentObject(command: string): string | undefined {
+  const host = command.match(/\bssh\s+(?:-[^\s]+\s+)*([^\s'";|]+)/iu)?.[1];
+  const labels: Record<string, string> = {
+    dev: 'DEV',
+    metal: '构建机',
+    g8y: 'ARM 构建机',
+  };
+  return host ? labels[host.toLowerCase()] : undefined;
+}
+
+function shellFindAction(
+  command: string,
+  base: { phase?: string },
+): ProgressAction | undefined {
+  const match = command.match(
+    /\bfind\s+("[^"]+"|'[^']+'|[^\s;&|]+)[\s\S]*?\s-(?:i?name)\s+("[^"]+"|'[^']+'|[^\s;&|]+)/iu,
+  );
+  if (!match) return undefined;
+  const target = displayPath(cleanShellToken(match[1]));
+  const query = safeQuery(cleanShellToken(match[2]));
+  if (!target || !query) return undefined;
+  return actionText(
+    `正在 ${target} 中查找“${query}”`,
+    `在 ${target} 中查找“${query}”`,
+    base,
+    'search',
+    'inferred',
+  );
+}
+
+function simpleShellAction(
+  command: string,
+  base: { phase?: string },
+): ProgressAction | undefined {
+  const trimmed = command.trim();
+  if (/^(?:pwd|\/bin\/pwd)(?:\s|$)/iu.test(trimmed))
+    return actionText('正在查看工作目录', '查看工作目录', base, 'inspect');
+  const lsMatch = trimmed.match(/^(?:ls|\/bin\/ls)\b([\s\S]*)$/iu);
+  if (!lsMatch) return undefined;
+  const target = shellTokens(lsMatch[1], 0)
+    .map(cleanShellToken)
+    .find((token) => token && !token.startsWith('-'));
+  const object = target ? displayPath(target) : undefined;
+  return object
+    ? actionText(`正在查看 ${object} 目录`, `查看 ${object} 目录`, base, 'read')
+    : actionText('正在查看当前目录', '查看当前目录', base, 'read');
+}
+
 function actionText(
   running: string,
   completed: string,
@@ -575,8 +691,14 @@ function planSteps(progress: StructuredProgress): PresentationStep[] {
 function sanitizeUserText(text: string): string {
   return redactProgressText(text)
     .replace(/```[\s\S]*?```/gu, '技术操作')
-    .replace(/(?:\/[\w.@-]+){2,}/gu, '相关文件')
-    .replace(/\b(?:oc|om|ou|trace)_[\w-]+\b/giu, '相关标识')
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s"'`]+/giu, '内部服务')
+    // 失败行无法可靠分辨带空格路径的终点：宁可隐藏该行后段，不泄露宿主路径。
+    .replace(/(?:\b[A-Za-z]:[\\/]|\\\\)[^\r\n]*/gu, '相关文件')
+    .replace(/(?:\/[^\s\r\n/]+){2,}/gu, '相关文件')
+    .replace(
+      /\b(?:(?:fs_)?(?:oc|om|ou)|trace|dlg)_[\w-]+\b/giu,
+      '相关标识',
+    )
     .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/gu, '内部服务')
     .trim();
 }
@@ -590,6 +712,78 @@ function sanitizeUserText(text: string): string {
 const SHELL_WRAPPER =
   /^(?:\/bin\/)?(?:ba|z)?sh\s+-l?c\s+(['"])([\s\S]*)\1\s*$/u;
 
+function unwrapShellCommand(command: string): string | undefined {
+  const wrapper = command.trim().match(SHELL_WRAPPER);
+  if (!wrapper) return undefined;
+  return wrapper[1] === '"' ? wrapper[2].replace(/\\"/gu, '"') : wrapper[2];
+}
+
+function interpreterInvocation(
+  command: string,
+): { name: string; args: string } | undefined {
+  let remaining = command.trimStart();
+  while (remaining) {
+    const commandWrapper = remaining.match(/^command\s+/iu);
+    if (commandWrapper) {
+      remaining = remaining.slice(commandWrapper[0].length).trimStart();
+      if (/^--(?:\s+|$)/u.test(remaining))
+        remaining = remaining.replace(/^--(?:\s+|$)/u, '').trimStart();
+      else if (/^-/u.test(remaining)) return { name: 'command', args: '' };
+      continue;
+    }
+    const envWrapper = remaining.match(/^env\s+/iu);
+    if (envWrapper) {
+      remaining = remaining.slice(envWrapper[0].length).trimStart();
+      while (remaining) {
+        if (/^--(?:\s+|$)/u.test(remaining)) {
+          remaining = remaining.replace(/^--(?:\s+|$)/u, '').trimStart();
+          break;
+        }
+        const optionWithValue = remaining.match(
+          /^(?:-u|-C|--unset|--chdir)\s+(?:"[^"]*"|'[^']*'|\S+)\s*/u,
+        );
+        if (optionWithValue) {
+          remaining = remaining.slice(optionWithValue[0].length).trimStart();
+          continue;
+        }
+        const inlineOption = remaining.match(
+          /^(?:--unset|--chdir)=(?:"[^"]*"|'[^']*'|\S+)\s*/u,
+        );
+        if (inlineOption) {
+          remaining = remaining.slice(inlineOption[0].length).trimStart();
+          continue;
+        }
+        const flag = remaining.match(
+          /^(?:-i|--ignore-environment|-0|--null)\s*/u,
+        );
+        if (!flag) {
+          // `env -S` 或未知选项可以把命令藏在参数里，保守归为脚本。
+          if (/^-/u.test(remaining)) return { name: 'env', args: '' };
+          break;
+        }
+        remaining = remaining.slice(flag[0].length).trimStart();
+      }
+      continue;
+    }
+    const assignment = remaining.match(
+      /^\w+=(?:"[^"]*"|'[^']*'|\S+)\s+/u,
+    );
+    if (!assignment) break;
+    remaining = remaining.slice(assignment[0].length).trimStart();
+  }
+  const invocation = remaining.match(
+    /^(?:"([^"]+)"|'([^']+)'|(\S+))([\s\S]*)$/u,
+  );
+  if (!invocation) return undefined;
+  const executable = invocation[1] ?? invocation[2] ?? invocation[3] ?? '';
+  const name = (
+    executable.split(/[\\/]/u).at(-1)?.toLowerCase() ?? ''
+  ).replace(/\.exe$/u, '');
+  if (!/^(?:python(?:\d+(?:\.\d+)*)?|node|ruby|perl)$/u.test(name))
+    return undefined;
+  return { name, args: invocation[4].trimStart() };
+}
+
 function probeExecutableOf(
   command: string,
   depth = 0,
@@ -597,8 +791,8 @@ function probeExecutableOf(
   if (depth > 1) return undefined;
   const trimmed = command.trim();
   if (!trimmed || trimmed.startsWith('!')) return undefined;
-  const wrapper = trimmed.match(SHELL_WRAPPER);
-  if (wrapper) return probeExecutableOf(wrapper[2], depth + 1);
+  const unwrapped = unwrapShellCommand(trimmed);
+  if (unwrapped !== undefined) return probeExecutableOf(unwrapped, depth + 1);
   // 命令替换在双引号内仍会执行，须在剥双引号前检查；单引号内是字面量先剥
   const withoutSingle = trimmed.replace(/'[^']*'/gu, '');
   if (/\$\(|`/u.test(withoutSingle)) return undefined;
@@ -654,20 +848,48 @@ function classifyProgressActionInner(
   phase?: string,
 ): ProgressAction {
   const tool = progress.toolName.toLowerCase();
-  const command = commandOf(progress);
+  const rawCommand = commandOf(progress);
+  const command = unwrapShellCommand(rawCommand) ?? rawCommand;
   const lower = command.toLowerCase();
   const base = { phase };
+
+  const interpreter = interpreterInvocation(command);
+  const explicitInterpreterTest =
+    (interpreter?.name.startsWith('python') &&
+      /^-m\s+pytest\b/iu.test(interpreter.args)) ||
+    (interpreter?.name === 'node' && /^--test\b/iu.test(interpreter.args));
+  if (interpreter && !explicitInterpreterTest)
+    return actionText(
+      phase ? '正在运行分析脚本' : '正在运行脚本',
+      phase ? '运行分析脚本' : '运行脚本',
+      base,
+      'script',
+      'fallback',
+    );
 
   if (
     /git\s+push\b[^\n]*(--delete|:\s*)/.test(lower) ||
     /(^|[;&|]\s*)rm\s+(-\S*\s+)*\S+/.test(lower)
   ) {
-    return {
-      ...base,
-      title: lower.includes('git push') ? '正在删除远程分支' : '正在删除文件',
-      category: 'destructive',
-      confidence: 'exact',
-    };
+    const target = lower.includes('git push')
+      ? safeQuery(
+          command.match(/(?:--delete\s+|:\s*)([^\s;&|]+)/iu)?.[1] ?? '',
+        )
+      : shellDestructiveObject(command);
+    const object = lower.includes('git push') ? '远程分支' : '文件';
+    return target
+      ? actionText(
+          `正在删除 ${target}`,
+          `删除 ${target}`,
+          base,
+          'destructive',
+        )
+      : actionText(
+          `正在删除${object}`,
+          `删除${object}`,
+          base,
+          'destructive',
+        );
   }
   if (tool === 'read') {
     const target = fileObject(progress);
@@ -745,7 +967,7 @@ function classifyProgressActionInner(
         );
   }
   if (tool.includes('search_chat')) {
-    const query = safeQuery(inputString(progress.input, 'query'));
+    const query = safeQuery(nestedInputString(progress, 'query'));
     return query
       ? actionText(
           `正在搜索包含“${query}”的聊天记录`,
@@ -768,12 +990,12 @@ function classifyProgressActionInner(
       'communicate',
     );
   if (tool.includes('report'))
-    return {
-      ...base,
-      title: '正在提交任务进展',
-      category: 'communicate',
-      confidence: 'exact',
-    };
+    return actionText(
+      '正在提交任务进展',
+      '提交任务进展',
+      base,
+      'communicate',
+    );
   if (tool === 'toolsearch')
     return actionText(
       '正在查找可用工具',
@@ -847,27 +1069,36 @@ function classifyProgressActionInner(
 
   if (tool === 'mcp_tool_call') {
     const mcpTool = mcpToolOf(progress);
-    if (mcpTool.includes('search_chat'))
-      return {
-        ...base,
-        title: '正在搜索聊天记录',
-        category: 'communicate',
-        confidence: 'exact',
-      };
+    if (mcpTool.includes('search_chat')) {
+      const query = safeQuery(nestedInputString(progress, 'query'));
+      return query
+        ? actionText(
+            `正在搜索包含“${query}”的聊天记录`,
+            `搜索包含“${query}”的聊天记录`,
+            base,
+            'communicate',
+          )
+        : actionText(
+            '正在搜索聊天记录',
+            '搜索聊天记录',
+            base,
+            'communicate',
+          );
+    }
     if (mcpTool.includes('delegate'))
-      return {
-        ...base,
-        title: '正在派发协作任务',
-        category: 'communicate',
-        confidence: 'exact',
-      };
+      return actionText(
+        '正在派发协作任务',
+        '派发协作任务',
+        base,
+        'communicate',
+      );
     if (mcpTool.includes('report'))
-      return {
-        ...base,
-        title: '正在提交任务进展',
-        category: 'communicate',
-        confidence: 'exact',
-      };
+      return actionText(
+        '正在提交任务进展',
+        '提交任务进展',
+        base,
+        'communicate',
+      );
     if (mcpTool === 'memory_recall')
       return actionText(
         '正在回忆相关信息',
@@ -896,25 +1127,29 @@ function classifyProgressActionInner(
         base,
         'system',
       );
-    return {
-      ...base,
-      title: '正在调用协作工具',
-      category: 'communicate',
-      confidence: 'fallback',
-    };
+    return actionText(
+      '正在调用协作工具',
+      '调用协作工具',
+      base,
+      'communicate',
+      'fallback',
+    );
   }
 
   if (
-    /\b(npm|pnpm|yarn)\s+(run\s+)?build\b|\b(go|cargo)\s+build\b|docker\s+build\b/.test(
+    /\b(npm|pnpm|yarn)(?:\s+--prefix\s+\S+)?\s+(run\s+)?build\b|\b(go|cargo)\s+build\b|docker\s+build\b/.test(
       lower,
     )
   ) {
-    return {
-      ...base,
-      title: '正在编译项目',
-      category: 'build',
-      confidence: 'exact',
-    };
+    const target = buildProjectObject(command);
+    return target
+      ? actionText(
+          `正在编译 ${target} 项目`,
+          `编译 ${target} 项目`,
+          base,
+          'build',
+        )
+      : actionText('正在编译项目', '编译项目', base, 'build');
   }
   if (
     /\b(pytest|vitest|jest)\b|\bnode\s+--test\b|\b(go|cargo)\s+test\b|\b(npm|pnpm|yarn)\s+(run\s+)?test\b/.test(
@@ -932,60 +1167,76 @@ function classifyProgressActionInner(
       : actionText('正在运行测试', '运行测试', base, 'test');
   }
   if (/gh\s+run\s+view\b[^\n]*--log-failed/.test(lower)) {
-    return {
-      ...base,
-      title: '正在检查流水线失败原因',
-      category: 'delivery',
-      confidence: 'exact',
-    };
+    const run = commandNumber(command, /\bgh\s+run\s+view\s+(\d+)/iu);
+    return actionText(
+      run
+        ? `正在检查流水线 #${run} 失败原因`
+        : '正在检查流水线失败原因',
+      run ? `检查流水线 #${run} 失败原因` : '检查流水线失败原因',
+      base,
+      'delivery',
+    );
   }
-  if (/\bgh\s+(run|workflow)\b/.test(lower))
-    return {
-      ...base,
-      title: '正在检查交付流水线',
-      category: 'delivery',
-      confidence: 'inferred',
-    };
-  if (/\bgh\s+pr\b/.test(lower))
-    return {
-      ...base,
-      title: '正在处理代码评审',
-      category: 'delivery',
-      confidence: 'inferred',
-    };
+  if (/\bgh\s+(run|workflow)\b/.test(lower)) {
+    const run = commandNumber(command, /\bgh\s+run\s+\w+\s+(\d+)/iu);
+    return actionText(
+      run ? `正在检查流水线 #${run}` : '正在检查交付流水线',
+      run ? `检查流水线 #${run}` : '检查交付流水线',
+      base,
+      'delivery',
+      'inferred',
+    );
+  }
+  if (/\bgh\s+pr\b/.test(lower)) {
+    const pr = commandNumber(command, /\bgh\s+pr\s+\w+\s+(\d+)/iu);
+    return actionText(
+      pr ? `正在处理 PR #${pr}` : '正在处理代码评审',
+      pr ? `处理 PR #${pr}` : '处理代码评审',
+      base,
+      'delivery',
+      'inferred',
+    );
+  }
   if (/feishu-docs[^\n]*\bupload\b|lark-cli\s+drive[^\n]*upload/.test(lower)) {
-    return {
-      ...base,
-      title: '正在上传文档',
-      category: 'delivery',
-      confidence: 'exact',
-    };
+    const target = shellUploadObject(command);
+    return target
+      ? actionText(
+          `正在上传${target === '敏感配置文件' ? '' : ' '}${target}`,
+          `上传${target === '敏感配置文件' ? '' : ' '}${target}`,
+          base,
+          'delivery',
+        )
+      : actionText('正在上传文档', '上传文档', base, 'delivery');
   }
   if (/lark-cli\s+im\s+\+chat-messages-list/.test(lower)) {
-    return {
-      ...base,
-      title: '正在读取飞书消息',
-      category: 'communicate',
-      confidence: 'exact',
-    };
+    return actionText(
+      '正在读取目标聊天消息',
+      '读取目标聊天消息',
+      base,
+      'communicate',
+    );
   }
   if (/(loki|jaeger|grafana)/.test(lower)) {
-    return {
-      ...base,
-      title: /ssh\s+dev\b/.test(lower)
-        ? '正在查询 DEV 链路日志'
-        : '正在查询链路日志',
-      category: 'observe',
-      confidence: 'inferred',
-    };
+    const target = /ssh\s+dev\b/.test(lower) ? 'DEV 链路日志' : '链路日志';
+    return actionText(
+      `正在查询 ${target}`,
+      `查询 ${target}`,
+      base,
+      'observe',
+      'inferred',
+    );
   }
-  if (/\bopenspec\s+validate\b/.test(lower))
-    return {
-      ...base,
-      title: '正在校验变更规范',
-      category: 'inspect',
-      confidence: 'exact',
-    };
+  if (/\bopenspec\s+validate\b/.test(lower)) {
+    const change = safeQuery(
+      command.match(/\bopenspec\s+validate\s+([^\s;&|]+)/iu)?.[1] ?? '',
+    );
+    return actionText(
+      change ? `正在校验 ${change} 变更规范` : '正在校验变更规范',
+      change ? `校验 ${change} 变更规范` : '校验变更规范',
+      base,
+      'inspect',
+    );
+  }
   if (/\bapply_patch\b/.test(lower)) {
     const target = patchFileObject(command);
     return target
@@ -993,16 +1244,35 @@ function classifyProgressActionInner(
       : actionText('正在修改文件', '修改文件', base, 'change');
   }
   if (/git\s+diff\s+--check/.test(lower))
-    return {
-      ...base,
-      title: '正在检查代码改动',
-      category: 'inspect',
-      confidence: 'exact',
-    };
+    return actionText(
+      '正在检查代码改动',
+      '检查代码改动',
+      base,
+      'inspect',
+    );
   if (/\bgit\s+(log|blame|show|status|diff)\b/.test(lower)) {
     const historyTarget = /\bgit\s+(?:blame|log|show)\b/iu.test(command)
       ? shellGitHistoryObject(command)
       : undefined;
+    const diffTarget = /\bgit\s+diff\b/iu.test(command)
+      ? shellGitDiffObject(command)
+      : undefined;
+    if (/\bgit\s+status\b/iu.test(command))
+      return actionText(
+        '正在查看工作区状态',
+        '查看工作区状态',
+        base,
+        'inspect',
+      );
+    if (/\bgit\s+diff\b/iu.test(command))
+      return diffTarget
+        ? actionText(
+            `正在检查 ${diffTarget} 的代码差异`,
+            `检查 ${diffTarget} 的代码差异`,
+            base,
+            'inspect',
+          )
+        : actionText('正在检查代码差异', '检查代码差异', base, 'inspect');
     return historyTarget
       ? actionText(
           `正在检查 ${historyTarget} 的代码历史`,
@@ -1011,16 +1281,24 @@ function classifyProgressActionInner(
           'inspect',
           'inferred',
         )
-      : actionText(
-          '正在检查代码和历史',
-          '检查代码和历史',
-          base,
-          'inspect',
-          'inferred',
-        );
+      : /\bgit\s+log\b/iu.test(command)
+        ? actionText('正在查看提交历史', '查看提交历史', base, 'inspect')
+        : /\bgit\s+show\b/iu.test(command)
+          ? actionText('正在查看提交内容', '查看提交内容', base, 'inspect')
+          : actionText(
+              '正在检查代码和历史',
+              '检查代码和历史',
+              base,
+              'inspect',
+              'inferred',
+            );
   }
   if (/\b(rg|grep)\b/.test(lower)) {
     const action = shellSearchAction(command, base);
+    if (action) return action;
+  }
+  if (/\bfind\b/.test(lower)) {
+    const action = shellFindAction(command, base);
     if (action) return action;
   }
   if (/\b(rg|grep|find)\b/.test(lower))
@@ -1049,34 +1327,37 @@ function classifyProgressActionInner(
           'inferred',
         );
   }
-  if (/\b(curl|wget)\b/.test(lower))
-    return {
-      ...base,
-      title: '正在检查服务响应',
-      category: 'inspect',
-      confidence: 'fallback',
-    };
-  if (/\bssh\b/.test(lower))
-    return {
-      ...base,
-      title: '正在检查远程环境',
-      category: 'inspect',
-      confidence: 'fallback',
-    };
-  if (/\b(python\d*|node|ruby|perl)\b/.test(lower))
-    return {
-      ...base,
-      title: phase ? '正在运行分析脚本' : '正在运行脚本',
-      category: 'script',
-      confidence: 'fallback',
-    };
-
-  return {
-    ...base,
-    title: '正在执行系统检查',
-    category: 'system',
-    confidence: 'fallback',
-  };
+  if (/\b(curl|wget)\b/.test(lower)) {
+    const endpoint = serviceEndpointObject(command);
+    return actionText(
+      endpoint ? `正在检查 ${endpoint} 服务响应` : '正在检查服务响应',
+      endpoint ? `检查 ${endpoint} 服务响应` : '检查服务响应',
+      base,
+      'inspect',
+      'fallback',
+    );
+  }
+  if (/\bssh\b/.test(lower)) {
+    const environment = remoteEnvironmentObject(command);
+    return actionText(
+      environment
+        ? `正在检查 ${environment} 远程环境`
+        : '正在检查远程环境',
+      environment ? `检查 ${environment} 远程环境` : '检查远程环境',
+      base,
+      'inspect',
+      'fallback',
+    );
+  }
+  const simpleAction = simpleShellAction(command, base);
+  if (simpleAction) return simpleAction;
+  return actionText(
+    '正在执行系统检查',
+    '执行系统检查',
+    base,
+    'system',
+    'fallback',
+  );
 }
 
 /** narrationText 状态层存储上限（code point）；过程记录页另存全文不受此限 */
@@ -1366,12 +1647,59 @@ function completedTitle(step: PresentationStep): string {
   return step.title;
 }
 
-function failedTitle(step: PresentationStep): string {
+// 与飞书 Phase 动作行 48cp 总预算对齐：最长动作前缀
+// “执行系统检查失败：”占 9cp，原因 38cp + 省略号后刚好不触发二次截断。
+const FAILURE_REASON_BUDGET = 38;
+const CREDENTIAL_ASSIGNMENT_LINE =
+  /(?:^|[\s"'`])(?:authorization|cookie|set-cookie|[A-Z0-9_]*(?:api[_-]?key|token|secret|password|passwd))\s*[:=]/iu;
+const ANSI_ESCAPE_PATTERN = new RegExp(
+  String.raw`\u001b\[[0-9;]*m`,
+  'gu',
+);
+
+function failureReason(summary: string | undefined): string | undefined {
+  if (!summary) return undefined;
+  const reason = summary
+    .replace(ANSI_ESCAPE_PATTERN, '')
+    .split(/\r?\n/gu)
+    .map((line) => line.trim())
+    .find(
+      (line) =>
+        line.length > 0 &&
+        !CREDENTIAL_ASSIGNMENT_LINE.test(line) &&
+        !/^(?:❌\s*)?(?:结果\s*:\s*)?(?:exit code|(?:command|process) exited with code)\s*[:=]?\s*-?\d+\.?$/iu.test(
+          line,
+        ) &&
+        !/^(?:❌\s*)?(?:执行失败|failed)$/iu.test(line),
+    );
+  if (!reason) return undefined;
+  // 失败行中带空格的绝对路径没有可靠终止符，仅在失败原因边界
+  // 保守隐藏路径后的整段；普通 narration 仍保留后续有价值文字。
+  const safe = sanitizeUserText(
+    reason.replace(/(^|[\s(])(?:["'`])?\/[^\r\n]*/gu, '$1相关文件'),
+  )
+    .replace(/\s+/gu, ' ')
+    .trim();
+  if (!safe) return undefined;
+  const codePoints = Array.from(safe);
+  return codePoints.length > FAILURE_REASON_BUDGET
+    ? `${codePoints.slice(0, FAILURE_REASON_BUDGET).join('')}…`
+    : safe;
+}
+
+function failedTitle(
+  step: PresentationStep,
+  resultSummary?: string,
+  exitCode?: number | null,
+): string {
   const action = step.title.startsWith('正在')
     ? step.title.slice('正在'.length).trimStart()
     : step.title;
   const separator = /[\x21-\x7e]$/u.test(action) ? ' ' : '';
-  return `${action}${separator}失败`;
+  const base = `${action}${separator}失败`;
+  const reason = failureReason(resultSummary);
+  if (reason) return `${base}：${reason}`;
+  return exitCode != null ? `${base}：退出码 ${exitCode}` : base;
 }
 
 function unknownTitle(category: ProgressCategory): string {
@@ -1730,7 +2058,7 @@ export function reduceProgressPresentation(
         : status === 'completed'
           ? completedTitle(step)
           : status === 'failed'
-            ? failedTitle(step)
+            ? failedTitle(step, progress.resultSummary, progress.exitCode)
             : status === 'cancelled'
               ? '已取消'
               : unknownTitle(step.category);
@@ -1745,9 +2073,21 @@ export function reduceProgressPresentation(
           candidate.phaseId === phase.id && candidate.status === 'running',
       );
     const hasRunningTool = !!runningTool;
+    const phaseSteps = steps.filter(
+      (candidate) => candidate.phaseId === phase.id,
+    );
     const phaseStatus: PresentationStep['status'] = hasRunningTool
       ? 'running'
-      : status;
+      : phaseSteps.some((candidate) => candidate.status === 'failed')
+        ? 'failed'
+        : phaseSteps.some((candidate) => candidate.status === 'cancelled')
+          ? 'cancelled'
+          : phaseSteps.some((candidate) => candidate.status === 'unknown')
+            ? 'unknown'
+            : 'completed';
+    const failedAction = [...phaseSteps]
+      .reverse()
+      .find((candidate) => candidate.status === 'failed')?.title;
     const enrichedPhase = mergeResultFacts(phase, progress);
     // 并行场景 probe 事实持久化：按事实列表记录并去重，不依赖 actionSummaries
     // 文本回查（同类工具并行时 mergeActionSummary 只保留最后一个 summary，
@@ -1769,7 +2109,13 @@ export function reduceProgressPresentation(
       currentAction: runningTool?.title ?? title,
       outcome: hasRunningTool
         ? probedPhase.outcome
-        : aggregateOutcome(probedPhase, progress, phaseStatus, title, probe),
+        : aggregateOutcome(
+            probedPhase,
+            progress,
+            phaseStatus,
+            failedAction ?? title,
+            phaseStatus === 'completed' ? probe : undefined,
+          ),
     };
   });
   return { ...state, steps, phases };
