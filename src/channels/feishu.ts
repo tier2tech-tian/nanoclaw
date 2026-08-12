@@ -36,6 +36,7 @@ import type { CliMode } from '../types.js';
 import { notifyVoice } from '../voice-notify.js';
 
 import { registerChannel, ChannelOpts } from './registry.js';
+import { writeIpcResponse } from '../ipc.js';
 
 // ---- 配置 ----
 
@@ -784,6 +785,12 @@ export class FeishuChannel implements Channel {
   // 进度卡片状态：每个 chat 一张进度卡片，持续更新
   private progressCards = new Map<string, ProgressCardEntry>();
 
+  // ask_choice 待决选择：requestId → { groupFolder, messageId }
+  private pendingChoices = new Map<
+    string,
+    { groupFolder: string; messageId?: string }
+  >();
+
   // 正式回复已到达标记：防止迟到的进度消息再创建卡片
   private progressDone = new Set<string>();
   private progressPresentations = new Map<string, ProgressPresentationState>();
@@ -825,6 +832,13 @@ export class FeishuChannel implements Channel {
         this.handleMessage(data).catch((err: any) => {
           logger.error({ err }, '飞书消息处理失败');
         });
+      },
+      'card.action.trigger': (data: any) => {
+        try {
+          return this.handleCardAction(data);
+        } catch (err) {
+          logger.error({ err }, '飞书卡片回调处理失败');
+        }
       },
     });
 
@@ -2436,6 +2450,162 @@ export class FeishuChannel implements Channel {
         logger.error({ fallbackErr }, '飞书授权文本链接也发送失败');
       }
     }
+  }
+
+  async sendChoiceCard(
+    jid: string,
+    choice: {
+      requestId: string;
+      groupFolder: string;
+      title: string;
+      options: string[];
+      recommended?: number;
+    },
+  ): Promise<void> {
+    const chatId = chatIdFromJid(jid);
+    const buttons = choice.options.map((opt, i) => ({
+      tag: 'button' as const,
+      text: {
+        tag: 'plain_text' as const,
+        content: choice.recommended === i ? `⭐ ${opt}` : opt,
+      },
+      type: choice.recommended === i ? ('primary' as const) : ('default' as const),
+      value: JSON.stringify({
+        action: 'ask_choice',
+        requestId: choice.requestId,
+        index: i,
+        text: opt,
+      }),
+    }));
+
+    const card = JSON.stringify({
+      schema: '2.0',
+      config: { update_multi: true },
+      header: {
+        template: 'blue',
+        title: { tag: 'plain_text', content: `🤔 ${choice.title}` },
+        subtitle: {
+          tag: 'plain_text',
+          content: '请选择一个选项',
+        },
+      },
+      body: {
+        elements: [
+          {
+            tag: 'action',
+            actions: buttons,
+          },
+        ],
+      },
+    });
+
+    this.pendingChoices.set(choice.requestId, {
+      groupFolder: choice.groupFolder,
+    });
+
+    // 5 分钟超时自动清理
+    setTimeout(() => {
+      if (this.pendingChoices.has(choice.requestId)) {
+        this.pendingChoices.delete(choice.requestId);
+        // writeIpcResponse imported at top
+        writeIpcResponse(choice.groupFolder, choice.requestId, {
+          error: 'Choice timed out (5 minutes)',
+          timeout: true,
+        });
+        logger.info(
+          { requestId: choice.requestId },
+          'ask_choice 超时，已清理',
+        );
+      }
+    }, 300_000);
+
+    try {
+      const resp = await this.client.im.message.create({
+        data: { receive_id: chatId, msg_type: 'interactive', content: card },
+        params: { receive_id_type: 'chat_id' },
+      });
+      const entry = this.pendingChoices.get(choice.requestId);
+      if (entry) entry.messageId = resp?.data?.message_id;
+      logger.info(
+        { jid, requestId: choice.requestId, msgId: resp?.data?.message_id },
+        'ask_choice 卡片发送成功',
+      );
+    } catch (err) {
+      this.pendingChoices.delete(choice.requestId);
+      throw err;
+    }
+  }
+
+  handleCardAction(data: {
+    action: { value: string | Record<string, unknown> };
+    operator?: { open_id?: string };
+  }): Record<string, unknown> | void {
+    let value: Record<string, unknown>;
+    if (typeof data.action.value === 'string') {
+      try {
+        value = JSON.parse(data.action.value);
+      } catch {
+        return;
+      }
+    } else {
+      value = data.action.value;
+    }
+
+    if (value.action !== 'ask_choice') return;
+
+    const requestId = value.requestId as string;
+    const pending = this.pendingChoices.get(requestId);
+    if (!pending) {
+      logger.warn({ requestId }, 'ask_choice 回调但无 pending 请求（可能已超时）');
+      return {
+        toast: { type: 'info', content: '该选择已过期，请重新操作' },
+      };
+    }
+
+    this.pendingChoices.delete(requestId);
+
+    // writeIpcResponse imported at top
+    writeIpcResponse(pending.groupFolder, requestId, {
+      selected: value.text,
+      index: value.index,
+      operator: data.operator?.open_id,
+    });
+
+    logger.info(
+      { requestId, selected: value.text, index: value.index },
+      'ask_choice 用户已选择',
+    );
+
+    // 锁卡：更新卡片显示已选结果
+    if (pending.messageId) {
+      const lockedCard = JSON.stringify({
+        schema: '2.0',
+        header: {
+          template: 'green',
+          title: { tag: 'plain_text', content: `✅ 已选择：${value.text}` },
+        },
+        body: {
+          elements: [
+            {
+              tag: 'markdown',
+              content: `已选择 **${value.text}**`,
+            },
+          ],
+        },
+      });
+      this.client.im.message
+        .patch({
+          path: { message_id: pending.messageId },
+          data: { content: lockedCard },
+        })
+        .catch((err: unknown) => {
+          logger.warn({ err, requestId }, 'ask_choice 锁卡失败（不影响结果）');
+        });
+    }
+
+    return {
+      toast: { type: 'success', content: `已选择：${value.text}` },
+    };
   }
 
   async syncGroups(): Promise<void> {
