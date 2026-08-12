@@ -1591,7 +1591,7 @@ server.tool(
 
 server.tool(
   'ask_choice',
-  '向用户发送飞书交互卡片选择题（单选或多选），等待用户点选后返回结果。适用于需要用户拍板的红灯决策、方案二选一/三选一等场景。不要用于开放性问题。超时 5 分钟。',
+  '向用户发送飞书交互卡片选择题（单选），等待用户点选后返回结果。适用于需要用户拍板的红灯决策、方案二选一/三选一等场景。不要用于开放性问题。超时 5 分钟。',
   {
     title: z.string().describe('选择题标题，一句话说明在问什么'),
     options: z
@@ -1599,11 +1599,6 @@ server.tool(
       .min(2)
       .max(6)
       .describe('选项列表，2-6 个选项'),
-    multi: z
-      .boolean()
-      .optional()
-      .default(false)
-      .describe('是否允许多选，默认单选'),
     recommended: z
       .number()
       .optional()
@@ -1618,7 +1613,6 @@ server.tool(
       groupFolder,
       title: args.title,
       options: args.options,
-      multi: args.multi,
       recommended: args.recommended,
       timestamp: new Date().toISOString(),
     });

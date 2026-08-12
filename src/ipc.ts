@@ -152,7 +152,6 @@ export interface IpcDeps {
       groupFolder: string;
       title: string;
       options: string[];
-      multi: boolean;
       recommended?: number;
     },
   ) => Promise<void>;
@@ -2159,7 +2158,6 @@ export async function processTaskIpc(
           groupFolder: sourceGroup,
           title,
           options,
-          multi: (raw.multi as boolean) || false,
           recommended: raw.recommended as number | undefined,
         });
         logger.info(

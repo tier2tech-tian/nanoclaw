@@ -2459,7 +2459,6 @@ export class FeishuChannel implements Channel {
       groupFolder: string;
       title: string;
       options: string[];
-      multi: boolean;
       recommended?: number;
     },
   ): Promise<void> {
@@ -2487,7 +2486,7 @@ export class FeishuChannel implements Channel {
         title: { tag: 'plain_text', content: `🤔 ${choice.title}` },
         subtitle: {
           tag: 'plain_text',
-          content: choice.multi ? '可多选，选完点提交' : '请选择一个选项',
+          content: '请选择一个选项',
         },
       },
       body: {
