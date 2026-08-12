@@ -144,6 +144,18 @@ export interface IpcDeps {
   ) => void;
   /** 直发飞书群消息（保底通知，不依赖 agent 是否在线） */
   sendDirectNotify?: (jid: string, text: string) => Promise<void>;
+  /** 发送飞书交互卡片选择题，用户点选后由 channel 写 IPC response */
+  sendChoiceCard?: (
+    jid: string,
+    choice: {
+      requestId: string;
+      groupFolder: string;
+      title: string;
+      options: string[];
+      multi: boolean;
+      recommended?: number;
+    },
+  ) => Promise<void>;
 }
 
 /**
@@ -2116,6 +2128,50 @@ export async function processTaskIpc(
         requestId,
         detail || { error: 'Task not found' },
       );
+      break;
+    }
+
+    case 'ask_choice': {
+      const requestId = data.requestId as string;
+      if (!requestId) {
+        logger.warn({ sourceGroup }, 'ask_choice missing requestId');
+        break;
+      }
+      const raw = data as Record<string, unknown>;
+      const chatJid = raw.chatJid as string;
+      const title = raw.title as string;
+      const options = raw.options as string[];
+      if (!chatJid || !title || !Array.isArray(options) || options.length < 2) {
+        writeIpcResponse(sourceGroup, requestId, {
+          error: 'ask_choice requires chatJid, title, options (2+)',
+        });
+        break;
+      }
+      if (!deps.sendChoiceCard) {
+        writeIpcResponse(sourceGroup, requestId, {
+          error: 'ask_choice not supported on this channel',
+        });
+        break;
+      }
+      try {
+        await deps.sendChoiceCard(chatJid, {
+          requestId,
+          groupFolder: sourceGroup,
+          title,
+          options,
+          multi: (raw.multi as boolean) || false,
+          recommended: raw.recommended as number | undefined,
+        });
+        logger.info(
+          { sourceGroup, requestId, title },
+          'ask_choice card sent, waiting for user response',
+        );
+      } catch (err) {
+        logger.error({ err, sourceGroup, requestId }, 'ask_choice send failed');
+        writeIpcResponse(sourceGroup, requestId, {
+          error: `Failed to send choice card: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
       break;
     }
 

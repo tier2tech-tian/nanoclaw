@@ -2535,6 +2535,15 @@ async function main(): Promise<void> {
     },
     injectReportToActiveAgent,
     sendDirectNotify,
+    sendChoiceCard: async (jid, choice) => {
+      const feishuChannel = channels.find((c) => c.name === 'feishu') as
+        | FeishuChannel
+        | undefined;
+      if (!feishuChannel?.sendChoiceCard) {
+        throw new Error('Feishu channel not available or does not support choice cards');
+      }
+      await feishuChannel.sendChoiceCard(jid, choice);
+    },
     notifyReportRejected: (reportingGroupFolder, reason) => {
       // 反查 reporting group 的 JID
       let reportingJid: string | undefined;

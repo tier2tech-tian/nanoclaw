@@ -1587,6 +1587,62 @@ server.tool(
   },
 );
 
+// --- ask_choice：飞书交互卡片选择题 ---
+
+server.tool(
+  'ask_choice',
+  '向用户发送飞书交互卡片选择题（单选或多选），等待用户点选后返回结果。适用于需要用户拍板的红灯决策、方案二选一/三选一等场景。不要用于开放性问题。超时 5 分钟。',
+  {
+    title: z.string().describe('选择题标题，一句话说明在问什么'),
+    options: z
+      .array(z.string())
+      .min(2)
+      .max(6)
+      .describe('选项列表，2-6 个选项'),
+    multi: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe('是否允许多选，默认单选'),
+    recommended: z
+      .number()
+      .optional()
+      .describe('推荐选项的索引（从 0 开始），会高亮显示'),
+  },
+  async (args) => {
+    const requestId = crypto.randomUUID();
+    writeIpcFile(TASKS_DIR, {
+      type: 'ask_choice',
+      requestId,
+      chatJid,
+      groupFolder,
+      title: args.title,
+      options: args.options,
+      multi: args.multi,
+      recommended: args.recommended,
+      timestamp: new Date().toISOString(),
+    });
+    try {
+      const response = await waitForResponse(requestId, 300_000);
+      return {
+        content: [
+          { type: 'text' as const, text: JSON.stringify(response) },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `选择超时或失败: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  },
+);
+
 // Start the stdio transport
 const transport = new StdioServerTransport();
 await server.connect(transport);
