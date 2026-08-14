@@ -1404,9 +1404,16 @@ async function runQuery(
       if (!hasResult && (rawUsage?.output_tokens ?? 0) > 0) {
         log(`[result] ⚠️ result 为空但有 ${rawUsage?.output_tokens} output tokens — 模型可能仅产出 thinking 无 text content`);
       }
+      const numTurns = (msg.num_turns as number) ?? 0;
+      const isNoOp = !hasResult && !promotedFinalText && numTurns === 0
+        && (rawUsage?.input_tokens ?? 0) === 0 && (rawUsage?.output_tokens ?? 0) === 0;
       log(
-        `[result] #${resultCount} model=${lastAssistantModel || 'unknown'} input=${rawUsage?.input_tokens ?? '?'} output=${rawUsage?.output_tokens ?? '?'} turns=${(msg.num_turns as number) ?? '?'} cost=$${((msg.total_cost_usd as number) ?? 0).toFixed(3)} hasResult=${hasResult}`,
+        `[result] #${resultCount} model=${lastAssistantModel || 'unknown'} input=${rawUsage?.input_tokens ?? '?'} output=${rawUsage?.output_tokens ?? '?'} turns=${numTurns} cost=$${((msg.total_cost_usd as number) ?? 0).toFixed(3)} hasResult=${hasResult}${isNoOp ? ' (no-op, skipping)' : ''}`,
       );
+      if (isNoOp) {
+        log('[result] 跳过空壳 result（0 turns/0 usage/无 result），不触发 host cleanup');
+        continue;
+      }
       writeOutput({
         status: 'success',
         result: textResult || promotedFinalText || null,
