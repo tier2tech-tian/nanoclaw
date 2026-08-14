@@ -72,8 +72,12 @@ export function detectRateLimit(text: string): boolean {
     /rate_limit_error/,
     /overloaded_error/,
     // Claude Code "假成功" 限流提示（强信号）
+    // hit: "You've hit your usage limit" / "You've hit your session limit"
     /you['\u2019]ve\s+hit\s+your\s+(?:(?:usage|session)\s+)?limit/i,
     /you\s+have\s+hit\s+your\s+(?:(?:usage|session)\s+)?limit/i,
+    // reached: "You've reached your Fable 5 limit" \u2014 \u6a21\u578b\u540d\u9650 0-3 \u4e2a\u8bcd + \u8bcd\u5c3e\u951a\u5b9a
+    /you['\u2019]ve\s+reached\s+your\s+(?:[\w.-]+\s+){0,3}limit\s*(?:[.!]|$)/im,
+    /you\s+have\s+reached\s+your\s+(?:[\w.-]+\s+){0,3}limit\s*(?:[.!]|$)/im,
     // 经典限流完整短语
     /rate[\s-]?limit\s+exceeded/i,
     /(?:api\s+)?quota\s+exceeded/i,
