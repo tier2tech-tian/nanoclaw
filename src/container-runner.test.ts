@@ -13,6 +13,7 @@ vi.mock('./config.js', () => ({
   IDLE_TIMEOUT: 1800000,
   TIMEZONE: 'Asia/Shanghai',
   ONECLI_URL: 'http://localhost:10254',
+  PERSONAL_DIR: '',
 }));
 
 // Mock logger
@@ -197,6 +198,8 @@ describe('agent spawn and timeout', () => {
         cwd: expect.stringContaining('test-group'),
         env: expect.objectContaining({
           NANOCLAW_GLOBAL_DIR: expect.stringMatching(/groups\/global$/),
+          AGENT_BROWSER_SESSION: 'nc-4884c2a2-c4e2e7f2-test-group',
+          AGENT_BROWSER_IDLE_TIMEOUT_MS: '600000',
         }),
       }),
     );

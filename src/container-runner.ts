@@ -3,6 +3,7 @@
  * Spawns agent execution as Node.js child processes and handles IPC
  */
 import { ChildProcess, execFileSync, execSync, spawn } from 'child_process';
+import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
@@ -54,6 +55,20 @@ const AGENT_TIMEOUT = parseInt(
   process.env.AGENT_TIMEOUT || process.env.CONTAINER_TIMEOUT || '1800000',
   10,
 );
+
+function buildAgentBrowserSession(groupFolder: string): string {
+  const folder = groupFolder || 'default';
+  const instanceHash = createHash('sha256')
+    .update(DATA_DIR)
+    .digest('hex')
+    .slice(0, 8);
+  const groupHash = createHash('sha256')
+    .update(folder)
+    .digest('hex')
+    .slice(0, 8);
+  const readableFolder = folder.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 32);
+  return `nc-${instanceHash}-${groupHash}-${readableFolder}`;
+}
 
 /**
  * 检测容器输出中的 429/rate-limit 错误。
@@ -649,6 +664,11 @@ async function buildLocalEnv(
     // 群标识（feishu-docs 等 skill 通过 IPC 请求 token 时需要）
     NANOCLAW_CHAT_JID: input.chatJid || '',
     NANOCLAW_GROUP_FOLDER: input.groupFolder || '',
+
+    // agent-browser daemon 会脱离 agent-runner 独立存活；按群隔离并设置兜底回收，
+    // 防止任务漏调 close 后长期占用 Chrome/GPU 资源。
+    AGENT_BROWSER_SESSION: buildAgentBrowserSession(input.groupFolder || ''),
+    AGENT_BROWSER_IDLE_TIMEOUT_MS: '600000',
 
     // 触发用户 ID（记忆读写用）
     NANOCLAW_SENDER_ID: input.senderId || '',
