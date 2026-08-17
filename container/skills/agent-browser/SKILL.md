@@ -22,6 +22,13 @@ agent-browser close             # Close browser
 2. Snapshot: `agent-browser snapshot -i` (returns elements with refs like `@e1`, `@e2`)
 3. Interact using refs from the snapshot
 4. Re-snapshot after navigation or significant DOM changes
+5. Always close the browser when the task finishes: `agent-browser close`
+
+## Mandatory cleanup
+
+Always run `agent-browser close` after the browser task, including on errors or early exits. The idle timeout is only a crash-safety fallback; it does not replace explicit cleanup.
+
+NanoClaw requires agent-browser 0.24.1 or newer because earlier versions do not reliably enforce the idle timeout.
 
 ## Commands
 
