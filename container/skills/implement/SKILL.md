@@ -41,6 +41,7 @@ kickoff 管"想清楚"，implement 管"动手做"，wrapup 管"收尾沉淀"。�
 4. **列出实现清单**：把要做的事拆成具体的文件级改动列表
 5. **确认验收标准**：什么状态算"做完了"
 6. **对齐驾驶舱**：找到 kickoff 建的驾驶舱文件（`/Users/dajay/个人资产/驾驶舱/`）继续追加。**没有驾驶舱**（implement 单独触发、没走 kickoff）→ 先按该目录 README 模板补建，头部三项（Why / 上下文 / 交付物与验收标准）写清楚才准动代码。
+7. **核对 GitHub 项目绑定**：要修改版本库时，驾驶舱必须已有 `github_tracking_kind`、`github_project_url`、`github_project_number`、`github_project_id`、`github_project_item_id`；`github_tracking_kind: issue` 时还必须有 `github_issue_url`。缺失说明 kickoff 断链，先按 kickoff Step 3.5.1 选择项目、Step 3.5.2 补齐绑定，再执行 Step 3.5.3 确保 Item 已进入开工态，不能跳过。
 
 **Gate**: 有明确的实现清单 + 验收标准（驾驶舱头部）+ 在 worktree 中
 
@@ -359,8 +360,10 @@ cd <项目目录> && env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_pro
 ## Step 6: 提 PR 等待确认
 
 1. 将所有改动提交（commit message 遵循项目规范）
-2. 创建 PR（标题简洁，body 包含改动摘要 + 测试结果）
-3. 向用户汇报
+2. 从驾驶舱读取跟踪类型并写 PR body：`github_tracking_kind: issue` 时必须单列 `Closes <完整 Issue URL>`，使用完整 URL避免跨仓库关错；`github_tracking_kind: draft` 时写 `Tracks <项目 URL>`，并把 PR URL补进草稿项 body，不能伪造关闭关键字。
+3. 创建 PR 后先回读当前状态：已经是 `Done` / `完成` 就跳过，禁止倒退；已经是评审态也跳过。否则读取项目真实字段，并在 `In review` / `评审中` / `审核中` 中选择唯一精确匹配的选项，执行 `gh project item-edit --id <Item ID> --project-id <Project ID> --field-id <Status 字段 ID> --single-select-option-id <评审态选项 ID>`；找不到或不唯一就询问，禁止记假状态。
+4. 回读项目 Item，把 PR URL 和 `github_project_status: <回读到的真实评审态>` 追加到驾驶舱，不能用预期值冒充真实值。
+5. 向用户汇报
 
 **汇报格式**：
 
@@ -393,7 +396,7 @@ cd <项目目录> && env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_pro
 
 **🛩️ 驾驶舱**：PR 创建后，PR 链接当场记进驾驶舱。
 
-**Gate**: PR 已创建 + 汇报已发送 + 等待用户指令
+**Gate**: PR 已创建且带正确的 `Closes <完整 Issue URL>` / `Tracks <项目 URL>` + 项目 Item 已回读为 `In review` / `评审中` / `审核中`，或已处于更后的 `Done` / `完成` + 驾驶舱记录真实状态 + 汇报已发送 + 等待用户指令
 
 ---
 

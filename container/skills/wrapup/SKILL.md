@@ -9,11 +9,39 @@ description: 任务收尾工作流。回顾任务全过程，总结踩坑记录�
 
 ## 执行步骤
 
-### Step 1: 改群名为完成状态
+### Step 0: 交付完成门禁
+
+先读本任务驾驶舱。若存在 `github_project_item_id`，必须同时满足以下条件才能继续收尾：
+
+1. PR 已合并，并记录 merge commit 或合并后的 SHA。
+2. kickoff 约定的验收已通过；要求 E2E 的任务必须有 E2E 证据，其他任务至少有对应测试或人工验收证据。
+3. 跟踪类型、项目 URL、项目编号、Project ID 和 Item ID 齐全；跟踪类型为 issue 时 Issue URL 也必须齐全。
+
+任一条件不满足就停止收尾，明确告诉用户缺什么；禁止先改完成态再补证据。没有 GitHub 项目绑定的非开发任务按原流程继续。
+
+### Step 0.5: 关闭 GitHub 跟踪项（如适用）
+
+驾驶舱存在 `github_project_item_id` 时，在生成 Wiki、归档 OpenSpec 和标记群完成前执行：
+
+1. `github_tracking_kind: issue` 时检查 `github_issue_url` 状态：PR 的 `Closes <完整 Issue URL>` 已自动关闭就只核验，仍为 open 才执行 `gh issue close <Issue 编号> --repo <owner/repo> --reason completed`；`github_tracking_kind: draft` 的草稿项不执行 Issue 关闭命令。
+2. 回读当前状态；已经是 `Done` / `完成` 就幂等跳过。否则用 `gh project field-list <项目编号> --owner TierIITech --format json` 获取 Status 字段与真实 option ID，再执行 `gh project item-edit --id <Item ID> --project-id <Project ID> --field-id <Status 字段 ID> --single-select-option-id <完成态选项 ID>` 推进完成态：#6/#7 使用 `Done`，#5 使用 `完成`。未来专项只接受 `Done` / `完成` 的唯一精确匹配，找不到或不唯一就询问，禁止猜测。
+3. 回读项目 Item，确认状态为 `Done` / `完成`；issue 跟踪还要确认 Issue 已关闭。把 `github_project_status` 和关闭证据写回驾驶舱。
+
+**Gate**：项目 Item 已完成 + issue 跟踪的 Issue 已关闭 + 驾驶舱证据已落盘。项目自动化只能加速，不能代替这次回读验收。
+
+**📋 日志**：
+```
+📋 [GitHub 项目收口] 状态=✅
+  - Issue: closed / draft n/a
+  - Project item: Done / 完成
+  - Evidence: <API 回读摘要>
+```
+
+### Step 1: 记录目标完成群名
 
 1. 获取当前群名（即最近一次 `rename_chat` 设置的名称）
-2. 如果群名已有"(完成)"前缀则跳过
-3. 否则调用 `rename_chat` 将群名改为 `(完成)任务名`
+2. 如果群名已有"(完成)"前缀则记录为已完成
+3. 否则记下目标群名 `(完成)任务名`，暂不改名；必须先完成 Step 0.5 的外部跟踪项收口，避免项目更新失败但群名已经显示完成
 
 ### Step 2: 回顾全过程
 
@@ -82,6 +110,10 @@ description: 任务收尾工作流。回顾任务全过程，总结踩坑记录�
 如果本次任务走了 OpenSpec 流程：
 1. `openspec status --change <name>` 确认任务完成度
 2. `openspec archive <change-name>` 归档
+
+### Step 5.4: 标记群完成
+
+Step 0.5 Gate 通过后，若当前群名还没有 `(完成)` 前缀，调用 `rename_chat` 将群名改为 `(完成)任务名`。改名失败则不归档驾驶舱，先修复或如实汇报。
 
 ### Step 5.5: 归档驾驶舱（如适用）
 
