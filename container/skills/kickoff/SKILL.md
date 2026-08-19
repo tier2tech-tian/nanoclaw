@@ -89,6 +89,70 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 
 ---
 
+## Step 3.5: 绑定 GitHub Issue 与项目看板
+
+这一步只适用于**要修改版本库的开发任务**。纯调查、答疑和个人资料整理不创建跟踪项，也不改项目看板。轨道 B 在完成任务分类和驾驶舱后立即执行 3.5.1/3.5.2 入池，3.5.3 等 B6 获准实现后再执行；Bug 轨道必须等用户在 A3 **获准实施**后，才从 3.5.1 开始执行。
+
+### 3.5.1 选择项目
+
+路由优先级从高到低：
+
+1. **用户显式指定项目优先**：给了项目 URL/编号就直接采用；只给项目名时，用 `gh project list --owner TierIITech --format json --limit 100` 解析，先匹配完整项目名，再匹配唯一的名称片段。命中 0 个或多个时必须询问，禁止猜。
+2. **Bug 默认进 #6**：[@tier2tech-tian's bug管理](https://github.com/orgs/TierIITech/projects/6/views/1)。
+3. **需求、功能和重构默认进 #7**：[@tier2tech-tian's 需求迭代](https://github.com/orgs/TierIITech/projects/7/views/1)。
+
+[webUI 重构 #5](https://github.com/orgs/TierIITech/projects/5) 是显式专项示例：只有用户点名 Web UI 项目或给出该链接时才进入，不能因为改了前端代码就自行推断。
+
+### 3.5.2 创建或复用跟踪项
+
+1. 先读驾驶舱中的 `github_tracking_kind` 和 `github_project_item_id`，已有就核验后复用；没有时用 `gh project item-list <项目编号> --owner TierIITech --limit 1000 --format json` 按内容 URL 或规范化标题查重，不能只看默认第一页。
+2. 先用 `gh repo view <owner/repo> --json hasIssuesEnabled,viewerPermission` 核实仓库能力。仓库已启用且当前账号可写 Issues 时，使用正式 Issue：优先复用用户给出的 Issue；否则按规范化标题查找唯一的 open Issue。唯一命中就复用，零命中才执行 `gh issue create --repo <owner/repo> --title <标题> --body <任务摘要>`，多个命中先问用户。
+3. 正式 Issue 不依赖项目的 Auto-add 自动化；先检查是否已在目标项目，缺失时显式执行：
+
+   `gh project item-add <项目编号> --owner TierIITech --url <Issue URL> --format json`
+
+4. 仓库明确关闭 Issues 或按仓库策略不可用时，退化为项目草稿项，先按标题检查项目内是否已有唯一项，缺失时执行：
+
+   `gh project item-create <项目编号> --owner TierIITech --title <标题> --body <任务摘要> --format json`
+
+   网络错误、鉴权失败不算“不可用”，不能拿草稿项掩盖真实故障。
+5. 用 `gh project view <项目编号> --owner TierIITech --format json` 获取 Project ID，用 `gh project field-list <项目编号> --owner TierIITech --format json` 获取真实字段和选项 ID。新建且状态为空的 Item 先进入待办池：#6/#7 使用 `Backlog`，#5 使用 `准备`。未来专项只在 `Backlog` / `准备` / `Ready` 中接受唯一精确匹配；找不到或不唯一就询问，禁止猜。复用已有 Item 时回读并保留真实状态，任何情况下都禁止把 `In progress` / `进行中`、`In review` / `评审中` / `审核中`、`Done` / `完成` 等后续状态降回待办池。需要写状态时执行：
+
+   `gh project item-edit --id <Item ID> --project-id <Project ID> --field-id <Status 字段 ID> --single-select-option-id <状态选项 ID>`
+
+6. 把以下字段写入同一个驾驶舱，作为 implement 和 wrapup 的唯一交接来源：
+   - `github_tracking_kind: issue | draft`
+   - `github_issue_url`（仅 issue）
+   - `github_project_url`
+   - `github_project_number`
+   - `github_project_id`
+   - `github_project_item_id`
+   - `github_project_status`
+
+**Gate**：Issue 或草稿项已存在、项目 Item 已显式确认、当前真实状态已回读、驾驶舱字段已落盘。新 Item 应处于 `Backlog` / `准备` / `Ready`，复用 Item 可以保持更后面的状态。任一步失败都先修复或汇报，不能带着断链继续改代码。
+
+**📋 日志**：
+```
+📋 [GitHub 项目绑定] 状态=✅
+  - Tracking: issue <URL> / draft
+  - Project: <URL>
+  - Item: <ID>
+  - Status: <回读到的真实状态>
+```
+
+### 3.5.3 进入实现时推进状态
+
+轨道 A 在 A3 获准修复后、轨道 B 在 B6 获准实现后执行；直接触发 implement 时也必须执行：
+
+1. 从驾驶舱读取 Project ID、Item ID 和项目编号，回读 Item 当前真实状态。
+2. 当前为空、`To triage`、`Backlog`、`Ready`、`草稿`、`准备` 时，读取 Status 字段的真实选项：#6/#7 推进到 `In progress`，#5 推进到 `进行中`；未来专项只接受 `In progress` / `进行中` 的唯一精确匹配。执行 `gh project item-edit --id <Item ID> --project-id <Project ID> --field-id <Status 字段 ID> --single-select-option-id <开工态选项 ID>`。
+3. 已经是 `In progress` / `进行中`、`In review` / `评审中` / `审核中`、`Done` / `完成` 就保持原状，禁止倒退。状态未知、找不到唯一开工态或无法判断先后时询问用户，禁止猜。
+4. 再次回读，把真实值写回 `github_project_status`。
+
+**Gate**：项目 Item 已处于 `In progress` / `进行中`，或更后的 `In review` / `评审中` / `审核中`、`Done` / `完成`；驾驶舱记录的是回读到的真实状态。
+
+---
+
 ## Step 4: 查团队知识库（开工前必做）
 
 **动手前先查 `team_wiki`，看这个坑/这个功能团队是不是已经踩过/做过。** 别每次都从零开始重复踩别人踩过的坑。
@@ -169,7 +233,7 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 
 **必须等用户明确确认后才能开始修改代码。** 不要在汇报中顺手就改了。
 
-用户确认后，**先开 worktree 再改代码**（轨道 B 的 B1 步骤），任何项目都一样，哪怕只改一行。然后视情况：
+用户确认后，没有项目路由就先执行 **Step 3.5.1**，没有跟踪项再执行 **Step 3.5.2** 完成绑定，然后执行 **Step 3.5.3** 推进到开工态；随后才开 worktree 改代码（轨道 B 的 B1 步骤），任何项目都一样，哪怕只改一行。然后视情况：
 - 简单修复 → 在 worktree 里直接改（走 systematic-debugging Phase 4）
 - 需要设计 → 转入轨道 B 写 OpenSpec
 
@@ -277,7 +341,7 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 
 ### B6: 进入实现（用户确认后）
 
-用户确认方案后，驾驶舱追加一条"方案确认，进入实现"，然后才开始写代码 + 单测。
+用户确认方案后，先核验 Step 3.5.1 的项目路由和 Step 3.5.2 Gate，缺失就回去补齐；再执行 Step 3.5.3 推进到开工态。驾驶舱追加一条"方案确认，进入实现"，然后才开始写代码 + 单测。
 
 实现完成、测试跑通后，驾驶舱追加验证证据（命令输出 / 截图路径 / trace 链接）。
 
