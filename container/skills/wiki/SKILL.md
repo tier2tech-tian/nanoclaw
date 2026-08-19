@@ -13,7 +13,7 @@ description: 全局共享 Wiki 知识库维护。Ingest 资料、Query 查询、
 - 用户说"加到 wiki"、"整理到 wiki" → Ingest（写入 team_wiki）
 - 用户发文件（`[文件: ...]`）且内容有知识价值 → 建议 Ingest 到 team_wiki
 - 你为用户写了技术文档/方案/分析 → 建议存入 team_wiki
-- 用户问问题且知识库可能有相关知识 → 先查 `../../global/team_wiki/index.md`
+- 用户问问题且知识库可能有相关知识 → 先查 `../../global/team_wiki/index.md`（超大禁通读：Read 首屏主题地图 → Grep 分区标题 → offset 精读分区）
 - 用户说"检查 wiki" → Lint
 
 操作前先读 `INSTRUCTIONS.md`（与本文件同目录）获取详细指南。
