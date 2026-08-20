@@ -268,6 +268,7 @@ export class GroupQueue {
     context?: MessageContext | null,
     senderId?: string,
     attachments?: PromptImageAttachment[],
+    messageCount = 1,
   ): boolean {
     const state = this.getGroup(groupJid);
     if (!state.active || !state.groupFolder || state.isTaskContainer) {
@@ -316,6 +317,7 @@ export class GroupQueue {
           context: context || undefined,
           senderId,
           attachments,
+          messageCount,
         }),
       );
       fs.renameSync(tempPath, filepath);

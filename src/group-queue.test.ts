@@ -641,6 +641,7 @@ describe('GroupQueue', () => {
         undefined,
         undefined,
         attachments,
+        2,
       ),
     ).toBe(true);
 
@@ -649,6 +650,7 @@ describe('GroupQueue', () => {
       .mock.calls.find((call) => String(call[0]).endsWith('.tmp'));
     expect(writeCall).toBeDefined();
     expect(JSON.parse(String(writeCall![1])).attachments).toEqual(attachments);
+    expect(JSON.parse(String(writeCall![1])).messageCount).toBe(2);
 
     resolveProcess!();
     await vi.advanceTimersByTimeAsync(10);

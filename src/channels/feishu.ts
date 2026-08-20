@@ -2883,7 +2883,14 @@ export class FeishuChannel implements Channel {
       logger.info({ messageId, imageKey }, '飞书图片下载成功');
       return filePath;
     } catch (err) {
-      logger.error({ err, messageId, imageKey }, '飞书图片下载失败');
+      logger.error(
+        {
+          messageId,
+          imageKey,
+          errorType: err instanceof Error ? err.name : 'unknown',
+        },
+        '飞书图片下载失败',
+      );
       return null;
     }
   }
@@ -3554,7 +3561,10 @@ export class FeishuChannel implements Channel {
       attachments: attachments.length > 0 ? attachments : undefined,
     };
 
-    logger.info({ jid, text: text.slice(0, 80) }, '飞书消息分发到 onMessage');
+    logger.info(
+      { jid, textLength: text.length, attachmentCount: attachments.length },
+      '飞书消息分发到 onMessage',
+    );
     Promise.resolve(this.opts.onMessage(jid, newMsg)).catch((err) =>
       logger.error({ jid, err }, 'onMessage handler failed'),
     );

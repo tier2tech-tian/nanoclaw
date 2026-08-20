@@ -1125,6 +1125,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     modelOverride,
     notifyRotation,
     formattedInput.attachments,
+    formattedInput.messageCount,
   );
 
   await channel.setTyping?.(chatJid, false);
@@ -1173,6 +1174,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         modelOverride,
         notifyRotation,
         formattedInput.attachments,
+        formattedInput.messageCount,
       );
       logger.info(
         {
@@ -1380,6 +1382,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         modelOverride,
         notifyRotation,
         formattedInput.attachments,
+        formattedInput.messageCount,
       );
       // 合并重试结果
       if (retryOutput.status === 'error') hadError = true;
@@ -1575,6 +1578,7 @@ async function runAgent(
     oldSecretName?: string;
   }) => void | Promise<void>,
   promptAttachments?: PromptImageAttachment[],
+  promptMessageCount = 1,
 ): Promise<RunAgentResult> {
   const cliMode = resolveCliMode(group.containerConfig);
   const canAutoRotateAnthropic = shouldAutoRotateAnthropicAccount(cliMode);
@@ -1662,6 +1666,7 @@ async function runAgent(
         senderId: memorySenderId,
         cliMode,
         attachments: promptAttachments,
+        promptMessageCount,
       },
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),
@@ -1765,6 +1770,7 @@ async function runAgent(
           modelOverride,
           onRotation,
           promptAttachments,
+          promptMessageCount,
         );
       }
       if (isApiTransientError && retryCount >= API_ERROR_MAX_RETRIES) {
@@ -1831,6 +1837,7 @@ async function runAgent(
             modelOverride,
             onRotation,
             promptAttachments,
+            promptMessageCount,
           ).then((retryResult) => ({
             ...retryResult,
             rotatedTo: rotateResult.newSecretName,
@@ -1919,6 +1926,7 @@ async function runAgent(
           modelOverride,
           onRotation,
           promptAttachments,
+          promptMessageCount,
         ).then((retryResult) => ({
           ...retryResult,
           rotatedTo: rotateResult.newSecretName,
@@ -2241,6 +2249,7 @@ async function startMessageLoop(): Promise<void> {
               dynamicContext,
               pipeLastMsg?.sender,
               formatted.attachments,
+              formatted.messageCount,
             )
           ) {
             logger.debug(

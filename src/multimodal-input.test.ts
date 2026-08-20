@@ -43,6 +43,7 @@ describe('formatMessagesForAgent', () => {
       { type: 'image', path: '/group/images/a.jpg', label: '消息1-图片1' },
       { type: 'image', path: '/group/images/b.png', label: '消息1-图片2' },
     ]);
+    expect(result.messageCount).toBe(1);
   });
 
   it('只剥离结构化附件对应的尾部标记，不误改用户正文中的同路径文本', () => {
@@ -99,5 +100,25 @@ describe('formatMessagesForAgent', () => {
 
     expect(result.prompt).toContain('/group/images/a.jpg');
     expect(result.attachments).toEqual([]);
+    expect(result.messageCount).toBe(1);
+  });
+
+  it('无论尾部消息是否带图都保留真实消息数量', () => {
+    const result = formatMessagesForAgent(
+      [
+        makeMessage({
+          content: '看图\n[图片: /group/images/a.jpg]',
+          attachments: [
+            { type: 'image', path: '/group/images/a.jpg', source: 'feishu' },
+          ],
+        }),
+        makeMessage({ id: 'msg-2', content: '尾部纯文字' }),
+      ],
+      TZ,
+      true,
+    );
+
+    expect(result.messageCount).toBe(2);
+    expect(result.attachments[0].label).toBe('消息1-图片1');
   });
 });

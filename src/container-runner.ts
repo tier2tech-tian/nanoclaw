@@ -295,6 +295,7 @@ const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 export interface ContainerInput {
   prompt: string;
   attachments?: import('./types.js').PromptImageAttachment[];
+  promptMessageCount?: number;
   sessionId?: string;
   groupFolder: string;
   chatJid: string;
@@ -954,6 +955,7 @@ export async function runContainerAgent(
           // 关键事件日志用 info 级别确保可见
           if (
             line.includes('[model-override]') ||
+            line.includes('[multimodal]') ||
             line.includes('[query-start]') ||
             line.includes('[result]') ||
             line.includes('[text-block]') ||

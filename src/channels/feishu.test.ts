@@ -337,6 +337,7 @@ describe('FeishuChannel', () => {
   describe('入站图片附件', () => {
     it('单图消息生成一条结构化附件', async () => {
       const onMessage = vi.fn();
+      const infoSpy = vi.spyOn(logger, 'info');
       const imageChannel = new FeishuChannel(
         'app_id',
         'app_secret',
@@ -374,10 +375,21 @@ describe('FeishuChannel', () => {
           source: 'feishu',
         },
       ]);
+      const dispatchLog = infoSpy.mock.calls.find(
+        call => call[1] === '飞书消息分发到 onMessage',
+      );
+      expect(dispatchLog?.[0]).toMatchObject({
+        jid: 'fs:oc_images',
+        attachmentCount: 1,
+        textLength: expect.any(Number),
+      });
+      expect(JSON.stringify(dispatchLog?.[0])).not.toContain('one.jpg');
+      infoSpy.mockRestore();
     });
 
     it('富文本三图在保留兼容路径正文时生成有序结构化附件', async () => {
       const onMessage = vi.fn();
+      const infoSpy = vi.spyOn(logger, 'info');
       const imageChannel = new FeishuChannel(
         'app_id',
         'app_secret',
@@ -442,6 +454,12 @@ describe('FeishuChannel', () => {
           source: 'feishu',
         },
       ]);
+      const dispatchLog = infoSpy.mock.calls.find(
+        call => call[1] === '飞书消息分发到 onMessage',
+      );
+      expect(dispatchLog?.[0]).toMatchObject({ attachmentCount: 3 });
+      expect(JSON.stringify(dispatchLog?.[0])).not.toContain('img_one.jpg');
+      infoSpy.mockRestore();
     });
 
     it('合并转发保持解析器返回的图片顺序', async () => {

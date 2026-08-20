@@ -4,6 +4,7 @@ import type { NewMessage, PromptImageAttachment } from './types.js';
 export interface FormattedAgentInput {
   prompt: string;
   attachments: PromptImageAttachment[];
+  messageCount: number;
 }
 
 export function formatMessagesForAgent(
@@ -15,6 +16,7 @@ export function formatMessagesForAgent(
     return {
       prompt: formatMessages(messages, timezone),
       attachments: [],
+      messageCount: messages.length,
     };
   }
 
@@ -57,5 +59,6 @@ export function formatMessagesForAgent(
   return {
     prompt: formatMessages(formattedMessages, timezone),
     attachments,
+    messageCount: messages.length,
   };
 }

@@ -136,6 +136,7 @@ import {
 import type { RegisteredGroup } from './types.js';
 import fs from 'fs';
 import { spawn } from 'child_process';
+import { logger } from './logger.js';
 
 const testGroup: RegisteredGroup = {
   name: 'Test Group',
@@ -166,6 +167,7 @@ describe('redactContainerInputForLog', () => {
       groupFolder: 'test-group',
       chatJid: 'group1@g.us',
       isMain: false,
+      promptMessageCount: 2,
       attachments: [
         { type: 'image', path: '/secret/group/a.jpg', label: '消息1-图片1' },
       ],
@@ -176,6 +178,7 @@ describe('redactContainerInputForLog', () => {
     expect(redacted.attachments).toEqual([
       { type: 'image', path: '<redacted>', label: '消息1-图片1' },
     ]);
+    expect(redacted.promptMessageCount).toBe(2);
   });
 });
 
@@ -183,6 +186,24 @@ describe('agent spawn and timeout', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     fakeProc = createFakeProcess();
+  });
+
+  it('原生图片统计提升为 info 供 E2E 查询', async () => {
+    const resultPromise = runContainerAgent(testGroup, testInput, () => {});
+    await vi.advanceTimersByTimeAsync(10);
+
+    fakeProc.stderr.push(
+      '[agent-runner] [multimodal] native=1 fallback=0 skipped=0 reasons={}\n',
+    );
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(logger.info).toHaveBeenCalledWith(
+      { agent: testGroup.folder },
+      expect.stringContaining('[multimodal] native=1'),
+    );
+
+    fakeProc.emit('close', 0);
+    await resultPromise;
   });
 
   afterEach(() => {
