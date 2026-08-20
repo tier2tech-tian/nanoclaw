@@ -334,6 +334,175 @@ describe('FeishuChannel', () => {
     });
   });
 
+  describe('入站图片附件', () => {
+    it('单图消息生成一条结构化附件', async () => {
+      const onMessage = vi.fn();
+      const infoSpy = vi.spyOn(logger, 'info');
+      const imageChannel = new FeishuChannel(
+        'app_id',
+        'app_secret',
+        makeOpts({
+          onMessage,
+          registeredGroups: () => ({
+            'fs:oc_images': {
+              name: '图片测试群',
+              folder: 'fs_oc_images',
+              trigger: '@二狗',
+              added_at: '2026-08-20T00:00:00.000Z',
+            },
+          }),
+        }),
+      );
+      vi.spyOn(imageChannel as any, 'downloadImage').mockResolvedValue(
+        '/tmp/groups/fs_oc_images/images/one.jpg',
+      );
+
+      await (imageChannel as any).handleMessage({
+        sender: { sender_id: { open_id: 'ou_user' }, sender_type: 'user' },
+        message: {
+          message_id: 'om_one_image',
+          chat_id: 'oc_images',
+          chat_type: 'group',
+          message_type: 'image',
+          content: JSON.stringify({ image_key: 'img_one' }),
+        },
+      });
+
+      expect(onMessage.mock.calls[0][1].attachments).toEqual([
+        {
+          type: 'image',
+          path: '/tmp/groups/fs_oc_images/images/one.jpg',
+          source: 'feishu',
+        },
+      ]);
+      const dispatchLog = infoSpy.mock.calls.find(
+        call => call[1] === '飞书消息分发到 onMessage',
+      );
+      expect(dispatchLog?.[0]).toMatchObject({
+        jid: 'fs:oc_images',
+        attachmentCount: 1,
+        textLength: expect.any(Number),
+      });
+      expect(JSON.stringify(dispatchLog?.[0])).not.toContain('one.jpg');
+      infoSpy.mockRestore();
+    });
+
+    it('富文本三图在保留兼容路径正文时生成有序结构化附件', async () => {
+      const onMessage = vi.fn();
+      const infoSpy = vi.spyOn(logger, 'info');
+      const imageChannel = new FeishuChannel(
+        'app_id',
+        'app_secret',
+        makeOpts({
+          onMessage,
+          registeredGroups: () => ({
+            'fs:oc_images': {
+              name: '图片测试群',
+              folder: 'fs_oc_images',
+              trigger: '@二狗',
+              added_at: '2026-08-20T00:00:00.000Z',
+            },
+          }),
+        }),
+      );
+      vi.spyOn(imageChannel as any, 'downloadImage').mockImplementation(
+        async (_messageId: string, imageKey: string) =>
+          `/tmp/groups/fs_oc_images/images/${imageKey}.jpg`,
+      );
+
+      await (imageChannel as any).handleMessage({
+        sender: {
+          sender_id: { open_id: 'ou_user' },
+          sender_type: 'user',
+        },
+        message: {
+          message_id: 'om_three_images',
+          chat_id: 'oc_images',
+          chat_type: 'group',
+          message_type: 'post',
+          content: JSON.stringify({
+            content: [
+              [
+                { tag: 'text', text: '一起看' },
+                { tag: 'img', image_key: 'img_one' },
+              ],
+              [{ tag: 'img', image_key: 'img_two' }],
+              [{ tag: 'img', image_key: 'img_three' }],
+            ],
+          }),
+        },
+      });
+
+      const message = onMessage.mock.calls[0][1];
+      expect(message.content).toBe(
+        '一起看\n[图片: /tmp/groups/fs_oc_images/images/img_one.jpg]\n[图片: /tmp/groups/fs_oc_images/images/img_two.jpg]\n[图片: /tmp/groups/fs_oc_images/images/img_three.jpg]',
+      );
+      expect(message.attachments).toEqual([
+        {
+          type: 'image',
+          path: '/tmp/groups/fs_oc_images/images/img_one.jpg',
+          source: 'feishu',
+        },
+        {
+          type: 'image',
+          path: '/tmp/groups/fs_oc_images/images/img_two.jpg',
+          source: 'feishu',
+        },
+        {
+          type: 'image',
+          path: '/tmp/groups/fs_oc_images/images/img_three.jpg',
+          source: 'feishu',
+        },
+      ]);
+      const dispatchLog = infoSpy.mock.calls.find(
+        call => call[1] === '飞书消息分发到 onMessage',
+      );
+      expect(dispatchLog?.[0]).toMatchObject({ attachmentCount: 3 });
+      expect(JSON.stringify(dispatchLog?.[0])).not.toContain('img_one.jpg');
+      infoSpy.mockRestore();
+    });
+
+    it('合并转发保持解析器返回的图片顺序', async () => {
+      const onMessage = vi.fn();
+      const imageChannel = new FeishuChannel(
+        'app_id',
+        'app_secret',
+        makeOpts({
+          onMessage,
+          registeredGroups: () => ({
+            'fs:oc_images': {
+              name: '图片测试群',
+              folder: 'fs_oc_images',
+              trigger: '@二狗',
+              added_at: '2026-08-20T00:00:00.000Z',
+            },
+          }),
+        }),
+      );
+      vi.spyOn(imageChannel as any, 'parseMergeForward').mockResolvedValue({
+        text: '转发内容',
+        imagePaths: ['/group/first.jpg', '/group/second.png'],
+      });
+
+      await (imageChannel as any).handleMessage({
+        sender: { sender_id: { open_id: 'ou_user' }, sender_type: 'user' },
+        message: {
+          message_id: 'om_merge',
+          chat_id: 'oc_images',
+          chat_type: 'group',
+          message_type: 'merge_forward',
+          content: '{}',
+        },
+      });
+
+      expect(
+        onMessage.mock.calls[0][1].attachments.map(
+          (item: { path: string }) => item.path,
+        ),
+      ).toEqual(['/group/first.jpg', '/group/second.png']);
+    });
+  });
+
   describe('factory 注册', () => {
     it('无凭证时 factory 返回 null', async () => {
       // 清理环境变量确保不干扰
@@ -1164,10 +1333,10 @@ describe('FeishuChannel', () => {
       if (!entry) throw new Error('progress card missing');
       expect(entry.steps).toHaveLength(1);
       expect(entry.steps[0].title).toBe('');
-      expect(entry.steps[0].grayTail).toBe(
-        '读取 src/config.ts 失败',
+      expect(entry.steps[0].grayTail).toBe('读取 src/config.ts 失败');
+      expect(JSON.stringify(entry.steps)).not.toContain(
+        'should-not-reach-card',
       );
-      expect(JSON.stringify(entry.steps)).not.toContain('should-not-reach-card');
     });
 
     it('narration Phase 标题与动作在同一面板 header 内各占一行', async () => {

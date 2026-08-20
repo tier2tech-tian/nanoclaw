@@ -76,6 +76,7 @@ import {
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { isValidGroupFolder, resolveGroupFolderPath } from './group-folder.js';
+import { formatMessagesForAgent } from './multimodal-input.js';
 import {
   progressLogFields,
   serializeProgressPayload,
@@ -86,7 +87,8 @@ import {
   startIpcWatcher,
   type ReportMeta,
 } from './ipc.js';
-import { findChannel, formatMessages, formatOutbound } from './router.js';
+import { findChannel, formatOutbound } from './router.js';
+import type { PromptImageAttachment } from './types.js';
 import { restoreRemoteControl } from './remote-control.js';
 import {
   isSenderAllowed,
@@ -549,7 +551,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     }
   }
 
-  const prompt = formatMessages(missedMessages, TIMEZONE);
+  const inputCliMode = resolveCliMode(group.containerConfig);
+  const formattedInput = formatMessagesForAgent(
+    missedMessages,
+    TIMEZONE,
+    inputCliMode === 'sdk',
+  );
+  const prompt = formattedInput.prompt;
 
   // Cursor 在回复成功后才推进（而非提前推进），防止进程被杀时消息丢失。
   // GroupQueue 保证同一群同一时间只跑一个 agent，不会重复处理。
@@ -1116,6 +1124,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     0, // retryCount
     modelOverride,
     notifyRotation,
+    formattedInput.attachments,
+    formattedInput.messageCount,
   );
 
   await channel.setTyping?.(chatJid, false);
@@ -1163,6 +1173,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         0, // retryCount 从 0 起，让 runAgent 内 1ef031b 重试链路也可独立工作
         modelOverride,
         notifyRotation,
+        formattedInput.attachments,
+        formattedInput.messageCount,
       );
       logger.info(
         {
@@ -1369,6 +1381,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         1, // retryCount=1，runAgent 内部会继续轮换
         modelOverride,
         notifyRotation,
+        formattedInput.attachments,
+        formattedInput.messageCount,
       );
       // 合并重试结果
       if (retryOutput.status === 'error') hadError = true;
@@ -1563,6 +1577,8 @@ async function runAgent(
     newSecretName: string;
     oldSecretName?: string;
   }) => void | Promise<void>,
+  promptAttachments?: PromptImageAttachment[],
+  promptMessageCount = 1,
 ): Promise<RunAgentResult> {
   const cliMode = resolveCliMode(group.containerConfig);
   const canAutoRotateAnthropic = shouldAutoRotateAnthropicAccount(cliMode);
@@ -1649,6 +1665,8 @@ async function runAgent(
         modelOverride,
         senderId: memorySenderId,
         cliMode,
+        attachments: promptAttachments,
+        promptMessageCount,
       },
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),
@@ -1750,6 +1768,9 @@ async function runAgent(
           memorySenderId,
           retryCount + 1,
           modelOverride,
+          onRotation,
+          promptAttachments,
+          promptMessageCount,
         );
       }
       if (isApiTransientError && retryCount >= API_ERROR_MAX_RETRIES) {
@@ -1815,6 +1836,8 @@ async function runAgent(
             retryCount + 1,
             modelOverride,
             onRotation,
+            promptAttachments,
+            promptMessageCount,
           ).then((retryResult) => ({
             ...retryResult,
             rotatedTo: rotateResult.newSecretName,
@@ -1902,6 +1925,8 @@ async function runAgent(
           retryCount + 1,
           modelOverride,
           onRotation,
+          promptAttachments,
+          promptMessageCount,
         ).then((retryResult) => ({
           ...retryResult,
           rotatedTo: rotateResult.newSecretName,
@@ -2174,7 +2199,12 @@ async function startMessageLoop(): Promise<void> {
               pipeModelOverride = { thinking: 'disabled' };
             }
           }
-          const formatted = formatMessages(messagesToSend, TIMEZONE);
+          const activeCliMode = resolveCliMode(group.containerConfig);
+          const formatted = formatMessagesForAgent(
+            messagesToSend,
+            TIMEZONE,
+            activeCliMode === 'sdk',
+          );
 
           // 动态记忆/Wiki 注入：仅 container active 时才做（避免冷启动路径浪费）
           // 用最后一条原始用户消息做 query，避免 formatted 中的时间戳/发送者噪声
@@ -2182,7 +2212,7 @@ async function startMessageLoop(): Promise<void> {
           if (isMemoryEnabled() && queue.isActive(chatJid)) {
             try {
               const lastMsg = messagesToSend[messagesToSend.length - 1];
-              const queryText = lastMsg?.content || formatted;
+              const queryText = lastMsg?.content || formatted.prompt;
               const groupDir = resolveGroupFolderPath(group.folder);
               dynamicContext = await buildMessageContext(queryText, groupDir);
               // 去重：与上次相同则不注入
@@ -2214,10 +2244,12 @@ async function startMessageLoop(): Promise<void> {
           if (
             queue.sendMessage(
               chatJid,
-              formatted,
+              formatted.prompt,
               pipeModelOverride,
               dynamicContext,
               pipeLastMsg?.sender,
+              formatted.attachments,
+              formatted.messageCount,
             )
           ) {
             logger.debug(

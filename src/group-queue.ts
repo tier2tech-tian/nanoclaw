@@ -6,6 +6,7 @@ import { DATA_DIR, MAX_CONCURRENT_AGENTS } from './config.js';
 import { clearContextHash } from './memory/inject.js';
 import type { MessageContext } from './memory/inject.js';
 import { logger } from './logger.js';
+import type { PromptImageAttachment } from './types.js';
 
 interface QueuedTask {
   id: string;
@@ -266,6 +267,8 @@ export class GroupQueue {
     modelOverride?: { model?: string; thinking?: 'adaptive' | 'disabled' },
     context?: MessageContext | null,
     senderId?: string,
+    attachments?: PromptImageAttachment[],
+    messageCount = 1,
   ): boolean {
     const state = this.getGroup(groupJid);
     if (!state.active || !state.groupFolder || state.isTaskContainer) {
@@ -313,6 +316,8 @@ export class GroupQueue {
           modelOverride,
           context: context || undefined,
           senderId,
+          attachments,
+          messageCount,
         }),
       );
       fs.renameSync(tempPath, filepath);

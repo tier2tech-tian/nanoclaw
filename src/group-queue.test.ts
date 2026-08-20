@@ -608,6 +608,54 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(10);
   });
 
+  it('sendMessage 按原顺序把图片附件写入 IPC 文件', async () => {
+    const fs = await import('fs');
+    let resolveProcess: () => void;
+    const processMessages = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        resolveProcess = resolve;
+      });
+      return true;
+    });
+
+    queue.setProcessMessagesFn(processMessages);
+    queue.enqueueMessageCheck('group1@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+    queue.registerProcess(
+      'group1@g.us',
+      { pid: process.pid } as any,
+      'container-1',
+      'test-group',
+    );
+
+    const attachments = [
+      { type: 'image' as const, path: '/group/a.jpg', label: '消息1-图片1' },
+      { type: 'image' as const, path: '/group/b.png', label: '消息1-图片2' },
+    ];
+    vi.mocked(fs.default.writeFileSync).mockClear();
+    expect(
+      queue.sendMessage(
+        'group1@g.us',
+        'hello',
+        undefined,
+        undefined,
+        undefined,
+        attachments,
+        2,
+      ),
+    ).toBe(true);
+
+    const writeCall = vi
+      .mocked(fs.default.writeFileSync)
+      .mock.calls.find((call) => String(call[0]).endsWith('.tmp'));
+    expect(writeCall).toBeDefined();
+    expect(JSON.parse(String(writeCall![1])).attachments).toEqual(attachments);
+    expect(JSON.parse(String(writeCall![1])).messageCount).toBe(2);
+
+    resolveProcess!();
+    await vi.advanceTimersByTimeAsync(10);
+  });
+
   it('preempts when idle arrives with pending tasks', async () => {
     const fs = await import('fs');
     let resolveProcess: () => void;

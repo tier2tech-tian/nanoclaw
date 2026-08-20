@@ -113,6 +113,19 @@ export interface NewMessage {
   reply_to_message_id?: string;
   reply_to_message_content?: string;
   reply_to_sender_name?: string;
+  attachments?: MessageAttachment[];
+}
+
+export interface MessageAttachment {
+  type: 'image';
+  path: string;
+  source?: string;
+}
+
+export interface PromptImageAttachment {
+  type: 'image';
+  path: string;
+  label: string;
 }
 
 export interface ScheduledTask {

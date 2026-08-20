@@ -131,10 +131,12 @@ import {
   resolveWorkspacePaths,
   prepareGroupSession,
   prepareCodexSkills,
+  redactContainerInputForLog,
 } from './container-runner.js';
 import type { RegisteredGroup } from './types.js';
 import fs from 'fs';
 import { spawn } from 'child_process';
+import { logger } from './logger.js';
 
 const testGroup: RegisteredGroup = {
   name: 'Test Group',
@@ -158,10 +160,50 @@ function emitOutputMarker(
   proc.stdout.push(`${OUTPUT_START_MARKER}\n${json}\n${OUTPUT_END_MARKER}\n`);
 }
 
+describe('redactContainerInputForLog', () => {
+  it('日志中不保留图片绝对路径', () => {
+    const redacted = redactContainerInputForLog({
+      prompt: '看图\n[图片: /secret/group/a.jpg]',
+      groupFolder: 'test-group',
+      chatJid: 'group1@g.us',
+      isMain: false,
+      promptMessageCount: 2,
+      attachments: [
+        { type: 'image', path: '/secret/group/a.jpg', label: '消息1-图片1' },
+      ],
+    });
+
+    expect(JSON.stringify(redacted)).not.toContain('/secret/group/a.jpg');
+    expect(redacted.prompt).toContain('[图片: <redacted>]');
+    expect(redacted.attachments).toEqual([
+      { type: 'image', path: '<redacted>', label: '消息1-图片1' },
+    ]);
+    expect(redacted.promptMessageCount).toBe(2);
+  });
+});
+
 describe('agent spawn and timeout', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     fakeProc = createFakeProcess();
+  });
+
+  it('原生图片统计提升为 info 供 E2E 查询', async () => {
+    const resultPromise = runContainerAgent(testGroup, testInput, () => {});
+    await vi.advanceTimersByTimeAsync(10);
+
+    fakeProc.stderr.push(
+      '[agent-runner] [multimodal] native=1 fallback=0 skipped=0 reasons={}\n',
+    );
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(logger.info).toHaveBeenCalledWith(
+      { agent: testGroup.folder },
+      expect.stringContaining('[multimodal] native=1'),
+    );
+
+    fakeProc.emit('close', 0);
+    await resultPromise;
   });
 
   afterEach(() => {
