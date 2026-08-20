@@ -131,6 +131,7 @@ import {
   resolveWorkspacePaths,
   prepareGroupSession,
   prepareCodexSkills,
+  redactContainerInputForLog,
 } from './container-runner.js';
 import type { RegisteredGroup } from './types.js';
 import fs from 'fs';
@@ -157,6 +158,26 @@ function emitOutputMarker(
   const json = JSON.stringify(output);
   proc.stdout.push(`${OUTPUT_START_MARKER}\n${json}\n${OUTPUT_END_MARKER}\n`);
 }
+
+describe('redactContainerInputForLog', () => {
+  it('日志中不保留图片绝对路径', () => {
+    const redacted = redactContainerInputForLog({
+      prompt: '看图\n[图片: /secret/group/a.jpg]',
+      groupFolder: 'test-group',
+      chatJid: 'group1@g.us',
+      isMain: false,
+      attachments: [
+        { type: 'image', path: '/secret/group/a.jpg', label: '消息1-图片1' },
+      ],
+    });
+
+    expect(JSON.stringify(redacted)).not.toContain('/secret/group/a.jpg');
+    expect(redacted.prompt).toContain('[图片: <redacted>]');
+    expect(redacted.attachments).toEqual([
+      { type: 'image', path: '<redacted>', label: '消息1-图片1' },
+    ]);
+  });
+});
 
 describe('agent spawn and timeout', () => {
   beforeEach(() => {

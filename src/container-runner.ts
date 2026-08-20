@@ -294,6 +294,7 @@ const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 
 export interface ContainerInput {
   prompt: string;
+  attachments?: import('./types.js').PromptImageAttachment[];
   sessionId?: string;
   groupFolder: string;
   chatJid: string;
@@ -318,6 +319,17 @@ export interface ContainerInput {
     global?: string;
     ipc: string;
     extra?: string;
+  };
+}
+
+export function redactContainerInputForLog(input: ContainerInput): ContainerInput {
+  return {
+    ...input,
+    prompt: input.prompt.replace(/\[图片:\s*[^\]\r\n]+\]/g, '[图片: <redacted>]'),
+    attachments: input.attachments?.map((attachment) => ({
+      ...attachment,
+      path: '<redacted>',
+    })),
   };
 }
 
@@ -1089,7 +1101,11 @@ export async function runContainerAgent(
 
       if (isVerbose || isError) {
         if (isVerbose) {
-          logLines.push(`=== Input ===`, JSON.stringify(input, null, 2), ``);
+          logLines.push(
+            `=== Input ===`,
+            JSON.stringify(redactContainerInputForLog(input), null, 2),
+            ``,
+          );
         } else {
           logLines.push(
             `=== Input Summary ===`,

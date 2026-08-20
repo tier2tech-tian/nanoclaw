@@ -31,7 +31,12 @@ import {
   completeSession,
   deleteSession,
 } from '../progress-server.js';
-import { Channel, NewMessage, SendMessageOptions } from '../types.js';
+import {
+  Channel,
+  NewMessage,
+  SendMessageOptions,
+  type MessageAttachment,
+} from '../types.js';
 import type { CliMode } from '../types.js';
 import { notifyVoice } from '../voice-notify.js';
 
@@ -2875,10 +2880,7 @@ export class FeishuChannel implements Channel {
       }
 
       fs.writeFileSync(filePath, buf);
-      logger.info(
-        { messageId, imageKey, hostPath: filePath },
-        '飞书图片下载成功',
-      );
+      logger.info({ messageId, imageKey }, '飞书图片下载成功');
       return filePath;
     } catch (err) {
       logger.error({ err, messageId, imageKey }, '飞书图片下载失败');
@@ -3395,6 +3397,7 @@ export class FeishuChannel implements Channel {
 
     // 解析消息内容
     let text = '';
+    const attachments: MessageAttachment[] = [];
     try {
       if (message.message_type === 'image') {
         // 图片消息：下载图片并标记路径
@@ -3407,6 +3410,9 @@ export class FeishuChannel implements Channel {
             groupFolder,
           );
           text = imgPath ? `[图片: ${imgPath}]` : '[图片: 下载失败]';
+          if (imgPath) {
+            attachments.push({ type: 'image', path: imgPath, source: 'feishu' });
+          }
         } else if (imageKey) {
           text = '[图片: 群未注册，无法下载]';
         } else {
@@ -3456,6 +3462,7 @@ export class FeishuChannel implements Channel {
         text = result.text;
         for (const imgPath of result.imagePaths) {
           text += `\n[图片: ${imgPath}]`;
+          attachments.push({ type: 'image', path: imgPath, source: 'feishu' });
         }
       } else {
         const parsed = JSON.parse(message.content);
@@ -3472,7 +3479,14 @@ export class FeishuChannel implements Channel {
                 imageKey,
                 groupFolder,
               );
-              if (imgPath) text += `\n[图片: ${imgPath}]`;
+              if (imgPath) {
+                text += `\n[图片: ${imgPath}]`;
+                attachments.push({
+                  type: 'image',
+                  path: imgPath,
+                  source: 'feishu',
+                });
+              }
             }
           }
         } else {
@@ -3537,6 +3551,7 @@ export class FeishuChannel implements Channel {
       reply_to_message_content: replyContent,
       reply_to_sender_name: replySenderName,
       thread_id: message.root_id,
+      attachments: attachments.length > 0 ? attachments : undefined,
     };
 
     logger.info({ jid, text: text.slice(0, 80) }, '飞书消息分发到 onMessage');

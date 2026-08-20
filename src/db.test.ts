@@ -32,6 +32,7 @@ import {
   upsertTaskLedgerChecklistItem,
   upsertTaskLedgerTestCase,
   updateTask,
+  __testing,
 } from './db.js';
 import { formatMessages } from './router.js';
 
@@ -175,6 +176,23 @@ function store(overrides: {
 // --- storeMessage (NewMessage format) ---
 
 describe('storeMessage', () => {
+  it('损坏或非法附件 JSON 严格降级且不影响合法条目顺序', () => {
+    expect(__testing.parseMessageAttachments('{bad json')).toEqual([]);
+    expect(__testing.parseMessageAttachments('{"type":"image"}')).toEqual([]);
+    expect(
+      __testing.parseMessageAttachments(
+        JSON.stringify([
+          { type: 'image', path: '/group/a.jpg', source: 'feishu' },
+          { type: 'file', path: '/group/not-image.txt' },
+          { type: 'image', path: '/group/b.png' },
+        ]),
+      ),
+    ).toEqual([
+      { type: 'image', path: '/group/a.jpg', source: 'feishu' },
+      { type: 'image', path: '/group/b.png' },
+    ]);
+  });
+
   it('stores a message and retrieves it', () => {
     storeChatMetadata('group@g.us', '2024-01-01T00:00:00.000Z');
 
@@ -197,6 +215,60 @@ describe('storeMessage', () => {
     expect(messages[0].sender).toBe('123@s.whatsapp.net');
     expect(messages[0].sender_name).toBe('Alice');
     expect(messages[0].content).toBe('hello world');
+  });
+
+  it('持久化并恢复有序图片附件，纯文本消息恢复为空数组', () => {
+    storeChatMetadata('group@g.us', '2024-01-01T00:00:00.000Z');
+
+    storeMessage({
+      id: 'msg-with-images',
+      chat_jid: 'group@g.us',
+      sender: '123@s.whatsapp.net',
+      sender_name: 'Alice',
+      content:
+        '看这两张图\n[图片: /tmp/groups/demo/images/one.jpg]\n[图片: /tmp/groups/demo/images/two.png]',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      attachments: [
+        {
+          type: 'image',
+          path: '/tmp/groups/demo/images/one.jpg',
+          source: 'feishu',
+        },
+        {
+          type: 'image',
+          path: '/tmp/groups/demo/images/two.png',
+          source: 'feishu',
+        },
+      ],
+    });
+    storeMessage({
+      id: 'msg-text-only',
+      chat_jid: 'group@g.us',
+      sender: '123@s.whatsapp.net',
+      sender_name: 'Alice',
+      content: '只有文字',
+      timestamp: '2024-01-01T00:00:02.000Z',
+    });
+
+    const messages = getMessagesSince(
+      'group@g.us',
+      '2024-01-01T00:00:00.000Z',
+      'Andy',
+    );
+
+    expect(messages[0].attachments).toEqual([
+      {
+        type: 'image',
+        path: '/tmp/groups/demo/images/one.jpg',
+        source: 'feishu',
+      },
+      {
+        type: 'image',
+        path: '/tmp/groups/demo/images/two.png',
+        source: 'feishu',
+      },
+    ]);
+    expect(messages[1].attachments).toEqual([]);
   });
 
   it('filters out empty content', () => {

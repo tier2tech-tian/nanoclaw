@@ -37,6 +37,15 @@ import { readGroupModelSettings, readCodexModelSettings } from './model-settings
 import { resolveQueryCwdForSession } from './session-cwd.js';
 import { isFinalizingOnly } from './finalizing-tools.js';
 import {
+  buildMultimodalUserContent,
+  createMultimodalMessageStream,
+} from './multimodal-input.js';
+import {
+  MessageStream,
+  type PromptImageAttachment,
+  type UserMessageContent,
+} from './sdk-message-stream.js';
+import {
   boundProgressInput,
   buildClaudeToolResultProgress,
   type ClaudeToolResultBlock,
@@ -45,6 +54,7 @@ import {
 
 interface ContainerInput {
   prompt: string;
+  attachments?: PromptImageAttachment[];
   sessionId?: string;
   groupFolder: string;
   chatJid: string;
@@ -112,13 +122,6 @@ interface SessionsIndex {
   entries: SessionEntry[];
 }
 
-interface SDKUserMessage {
-  type: 'user';
-  message: { role: 'user'; content: string };
-  parent_tool_use_id: null;
-  session_id: string;
-}
-
 const IPC_POLL_MS = 500;
 
 // 工作目录路径 — 在 stdin 解析后初始化
@@ -139,40 +142,6 @@ let PATHS: {
  * Push-based async iterable for streaming user messages to the SDK.
  * Keeps the iterable alive until end() is called, preventing isSingleUserTurn.
  */
-class MessageStream {
-  private queue: SDKUserMessage[] = [];
-  private waiting: (() => void) | null = null;
-  private done = false;
-
-  push(text: string): void {
-    this.queue.push({
-      type: 'user',
-      message: { role: 'user', content: text },
-      parent_tool_use_id: null,
-      session_id: '',
-    });
-    this.waiting?.();
-  }
-
-  end(): void {
-    this.done = true;
-    this.waiting?.();
-  }
-
-  async *[Symbol.asyncIterator](): AsyncGenerator<SDKUserMessage> {
-    while (true) {
-      while (this.queue.length > 0) {
-        yield this.queue.shift()!;
-      }
-      if (this.done) return;
-      await new Promise<void>((r) => {
-        this.waiting = r;
-      });
-      this.waiting = null;
-    }
-  }
-}
-
 async function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = '';
@@ -479,10 +448,34 @@ interface MessageContext {
 
 interface IpcMessage {
   text: string;
+  attachments?: PromptImageAttachment[];
   senderId?: string;
   modelOverride?: { model?: string; thinking?: 'adaptive' | 'disabled' };
   context?: MessageContext | null;
   claimPath?: string;
+}
+
+function parsePromptImageAttachments(value: unknown): PromptImageAttachment[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is PromptImageAttachment =>
+      !!item &&
+      typeof item === 'object' &&
+      (item as PromptImageAttachment).type === 'image' &&
+      typeof (item as PromptImageAttachment).path === 'string' &&
+      typeof (item as PromptImageAttachment).label === 'string',
+  );
+}
+
+function logMultimodalStats(
+  content: UserMessageContent,
+  attachments: PromptImageAttachment[] | undefined,
+): void {
+  if (!attachments?.length) return;
+  const native = Array.isArray(content)
+    ? content.filter((block) => block.type === 'image').length
+    : 0;
+  log(`[multimodal] native=${native} fallback=${attachments.length - native} skipped=0`);
 }
 
 /**
@@ -545,6 +538,7 @@ function drainIpcInput(): IpcMessage[] {
             senderId: typeof data.senderId === 'string' ? data.senderId : undefined,
             modelOverride: data.modelOverride,
             context: data.context || null,
+            attachments: parsePromptImageAttachments(data.attachments),
           });
         }
       } catch (err) {
@@ -584,6 +578,7 @@ function waitForIpcMessage(): Promise<IpcMessage | null> {
           senderId: last.senderId,
           modelOverride: last.modelOverride,
           context: last.context || null,
+          attachments: messages.flatMap((message) => message.attachments ?? []),
         };
         if (hasValidContext(combined.context)) {
           log(`Combined ${messages.length} msgs, context from last (wiki=${combined.context!.wiki.length} facts=${combined.context!.facts.length})`);
@@ -625,6 +620,7 @@ function claimNextIpcMessage(): IpcMessage | null {
             senderId: typeof data.senderId === 'string' ? data.senderId : undefined,
             modelOverride: data.modelOverride,
             context: data.context || null,
+            attachments: parsePromptImageAttachments(data.attachments),
             claimPath,
           };
         }
@@ -802,8 +798,12 @@ async function runQuery(
   lastAssistantUuid?: string;
   closedDuringQuery: boolean;
 }> {
-  const stream = new MessageStream();
-  stream.push(prompt);
+  const { stream, content: initialContent } = await createMultimodalMessageStream(
+    prompt,
+    containerInput.attachments,
+    { allowedRoot: PATHS.group },
+  );
+  logMultimodalStats(initialContent, containerInput.attachments);
 
   // Poll IPC for follow-up messages and _close sentinel during the query
   let ipcPolling = true;
@@ -860,7 +860,13 @@ async function runQuery(
       if (hasValidContext(msg.context)) {
         log(`Piping with context: wiki=${msg.context!.wiki.length} facts=${msg.context!.facts.length}`);
       }
-      stream.push(pushText);
+      const pipedContent = await buildMultimodalUserContent(
+        pushText,
+        msg.attachments,
+        { allowedRoot: PATHS.group },
+      );
+      logMultimodalStats(pipedContent, msg.attachments);
+      stream.push(pipedContent);
     }
     setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
   };
@@ -2202,6 +2208,7 @@ async function main(): Promise<void> {
 
       log(`Got new message (${nextMessage.text.length} chars), starting new query`);
       prompt = prependContext(nextMessage.text, nextMessage.context);
+      containerInput.attachments = nextMessage.attachments;
       // 应用 IPC 消息中的 modelOverride（下次 runQuery 会用）
       if (nextMessage.modelOverride) {
         containerInput.modelOverride = nextMessage.modelOverride;

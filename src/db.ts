@@ -10,6 +10,7 @@ import {
   DelegationStatus,
   DelegationTask,
   NewMessage,
+  MessageAttachment,
   OAuthCredential,
   RegisteredGroup,
   ScheduledTask,
@@ -45,6 +46,7 @@ function createSchema(database: Database.Database): void {
       timestamp TEXT,
       is_from_me INTEGER,
       is_bot_message INTEGER DEFAULT 0,
+      attachments_json TEXT,
       PRIMARY KEY (id, chat_jid),
       FOREIGN KEY (chat_jid) REFERENCES chats(jid)
     );
@@ -344,6 +346,13 @@ function createSchema(database: Database.Database): void {
   } catch {
     /* columns already exist */
   }
+
+  const messageColumns = database
+    .prepare('PRAGMA table_info(messages)')
+    .all() as Array<{ name: string }>;
+  if (!messageColumns.some((column) => column.name === 'attachments_json')) {
+    database.exec(`ALTER TABLE messages ADD COLUMN attachments_json TEXT`);
+  }
 }
 
 function migrateDelegationSourceFields(database: Database.Database): void {
@@ -402,6 +411,7 @@ function migrateDelegationSourceFields(database: Database.Database): void {
 
 export const __testing = {
   migrateDelegationSourceFields,
+  parseMessageAttachments,
 };
 
 export function initDatabase(): void {
@@ -609,7 +619,7 @@ export function setLastGroupSync(): void {
  */
 export function storeMessage(msg: NewMessage): void {
   db.prepare(
-    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, reply_to_message_id, reply_to_message_content, reply_to_sender_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, reply_to_message_id, reply_to_message_content, reply_to_sender_name, attachments_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     msg.id,
     msg.chat_jid,
@@ -622,7 +632,42 @@ export function storeMessage(msg: NewMessage): void {
     msg.reply_to_message_id ?? null,
     msg.reply_to_message_content ?? null,
     msg.reply_to_sender_name ?? null,
+    msg.attachments?.length ? JSON.stringify(msg.attachments) : null,
   );
+}
+
+type StoredMessageRow = NewMessage & { attachments_json?: string | null };
+
+function parseMessageAttachments(raw: string | null | undefined): MessageAttachment[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      logger.warn('消息附件元数据不是数组，降级为空附件');
+      return [];
+    }
+    const attachments = parsed.filter(
+      (item): item is MessageAttachment =>
+        !!item &&
+        typeof item === 'object' &&
+        (item as { type?: unknown }).type === 'image' &&
+        typeof (item as { path?: unknown }).path === 'string' &&
+        ((item as { source?: unknown }).source === undefined ||
+          typeof (item as { source?: unknown }).source === 'string'),
+    );
+    if (attachments.length !== parsed.length) {
+      logger.warn('消息附件元数据包含非法条目，已忽略');
+    }
+    return attachments;
+  } catch (err) {
+    logger.warn({ err }, '消息附件元数据解析失败，降级为空附件');
+    return [];
+  }
+}
+
+function hydrateStoredMessage(row: StoredMessageRow): NewMessage {
+  const { attachments_json, ...message } = row;
+  return { ...message, attachments: parseMessageAttachments(attachments_json) };
 }
 
 /** 按消息 ID 查询发送者名称和内容 */
@@ -676,7 +721,8 @@ export function getNewMessages(
   const sql = `
     SELECT * FROM (
       SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me,
-             reply_to_message_id, reply_to_message_content, reply_to_sender_name
+             reply_to_message_id, reply_to_message_content, reply_to_sender_name,
+             attachments_json
       FROM messages
       WHERE timestamp > ? AND chat_jid IN (${placeholders})
         AND is_bot_message = 0 AND content NOT LIKE ?
@@ -688,14 +734,15 @@ export function getNewMessages(
 
   const rows = db
     .prepare(sql)
-    .all(lastTimestamp, ...jids, `${botPrefix}:%`, limit) as NewMessage[];
+    .all(lastTimestamp, ...jids, `${botPrefix}:%`, limit) as StoredMessageRow[];
+  const messages = rows.map(hydrateStoredMessage);
 
   let newTimestamp = lastTimestamp;
-  for (const row of rows) {
+  for (const row of messages) {
     if (row.timestamp > newTimestamp) newTimestamp = row.timestamp;
   }
 
-  return { messages: rows, newTimestamp };
+  return { messages, newTimestamp };
 }
 
 /**
@@ -728,7 +775,8 @@ export function getMessagesSince(
   const sql = `
     SELECT * FROM (
       SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me,
-             reply_to_message_id, reply_to_message_content, reply_to_sender_name
+             reply_to_message_id, reply_to_message_content, reply_to_sender_name,
+             attachments_json
       FROM messages
       WHERE chat_jid = ? AND timestamp > ?
         AND is_bot_message = 0 AND content NOT LIKE ?
@@ -737,9 +785,10 @@ export function getMessagesSince(
       LIMIT ?
     ) ORDER BY timestamp
   `;
-  return db
+  const rows = db
     .prepare(sql)
-    .all(chatJid, sinceTimestamp, `${botPrefix}:%`, limit) as NewMessage[];
+    .all(chatJid, sinceTimestamp, `${botPrefix}:%`, limit) as StoredMessageRow[];
+  return rows.map(hydrateStoredMessage);
 }
 
 /**
