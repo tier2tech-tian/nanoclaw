@@ -2,7 +2,7 @@
 
 ### Requirement: Ready 事项按项目类型自动路由
 
-系统启用 GitHub Project 自动派工后，SHALL 定时读取组织的 Bug 项目与需求项目，并把首次进入 `Ready` 的 Bug 事项派给 C3、需求事项派给 4号。项目号和目标群别名 SHALL 可配置，默认分别为 `#6 → C3`、`#7 → 4号`。
+系统启用 GitHub Project 自动派工后，SHALL 定时读取组织的 Bug 项目与需求项目，并只处理分配给指定 GitHub 账号且首次进入 `Ready` 的事项：Bug 派给 C3、需求派给 4号。负责人账号、项目号和目标群别名 SHALL 可配置，默认分别为 `tier2tech-tian`、`#6 → C3`、`#7 → 4号`。
 
 #### Scenario: Bug 进入 Ready
 - **WHEN** Bug 项目 #6 的事项状态从非 Ready 变为 Ready
@@ -16,9 +16,13 @@
 - **WHEN** 事项状态为 Backlog、In progress、In review、Done 或其他非 Ready 值
 - **THEN** 系统 SHALL 只更新观察状态而不向任何群投递消息
 
-#### Scenario: Assignee 不作为二次门禁
-- **WHEN** #6 或 #7 的事项已由人工设置为 Ready
-- **THEN** 系统 SHALL 以 Project 和 Status 作为权威路由，不再按 Assignee 过滤
+#### Scenario: 非本人事项不派工
+- **WHEN** #6 或 #7 的 Ready 事项未分配负责人，或负责人列表不包含配置账号
+- **THEN** 系统 SHALL 忽略该事项且不占用目标群派工槽位
+
+#### Scenario: 本人事项大小写不敏感
+- **WHEN** Ready 事项负责人包含与配置账号仅大小写不同的 GitHub login
+- **THEN** 系统 SHALL 仍识别为同一账号并正常派工
 
 ### Requirement: 派工消息提供可执行上下文
 

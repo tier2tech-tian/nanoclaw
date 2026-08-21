@@ -2653,6 +2653,7 @@ async function main(): Promise<void> {
         routes: config.routes,
         maxBodyLength: config.maxBodyLength,
         intervalMs: config.intervalMs,
+        assignee: config.assignee,
       },
       {
         listProjectItems: createGhProjectItemLoader({

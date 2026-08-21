@@ -7,6 +7,7 @@ export interface GitHubProjectItem {
   title: string;
   body: string;
   url: string;
+  assignees?: string[];
 }
 
 export interface GitHubProjectDispatchState {
@@ -30,6 +31,7 @@ export interface GitHubProjectDispatchConfig {
   routes: GitHubProjectRoute[];
   maxBodyLength: number;
   intervalMs?: number;
+  assignee?: string;
 }
 
 export type CommandExecutor = (
@@ -75,6 +77,7 @@ interface RawProjectItem {
   id?: unknown;
   status?: unknown;
   title?: unknown;
+  assignees?: unknown;
   content?: {
     title?: unknown;
     body?: unknown;
@@ -84,6 +87,12 @@ interface RawProjectItem {
 
 function asString(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
 }
 
 export function parseProjectItems(
@@ -120,6 +129,7 @@ export function parseProjectItems(
       title: asString(item.content?.title) || asString(item.title),
       body: asString(item.content?.body),
       url: asString(item.content?.url) || projectUrl,
+      assignees: asStringArray(item.assignees),
     };
   });
 }
@@ -179,6 +189,7 @@ export async function runGitHubProjectDispatchCycle(
   deps: GitHubProjectDispatchDependencies,
 ): Promise<void> {
   const claimedTargets = new Map<string, string>();
+  const configuredAssignee = config.assignee?.toLowerCase();
 
   for (const route of config.routes) {
     let items: GitHubProjectItem[];
@@ -190,10 +201,17 @@ export async function runGitHubProjectDispatchCycle(
       deps.onError?.(toError(error), { projectNumber: route.projectNumber });
       continue;
     }
+    const eligibleItems = configuredAssignee
+      ? items.filter((item) =>
+          item.assignees?.some(
+            (assignee) => assignee.toLowerCase() === configuredAssignee,
+          ),
+        )
+      : items;
 
     // Claim targets from already-dispatched Ready items before processing new
     // items, so GitHub's item ordering cannot let a later task jump the queue.
-    for (const item of items) {
+    for (const item of eligibleItems) {
       if (item.status !== 'Ready') continue;
       const previous = deps.getState(item.projectNumber, item.itemId);
       if (
@@ -212,7 +230,7 @@ export async function runGitHubProjectDispatchCycle(
       }
     }
 
-    for (const item of items) {
+    for (const item of eligibleItems) {
       const previous = deps.getState(item.projectNumber, item.itemId);
       const decision = decideDispatchAction(previous, item.status);
       const baseState = {

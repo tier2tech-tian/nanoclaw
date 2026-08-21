@@ -46,6 +46,7 @@ describe('GitHub Project 自动派工纯逻辑', () => {
             id: 'item-issue',
             status: 'Ready',
             title: '修复登录失败',
+            assignees: ['tier2tech-tian'],
             content: {
               type: 'Issue',
               title: '修复登录失败',
@@ -73,6 +74,7 @@ describe('GitHub Project 自动派工纯逻辑', () => {
         title: '修复登录失败',
         body: '复现步骤',
         url: 'https://github.com/acme/app/issues/1',
+        assignees: ['tier2tech-tian'],
       },
       {
         projectNumber: 6,
@@ -81,6 +83,7 @@ describe('GitHub Project 自动派工纯逻辑', () => {
         title: '新增报表',
         body: '需求正文',
         url: 'https://github.com/orgs/TierIITech/projects/6',
+        assignees: [],
       },
     ]);
   });
@@ -608,6 +611,37 @@ describe('GitHub Project 自动派工单轮执行', () => {
     expect(deliveries[0].message).toContain('类型：Bug');
     expect(deliveries[1]).toMatchObject({ targetJid: 'fs:oc_four' });
     expect(deliveries[1].message).toContain('类型：需求');
+  });
+
+  it('只派发分配给配置账号的 Ready 事项', async () => {
+    const { deps, deliveries, states } = createHarness();
+    deps.listProjectItems = async () => [
+      {
+        ...bugItem,
+        itemId: 'other-user',
+        assignees: ['brookgao'],
+      },
+      {
+        ...bugItem,
+        itemId: 'my-task',
+        assignees: ['Tier2Tech-Tian'],
+      },
+      {
+        ...bugItem,
+        itemId: 'unassigned',
+        assignees: [],
+      },
+    ];
+
+    await runGitHubProjectDispatchCycle(
+      { ...config, assignee: 'tier2tech-tian', routes: [config.routes[0]] },
+      deps,
+    );
+
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].messageId).toContain('my-task');
+    expect(states.has('6:other-user')).toBe(false);
+    expect(states.has('6:unassigned')).toBe(false);
   });
 
   it('一个项目查询失败不阻断另一个项目', async () => {

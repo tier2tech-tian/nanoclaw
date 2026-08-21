@@ -35,6 +35,7 @@ const envConfig = readEnvFile([
   'NANOCLAW_PERSONAL_DIR',
   'GITHUB_PROJECT_AUTO_DISPATCH',
   'GITHUB_PROJECT_OWNER',
+  'GITHUB_PROJECT_ASSIGNEE',
   'GITHUB_PROJECT_POLL_INTERVAL_MS',
   'GITHUB_PROJECT_BUG_NUMBER',
   'GITHUB_PROJECT_BUG_TARGET',
@@ -53,6 +54,8 @@ export function parseGitHubProjectAutoDispatchConfig(env: GitHubProjectEnv) {
   return {
     enabled: env.GITHUB_PROJECT_AUTO_DISPATCH === 'true',
     owner: env.GITHUB_PROJECT_OWNER?.trim() || 'TierIITech',
+    assignee:
+      env.GITHUB_PROJECT_ASSIGNEE?.trim().toLowerCase() || 'tier2tech-tian',
     intervalMs: Math.max(
       10_000,
       positiveInteger(env.GITHUB_PROJECT_POLL_INTERVAL_MS, 60_000),
@@ -81,6 +84,7 @@ const githubProjectAutoDispatchEnv = Object.fromEntries(
   [
     'GITHUB_PROJECT_AUTO_DISPATCH',
     'GITHUB_PROJECT_OWNER',
+    'GITHUB_PROJECT_ASSIGNEE',
     'GITHUB_PROJECT_POLL_INTERVAL_MS',
     'GITHUB_PROJECT_BUG_NUMBER',
     'GITHUB_PROJECT_BUG_TARGET',

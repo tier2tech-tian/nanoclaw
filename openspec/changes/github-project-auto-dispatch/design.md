@@ -8,7 +8,7 @@ NanoClaw 运行在本机，没有 GitHub 可访问的公网 HTTP 入口；现有
 
 **Goals:**
 
-- Bug Project #6 的 Ready 事项自动交给 C3，需求 Project #7 的 Ready 事项自动交给 4号。
+- 分配给 `tier2tech-tian` 的 Bug Project #6 Ready 事项自动交给 C3，需求 Project #7 Ready 事项自动交给 4号；其他负责人和未分配事项忽略。
 - 持续 Ready 不重复，离开后重新 Ready 可以重派，重启后状态不丢。
 - GitHub/群投递失败自动重试，且不影响现有消息和定时任务处理。
 - 默认关闭、无新增 npm 依赖、无凭据复制。
@@ -30,7 +30,7 @@ NanoClaw 运行在本机，没有 GitHub 可访问的公网 HTTP 入口；现有
 
 ### 2. 项目号决定类型，群别名决定目标
 
-配置包含 owner、Bug/需求项目号、Bug/需求目标别名和轮询周期；默认 `TierIITech`、`6/C3`、`7/4号`。每轮通过 `getGroupAlias()` 解析当前别名，并校验 JID 存在于 `registeredGroups`，因此群迁移只需改别名，不改代码。
+配置包含 owner、负责人 GitHub login、Bug/需求项目号、Bug/需求目标别名和轮询周期；默认 `TierIITech`、`tier2tech-tian`、`6/C3`、`7/4号`。每轮先按 Project 顶层 `assignees` 字段进行大小写不敏感的精确过滤，未分配或分配给其他账号的事项既不记录派工状态也不占目标群槽位；随后通过 `getGroupAlias()` 解析当前别名，并校验 JID 存在于 `registeredGroups`，因此群迁移只需改别名，不改代码。
 
 不使用 Issue label 或标题分类，因为 Project 已经完成类型分流，二次猜测只会制造冲突。
 
@@ -55,7 +55,7 @@ dispatcher 只依赖解析群、群忙闲判断、可见通知和消息入库等
 ## Migration Plan
 
 1. 合并代码后保持默认关闭，正常启动会自动创建状态表。
-2. 在本机 `.env` 设置 `GITHUB_PROJECT_AUTO_DISPATCH=true`，确认当前服务用户 `gh auth status` 可读取组织 Project。
+2. 在本机 `.env` 设置 `GITHUB_PROJECT_AUTO_DISPATCH=true` 与 `GITHUB_PROJECT_ASSIGNEE=tier2tech-tian`，确认当前服务用户 `gh auth status` 可读取组织 Project。
 3. 校验 C3、4号别名存在且指向已注册群。
 4. 重启 NanoClaw，观察首次同步；先以测试事项进入 Ready 做真链路验证。
 5. 回滚时关闭环境变量并重启；状态表保留无副作用，代码回滚后不会被读取。
@@ -83,7 +83,7 @@ dispatcher 只依赖解析群、群忙闲判断、可见通知和消息入库等
 
 ### 优先级
 
-- P0：正确路由、Ready 幂等、失败重试、默认关闭、主循环错误隔离。
+- P0：负责人过滤、正确路由、Ready 幂等、失败重试、默认关闭、主循环错误隔离。
 - P1：重入 Ready、超长正文、Draft 链接、轮询重叠、优雅停止。
 - P2：极大项目的 CLI 输出体积与轮询耗时监控。
 

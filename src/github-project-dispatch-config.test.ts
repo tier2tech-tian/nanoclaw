@@ -7,6 +7,7 @@ describe('GitHub Project 自动派工配置', () => {
     expect(parseGitHubProjectAutoDispatchConfig({})).toEqual({
       enabled: false,
       owner: 'TierIITech',
+      assignee: 'tier2tech-tian',
       intervalMs: 60_000,
       limit: 1000,
       maxBodyLength: 8000,
@@ -22,6 +23,7 @@ describe('GitHub Project 自动派工配置', () => {
       parseGitHubProjectAutoDispatchConfig({
         GITHUB_PROJECT_AUTO_DISPATCH: 'true',
         GITHUB_PROJECT_OWNER: 'Acme',
+        GITHUB_PROJECT_ASSIGNEE: 'octocat',
         GITHUB_PROJECT_POLL_INTERVAL_MS: '120000',
         GITHUB_PROJECT_BUG_NUMBER: '16',
         GITHUB_PROJECT_BUG_TARGET: '修Bug',
@@ -31,6 +33,7 @@ describe('GitHub Project 自动派工配置', () => {
     ).toMatchObject({
       enabled: true,
       owner: 'Acme',
+      assignee: 'octocat',
       intervalMs: 120_000,
       routes: [
         { projectNumber: 16, taskType: 'Bug', targetAlias: '修Bug' },

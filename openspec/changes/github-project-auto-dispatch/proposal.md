@@ -4,12 +4,12 @@ GitHub Project 已成为需求和 Bug 的统一入口，但事项进入 Ready �
 
 ## What Changes
 
-- 定时读取 TierIITech GitHub Projects 中处于 Ready 的事项。
+- 定时读取 TierIITech GitHub Projects 中处于 Ready 且分配给指定 GitHub 账号的事项，默认账号为 `tier2tech-tian`。
 - 按项目类型路由：Bug 管理项目 #6 派给 C3，需求迭代项目 #7 派给 4号。
 - 将事项标题、正文、链接和项目上下文注入目标飞书群，触发既有 kickoff 工作流。
 - 持久化每个事项的最近状态，首次进入 Ready 时派工，保持 Ready 时不重复派，离开后再次进入 Ready 可重新派。
 - GitHub 查询或本地投递失败时记录结构化日志并在后续轮询重试，不阻塞 NanoClaw 主消息循环。
-- 通过显式配置启用功能和覆盖项目号、目标群别名、轮询周期；默认关闭。
+- 通过显式配置启用功能和覆盖负责人账号、项目号、目标群别名、轮询周期；默认关闭。
 
 ## Capabilities
 
