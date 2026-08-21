@@ -19,7 +19,7 @@
 
 ## 4. 评审与验证
 
-- [x] 4.1 运行 OpenSpec validate、变更文件格式检查、定向测试和全量测试（全量基线 1602/1604，2 个失败均为主干既有）
-- [ ] 4.2 完成代码 review、测试 review 与 Codex review 并修正问题
+- [x] 4.1 运行 OpenSpec validate、变更文件格式检查、定向测试和全量测试（全量 1609/1611，2 个失败均为主干既有）
+- [x] 4.2 完成代码 review、测试 review 与 Codex review 并修正问题
 - [ ] 4.3 在真实 Project 创建临时 Ready 事项完成 C3/4号真链路 E2E
 - [ ] 4.4 更新部署配置、提交代码并创建 PR，等待合并确认
