@@ -33,7 +33,64 @@ const envConfig = readEnvFile([
   'QDRANT_URL',
   'CHAT_INDEX_DEBOUNCE_MS',
   'NANOCLAW_PERSONAL_DIR',
+  'GITHUB_PROJECT_AUTO_DISPATCH',
+  'GITHUB_PROJECT_OWNER',
+  'GITHUB_PROJECT_POLL_INTERVAL_MS',
+  'GITHUB_PROJECT_BUG_NUMBER',
+  'GITHUB_PROJECT_BUG_TARGET',
+  'GITHUB_PROJECT_REQUIREMENT_NUMBER',
+  'GITHUB_PROJECT_REQUIREMENT_TARGET',
 ]);
+
+type GitHubProjectEnv = Record<string, string | undefined>;
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value || '', 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export function parseGitHubProjectAutoDispatchConfig(env: GitHubProjectEnv) {
+  return {
+    enabled: env.GITHUB_PROJECT_AUTO_DISPATCH === 'true',
+    owner: env.GITHUB_PROJECT_OWNER?.trim() || 'TierIITech',
+    intervalMs: Math.max(
+      10_000,
+      positiveInteger(env.GITHUB_PROJECT_POLL_INTERVAL_MS, 60_000),
+    ),
+    limit: 1000,
+    maxBodyLength: 8000,
+    routes: [
+      {
+        projectNumber: positiveInteger(env.GITHUB_PROJECT_BUG_NUMBER, 6),
+        taskType: 'Bug' as const,
+        targetAlias: env.GITHUB_PROJECT_BUG_TARGET?.trim() || 'C3',
+      },
+      {
+        projectNumber: positiveInteger(
+          env.GITHUB_PROJECT_REQUIREMENT_NUMBER,
+          7,
+        ),
+        taskType: '需求' as const,
+        targetAlias: env.GITHUB_PROJECT_REQUIREMENT_TARGET?.trim() || '4号',
+      },
+    ],
+  };
+}
+
+const githubProjectAutoDispatchEnv = Object.fromEntries(
+  [
+    'GITHUB_PROJECT_AUTO_DISPATCH',
+    'GITHUB_PROJECT_OWNER',
+    'GITHUB_PROJECT_POLL_INTERVAL_MS',
+    'GITHUB_PROJECT_BUG_NUMBER',
+    'GITHUB_PROJECT_BUG_TARGET',
+    'GITHUB_PROJECT_REQUIREMENT_NUMBER',
+    'GITHUB_PROJECT_REQUIREMENT_TARGET',
+  ].map((key) => [key, process.env[key] || envConfig[key]]),
+);
+
+export const GITHUB_PROJECT_AUTO_DISPATCH_CONFIG =
+  parseGitHubProjectAutoDispatchConfig(githubProjectAutoDispatchEnv);
 
 export const ASSISTANT_NAME =
   process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || 'Andy';
