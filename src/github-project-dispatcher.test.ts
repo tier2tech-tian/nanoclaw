@@ -7,6 +7,7 @@ import {
   createGroupQueueWake,
   createStoredMessageDelivery,
   decideDispatchAction,
+  nextDispatchMessageTimestamp,
   parseProjectItems,
   runGitHubProjectDispatchCycle,
   startGitHubProjectDispatcherIfEnabled,
@@ -17,6 +18,18 @@ import type {
 } from './github-project-dispatcher.js';
 
 describe('GitHub Project 自动派工纯逻辑', () => {
+  it('派工消息时间戳必须严格晚于目标群游标', () => {
+    expect(
+      nextDispatchMessageTimestamp('2026-08-21T12:00:00.000Z', 0),
+    ).toBe('2026-08-21T12:00:00.001Z');
+    expect(nextDispatchMessageTimestamp('', 1_777_777_777_777)).toBe(
+      new Date(1_777_777_777_777).toISOString(),
+    );
+    expect(nextDispatchMessageTimestamp('坏游标', 1_777_777_777_777)).toBe(
+      new Date(1_777_777_777_777).toISOString(),
+    );
+  });
+
   it('解析 Issue 与 Draft，并保留 Project Item ID', () => {
     const result = parseProjectItems(
       JSON.stringify({

@@ -52,6 +52,11 @@
 - **WHEN** 进程在消息落库后、派工状态标记 sent 前崩溃
 - **THEN** 下轮 SHALL 以同一代次和稳定 `ipc_` 消息 ID 重试，消息表 SHALL 保留首次内容与时间戳、目标群队列 SHALL 被再次显式唤醒且 Agent SHALL NOT 重复消费
 
+#### Scenario: 派工消息不会被读取游标跳过
+- **GIVEN** 目标群当前读取游标等于或晚于本机当前时间
+- **WHEN** 系统首次持久化派工消息
+- **THEN** 消息时间戳 SHALL 严格晚于目标群当前读取游标
+
 ### Requirement: 同一目标群逐事项派工
 
 同一目标群 SHALL 同时最多保留一个仍处于 Ready 的已派事项。目标群正在执行 Agent 回合时 SHALL NOT 接收新事项；前一事项离开 Ready 且目标群空闲或等待输入后，下一 Ready 事项 SHALL 自动重试。

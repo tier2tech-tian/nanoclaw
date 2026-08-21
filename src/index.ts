@@ -83,6 +83,7 @@ import {
   createGhProjectItemLoader,
   createGroupQueueWake,
   createStoredMessageDelivery,
+  nextDispatchMessageTimestamp,
   startGitHubProjectDispatcherIfEnabled,
 } from './github-project-dispatcher.js';
 import { GroupQueue } from './group-queue.js';
@@ -2665,6 +2666,8 @@ async function main(): Promise<void> {
         canDispatch: (jid) => queue.canAcceptNewTask(jid),
         deliver: createStoredMessageDelivery({
           storeIfAbsent: storeMessageDirectIfAbsent,
+          now: (jid) =>
+            nextDispatchMessageTimestamp(lastAgentTimestamp[jid] || ''),
           wake: createGroupQueueWake(queue),
           sendVisible: async (jid, message) => {
             const channel = findChannel(channels, jid);

@@ -440,6 +440,15 @@ export function createGroupQueueWake(queue: {
   };
 }
 
+export function nextDispatchMessageTimestamp(
+  currentCursor: string,
+  nowMs = Date.now(),
+): string {
+  const cursorMs = Date.parse(currentCursor);
+  const minimumMs = Number.isFinite(cursorMs) ? cursorMs + 1 : 0;
+  return new Date(Math.max(nowMs, minimumMs)).toISOString();
+}
+
 export function createStoredMessageDelivery(options: {
   storeIfAbsent: (message: {
     id: string;
@@ -453,7 +462,7 @@ export function createStoredMessageDelivery(options: {
   }) => boolean;
   sendVisible: (targetJid: string, message: string) => Promise<void>;
   wake: (targetJid: string) => Promise<void>;
-  now?: () => string;
+  now?: (targetJid: string) => string;
   onVisibleError?: (
     error: Error,
     context: { targetJid: string; messageId: string },
@@ -467,7 +476,7 @@ export function createStoredMessageDelivery(options: {
       sender: 'github-project',
       sender_name: 'GitHub Project',
       content: message,
-      timestamp: now(),
+      timestamp: now(targetJid),
       is_from_me: false,
       is_bot_message: false,
     });

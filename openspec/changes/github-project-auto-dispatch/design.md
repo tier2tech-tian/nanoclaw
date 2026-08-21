@@ -44,7 +44,7 @@ NanoClaw 运行在本机，没有 GitHub 可访问的公网 HTTP 入口；现有
 
 dispatcher 只依赖解析群、群忙闲判断、可见通知和消息入库等注入函数。启动层提供真实依赖，测试使用内存替身。
 
-任务先通过专用 `storeMessageDirectIfAbsent()` 以 `INSERT OR IGNORE` 写入 messages，再显式唤醒目标群队列，最后尝试发送可见通知；可见通知失败只告警、不回滚任务。重试相同代次时稳定 ID 不会覆盖首次时间戳，但仍再次唤醒队列，以覆盖“已入库但唤醒前崩溃”的窗口。
+任务先通过专用 `storeMessageDirectIfAbsent()` 以 `INSERT OR IGNORE` 写入 messages，再显式唤醒目标群队列，最后尝试发送可见通知；首次写入时间戳保证严格晚于目标群当前读取游标，避免同毫秒碰撞或本机时钟回退导致消息已入库却不可见。可见通知失败只告警、不回滚任务；重试相同代次时稳定 ID 不会覆盖首次时间戳，但仍再次唤醒队列，以覆盖“已入库但唤醒前崩溃”的窗口。
 
 同一轮每个目标 JID 最多派一项；持续 Ready 且已 sent 的事项会继续占用该目标路由，直到 Project 状态离开 Ready。除此之外还通过 `GroupQueue.canAcceptNewTask()` 拒绝正在执行回合或定时任务容器的群，只允许非活跃群或 idle-waiting（完成当前回合、等待输入）的群接下一项。
 
