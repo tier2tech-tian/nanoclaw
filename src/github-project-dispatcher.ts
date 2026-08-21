@@ -355,21 +355,36 @@ export function createGhProjectItemLoader(options: {
 }): (projectNumber: number) => Promise<GitHubProjectItem[]> {
   const execute = options.execute ?? executeFile;
   return async (projectNumber: number) => {
-    const { stdout } = await execute(
-      'gh',
-      [
-        'project',
-        'item-list',
-        String(projectNumber),
-        '--owner',
-        options.owner,
-        '--format',
-        'json',
-        '--limit',
-        String(options.limit),
-      ],
-      { timeout: 30_000, maxBuffer: 10 * 1024 * 1024 },
-    );
+    const fetchWithLimit = async (limit: number) =>
+      execute(
+        'gh',
+        [
+          'project',
+          'item-list',
+          String(projectNumber),
+          '--owner',
+          options.owner,
+          '--format',
+          'json',
+          '--limit',
+          String(limit),
+        ],
+        { timeout: 30_000, maxBuffer: 10 * 1024 * 1024 },
+      );
+
+    let { stdout } = await fetchWithLimit(options.limit);
+    const firstPage = JSON.parse(stdout) as {
+      totalCount?: unknown;
+      items?: unknown;
+    };
+    if (
+      Number.isSafeInteger(firstPage.totalCount) &&
+      (firstPage.totalCount as number) > 0 &&
+      Array.isArray(firstPage.items) &&
+      (firstPage.totalCount as number) > firstPage.items.length
+    ) {
+      ({ stdout } = await fetchWithLimit(firstPage.totalCount as number));
+    }
     return parseProjectItems(
       stdout,
       projectNumber,

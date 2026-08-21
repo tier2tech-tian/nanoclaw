@@ -13,6 +13,7 @@ import {
   startGitHubProjectDispatcherIfEnabled,
 } from './github-project-dispatcher.js';
 import type {
+  CommandExecutor,
   GitHubProjectItem,
   SavedGitHubProjectDispatchState,
 } from './github-project-dispatcher.js';
@@ -238,6 +239,39 @@ describe('GitHub Project CLI 读取', () => {
         '1000',
       ],
       expect.objectContaining({ timeout: 30_000, maxBuffer: 10 * 1024 * 1024 }),
+    );
+  });
+
+  it('项目超过首轮上限时按真实总数补拉完整事项', async () => {
+    const execute = vi
+      .fn<CommandExecutor>()
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          totalCount: 2,
+          items: [{ id: 'item-1', status: 'Ready', title: '第一项' }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          totalCount: 2,
+          items: [
+            { id: 'item-1', status: 'Ready', title: '第一项' },
+            { id: 'item-2', status: 'Ready', title: '第二项' },
+          ],
+        }),
+      });
+    const load = createGhProjectItemLoader({
+      owner: 'TierIITech',
+      limit: 1,
+      execute,
+    });
+
+    await expect(load(6)).resolves.toHaveLength(2);
+    expect(execute).toHaveBeenNthCalledWith(
+      2,
+      'gh',
+      expect.arrayContaining(['--limit', '2']),
+      expect.any(Object),
     );
   });
 });
