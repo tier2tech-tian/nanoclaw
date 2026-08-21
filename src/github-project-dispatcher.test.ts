@@ -727,6 +727,40 @@ describe('GitHub Project 自动派工单轮执行', () => {
     expect(deliveries[0].messageId).toBe('ipc_github_project_6_bug-1_1');
   });
 
+  it('pending 事项在 Backlog 先重新分配，回 Ready 后仍用原消息 ID', async () => {
+    const { deps, deliveries, states } = createHarness();
+    states.set('6:bug-1', {
+      projectNumber: 6,
+      itemId: 'bug-1',
+      lastStatus: 'Ready',
+      readyGeneration: 1,
+      dispatchStatus: 'pending',
+      targetJid: 'fs:oc_c3',
+    });
+    let currentItem = {
+      ...bugItem,
+      status: 'Backlog',
+      assignees: ['brookgao'],
+    };
+    deps.listProjectItems = async () => [currentItem];
+    const assignedConfig = {
+      ...config,
+      assignee: 'tier2tech-tian',
+      routes: [config.routes[0]],
+    };
+
+    await runGitHubProjectDispatchCycle(assignedConfig, deps);
+    currentItem = { ...currentItem, assignees: ['tier2tech-tian'] };
+    await runGitHubProjectDispatchCycle(assignedConfig, deps);
+    expect(states.get('6:bug-1')?.dispatchStatus).toBe('pending');
+
+    currentItem = { ...currentItem, status: 'Ready' };
+    await runGitHubProjectDispatchCycle(assignedConfig, deps);
+
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].messageId).toBe('ipc_github_project_6_bug-1_1');
+  });
+
   it('一个项目查询失败不阻断另一个项目', async () => {
     const { deps, deliveries } = createHarness();
     deps.listProjectItems = async (projectNumber: number) => {

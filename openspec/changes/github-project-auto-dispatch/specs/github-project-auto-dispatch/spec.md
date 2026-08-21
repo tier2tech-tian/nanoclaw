@@ -36,7 +36,7 @@
 
 #### Scenario: 未完成投递取消分配后保持原代次
 - **GIVEN** 事项处于 pending 或 failed，尚未确认投递成功
-- **WHEN** 事项取消本人分配后又重新分配给本人
+- **WHEN** 事项取消本人分配后又重新分配给本人，期间或之后曾处于非 Ready
 - **THEN** 系统 SHALL 使用原 Ready 代次和稳定消息 ID 重试，SHALL NOT 创建第二条任务消息
 
 ### Requirement: 派工消息提供可执行上下文

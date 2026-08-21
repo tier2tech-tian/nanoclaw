@@ -144,7 +144,7 @@ export function decideDispatchAction(
   }
   if (!previous || previous.lastStatus !== 'Ready') {
     if (
-      previous?.lastStatus.startsWith('ineligible:') &&
+      previous &&
       (previous.dispatchStatus === 'pending' ||
         previous.dispatchStatus === 'failed')
     ) {
@@ -281,7 +281,10 @@ export async function runGitHubProjectDispatchCycle(
           dispatchStatus:
             item.status === 'Ready'
               ? (previous?.dispatchStatus ?? 'observed')
-              : 'observed',
+              : previous?.dispatchStatus === 'pending' ||
+                  previous?.dispatchStatus === 'failed'
+                ? previous.dispatchStatus
+                : 'observed',
           targetJid: previous?.targetJid ?? null,
           lastError: null,
           dispatchedAt: previous?.dispatchedAt ?? null,

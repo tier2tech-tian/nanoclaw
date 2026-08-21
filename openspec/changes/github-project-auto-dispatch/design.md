@@ -30,7 +30,7 @@ NanoClaw 运行在本机，没有 GitHub 可访问的公网 HTTP 入口；现有
 
 ### 2. 项目号决定类型，群别名决定目标
 
-配置包含 owner、负责人 GitHub login、Bug/需求项目号、Bug/需求目标别名和轮询周期；默认 `TierIITech`、`tier2tech-tian`、`6/C3`、`7/4号`。负责人配置为空时整轮 fail-closed。每轮先按 Project 顶层 `assignees` 字段进行大小写不敏感的精确过滤：从未派过的非本人事项完全忽略；已有状态的事项在取消本人分配后继续写入 `ineligible:<status>`，但不派工、不占目标群。已 sent 的事项重新分配给本人时生成新代次；尚未确认成功的 pending/failed 保留原状态与代次，重新分配后以稳定消息 ID 重试，避免重复任务。随后通过 `getGroupAlias()` 解析当前别名，并校验 JID 存在于 `registeredGroups`，因此群迁移只需改别名，不改代码。
+配置包含 owner、负责人 GitHub login、Bug/需求项目号、Bug/需求目标别名和轮询周期；默认 `TierIITech`、`tier2tech-tian`、`6/C3`、`7/4号`。负责人配置为空时整轮 fail-closed。每轮先按 Project 顶层 `assignees` 字段进行大小写不敏感的精确过滤：从未派过的非本人事项完全忽略；已有状态的事项在取消本人分配后继续写入 `ineligible:<status>`，但不派工、不占目标群。已 sent 的事项重新分配给本人时生成新代次；尚未确认成功的 pending/failed 会跨负责人变化和非 Ready 状态保留原状态与代次，重新进入 Ready 后以稳定消息 ID 重试，避免重复任务。随后通过 `getGroupAlias()` 解析当前别名，并校验 JID 存在于 `registeredGroups`，因此群迁移只需改别名，不改代码。
 
 不使用 Issue label 或标题分类，因为 Project 已经完成类型分流，二次猜测只会制造冲突。
 
