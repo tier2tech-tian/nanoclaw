@@ -761,6 +761,47 @@ describe('GitHub Project 自动派工单轮执行', () => {
     expect(deliveries[0].messageId).toBe('ipc_github_project_6_bug-1_1');
   });
 
+  it('同群 sent 事项优先占槽，pending 恢复不能因返回顺序覆盖它', async () => {
+    for (const pendingFirst of [true, false]) {
+      const { deps, deliveries, states } = createHarness();
+      const active = { ...bugItem, itemId: 'active-sent' };
+      const recovering = { ...bugItem, itemId: 'recovering-pending' };
+      states.set('6:active-sent', {
+        projectNumber: 6,
+        itemId: 'active-sent',
+        lastStatus: 'Ready',
+        readyGeneration: 1,
+        dispatchStatus: 'sent',
+        targetJid: 'fs:oc_c3',
+      });
+      states.set('6:recovering-pending', {
+        projectNumber: 6,
+        itemId: 'recovering-pending',
+        lastStatus: 'Ready',
+        readyGeneration: 1,
+        dispatchStatus: 'pending',
+        targetJid: 'fs:oc_c3',
+      });
+      deps.listProjectItems = async () =>
+        pendingFirst ? [recovering, active] : [active, recovering];
+
+      await runGitHubProjectDispatchCycle(
+        {
+          ...config,
+          assignee: 'tier2tech-tian',
+          routes: [config.routes[0]],
+        },
+        deps,
+      );
+
+      expect(deliveries).toHaveLength(0);
+      expect(states.get('6:active-sent')?.dispatchStatus).toBe('sent');
+      expect(states.get('6:recovering-pending')?.dispatchStatus).toBe(
+        'failed',
+      );
+    }
+  });
+
   it('一个项目查询失败不阻断另一个项目', async () => {
     const { deps, deliveries } = createHarness();
     deps.listProjectItems = async (projectNumber: number) => {

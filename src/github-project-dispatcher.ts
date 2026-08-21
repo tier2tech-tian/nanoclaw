@@ -234,24 +234,22 @@ export async function runGitHubProjectDispatchCycle(
       });
     }
 
-    // Claim targets from already-dispatched Ready items before processing new
-    // items, so GitHub's item ordering cannot let a later task jump the queue.
-    for (const item of eligibleItems) {
-      if (item.status !== 'Ready') continue;
-      const previous = deps.getState(item.projectNumber, item.itemId);
-      if (
-        previous?.dispatchStatus !== 'sent' &&
-        previous?.dispatchStatus !== 'pending'
-      ) {
-        continue;
-      }
-      const activeTarget =
-        previous.targetJid ?? deps.resolveAlias(route.targetAlias);
-      if (activeTarget) {
-        claimedTargets.set(
-          activeTarget,
-          `${item.projectNumber}:${item.itemId}`,
-        );
+    // Claim active sent work before unfinished pending work. Claims are
+    // first-writer-wins so GitHub item ordering cannot let a later record
+    // overwrite the task that already owns this group.
+    for (const dispatchStatus of ['sent', 'pending'] as const) {
+      for (const item of eligibleItems) {
+        if (item.status !== 'Ready') continue;
+        const previous = deps.getState(item.projectNumber, item.itemId);
+        if (previous?.dispatchStatus !== dispatchStatus) continue;
+        const activeTarget =
+          previous.targetJid ?? deps.resolveAlias(route.targetAlias);
+        if (activeTarget && !claimedTargets.has(activeTarget)) {
+          claimedTargets.set(
+            activeTarget,
+            `${item.projectNumber}:${item.itemId}`,
+          );
+        }
       }
     }
 
@@ -269,7 +267,7 @@ export async function runGitHubProjectDispatchCycle(
         if (item.status === 'Ready' && previous?.dispatchStatus === 'sent') {
           const activeTarget =
             previous.targetJid ?? deps.resolveAlias(route.targetAlias);
-          if (activeTarget) {
+          if (activeTarget && !claimedTargets.has(activeTarget)) {
             claimedTargets.set(
               activeTarget,
               `${item.projectNumber}:${item.itemId}`,
