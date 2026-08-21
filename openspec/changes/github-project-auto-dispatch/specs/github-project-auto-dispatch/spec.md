@@ -24,6 +24,21 @@
 - **WHEN** Ready 事项负责人包含与配置账号仅大小写不同的 GitHub login
 - **THEN** 系统 SHALL 仍识别为同一账号并正常派工
 
+#### Scenario: 负责人配置缺失时安全关闭
+- **WHEN** 启用自动派工但负责人账号为空
+- **THEN** 系统 SHALL 拒绝本轮派工并记录错误，SHALL NOT 退化为处理全部事项
+
+#### Scenario: 取消分配期间仍跟踪旧事项
+- **GIVEN** 事项曾分配给配置账号且已确认 sent
+- **WHEN** 负责人被移除或改为其他账号，且事项状态继续变化
+- **THEN** 系统 SHALL 更新该事项的非本人观察状态，但 SHALL NOT 派工或占用目标群槽位
+- **AND** 事项随后重新分配给配置账号并处于 Ready 时 SHALL 生成新的 Ready 代次
+
+#### Scenario: 未完成投递取消分配后保持原代次
+- **GIVEN** 事项处于 pending 或 failed，尚未确认投递成功
+- **WHEN** 事项取消本人分配后又重新分配给本人
+- **THEN** 系统 SHALL 使用原 Ready 代次和稳定消息 ID 重试，SHALL NOT 创建第二条任务消息
+
 ### Requirement: 派工消息提供可执行上下文
 
 系统 SHALL 在派工消息中包含事项类型、标题、正文摘要、GitHub 链接和明确的 kickoff 指令，使目标群可以直接进入既有任务工作流。正文 SHALL 设置长度上限，防止超长 Issue 挤占会话上下文。

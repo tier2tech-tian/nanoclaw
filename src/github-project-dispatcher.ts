@@ -31,7 +31,7 @@ export interface GitHubProjectDispatchConfig {
   routes: GitHubProjectRoute[];
   maxBodyLength: number;
   intervalMs?: number;
-  assignee?: string;
+  assignee: string;
 }
 
 export type CommandExecutor = (
@@ -143,6 +143,13 @@ export function decideDispatchAction(
     return { action: 'observe', generation };
   }
   if (!previous || previous.lastStatus !== 'Ready') {
+    if (
+      previous?.lastStatus.startsWith('ineligible:') &&
+      (previous.dispatchStatus === 'pending' ||
+        previous.dispatchStatus === 'failed')
+    ) {
+      return { action: 'retry', generation };
+    }
     return { action: 'dispatch', generation: generation + 1 };
   }
   if (
@@ -189,7 +196,10 @@ export async function runGitHubProjectDispatchCycle(
   deps: GitHubProjectDispatchDependencies,
 ): Promise<void> {
   const claimedTargets = new Map<string, string>();
-  const configuredAssignee = config.assignee?.toLowerCase();
+  const configuredAssignee = config.assignee?.trim().toLowerCase();
+  if (!configuredAssignee) {
+    throw new Error('GitHub Project 自动派工负责人账号不能为空');
+  }
 
   for (const route of config.routes) {
     let items: GitHubProjectItem[];
@@ -201,13 +211,28 @@ export async function runGitHubProjectDispatchCycle(
       deps.onError?.(toError(error), { projectNumber: route.projectNumber });
       continue;
     }
-    const eligibleItems = configuredAssignee
-      ? items.filter((item) =>
-          item.assignees?.some(
-            (assignee) => assignee.toLowerCase() === configuredAssignee,
-          ),
-        )
-      : items;
+    const eligibleItems = items.filter((item) =>
+      item.assignees?.some(
+        (assignee) => assignee.toLowerCase() === configuredAssignee,
+      ),
+    );
+    const eligibleIds = new Set(eligibleItems.map((item) => item.itemId));
+    for (const item of items) {
+      if (eligibleIds.has(item.itemId)) continue;
+      const previous = deps.getState(item.projectNumber, item.itemId);
+      if (!previous) continue;
+      deps.saveState({
+        ...previous,
+        lastStatus: `ineligible:${item.status}`,
+        dispatchStatus:
+          previous.dispatchStatus === 'pending' ||
+          previous.dispatchStatus === 'failed'
+            ? previous.dispatchStatus
+            : 'observed',
+        targetJid: null,
+        lastError: null,
+      });
+    }
 
     // Claim targets from already-dispatched Ready items before processing new
     // items, so GitHub's item ordering cannot let a later task jump the queue.

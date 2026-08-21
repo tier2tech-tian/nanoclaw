@@ -297,6 +297,7 @@ describe('GitHub Project dispatcher 生命周期', () => {
       {
         routes: [{ projectNumber: 6, taskType: 'Bug', targetAlias: 'C3' }],
         maxBodyLength: 8000,
+        assignee: 'tier2tech-tian',
         intervalMs: 1000,
       },
       {
@@ -340,12 +341,14 @@ describe('GitHub Project dispatcher 生命周期', () => {
         title: '已完成事项',
         body: '',
         url: 'https://github.com/orgs/TierIITech/projects/6',
+        assignees: ['tier2tech-tian'],
       },
     ]);
     const lifecycle = createGitHubProjectDispatcher(
       {
         routes: [{ projectNumber: 6, taskType: 'Bug', targetAlias: 'C3' }],
         maxBodyLength: 8000,
+        assignee: 'tier2tech-tian',
       },
       {
         listProjectItems,
@@ -505,6 +508,7 @@ describe('GitHub Project 消息投递', () => {
           title: '恢复验证',
           body: '',
           url: 'https://github.com/orgs/TierIITech/projects/6',
+          assignees: ['tier2tech-tian'],
         },
       ],
       getState: (projectNumber: number, itemId: string) =>
@@ -521,6 +525,7 @@ describe('GitHub Project 消息投递', () => {
         { projectNumber: 6, taskType: 'Bug' as const, targetAlias: 'C3' },
       ],
       maxBodyLength: 8000,
+      assignee: 'tier2tech-tian',
     };
 
     await runGitHubProjectDispatchCycle(config, deps);
@@ -548,6 +553,7 @@ describe('GitHub Project 自动派工单轮执行', () => {
     title: '登录失败',
     body: '复现步骤',
     url: 'https://github.com/acme/app/issues/1',
+    assignees: ['tier2tech-tian'],
   };
   const requirementItem = {
     projectNumber: 7,
@@ -556,6 +562,7 @@ describe('GitHub Project 自动派工单轮执行', () => {
     title: '新增报表',
     body: '验收标准',
     url: 'https://github.com/acme/app/issues/2',
+    assignees: ['tier2tech-tian'],
   };
 
   function createHarness(options?: { failFirstDelivery?: boolean }) {
@@ -599,6 +606,7 @@ describe('GitHub Project 自动派工单轮执行', () => {
       { projectNumber: 7, taskType: '需求' as const, targetAlias: '4号' },
     ],
     maxBodyLength: 8000,
+    assignee: 'tier2tech-tian',
   };
 
   it('把 #6 派给 C3、#7 派给 4号', async () => {
@@ -642,6 +650,81 @@ describe('GitHub Project 自动派工单轮执行', () => {
     expect(deliveries[0].messageId).toContain('my-task');
     expect(states.has('6:other-user')).toBe(false);
     expect(states.has('6:unassigned')).toBe(false);
+  });
+
+  it('取消本人分配期间仍观察状态，重新分配后生成新代次', async () => {
+    const { deps, deliveries, states } = createHarness();
+    states.set('6:bug-1', {
+      projectNumber: 6,
+      itemId: 'bug-1',
+      lastStatus: 'Ready',
+      readyGeneration: 1,
+      dispatchStatus: 'sent',
+      targetJid: 'fs:oc_c3',
+    });
+    let currentItem = {
+      ...bugItem,
+      status: 'Backlog',
+      assignees: ['brookgao'],
+    };
+    deps.listProjectItems = async () => [currentItem];
+    const assignedConfig = {
+      ...config,
+      assignee: 'tier2tech-tian',
+      routes: [config.routes[0]],
+    };
+
+    await runGitHubProjectDispatchCycle(assignedConfig, deps);
+    currentItem = { ...currentItem, status: 'Ready' };
+    await runGitHubProjectDispatchCycle(assignedConfig, deps);
+    expect(deliveries).toHaveLength(0);
+
+    currentItem = { ...currentItem, assignees: ['tier2tech-tian'] };
+    await runGitHubProjectDispatchCycle(assignedConfig, deps);
+
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].messageId).toBe('ipc_github_project_6_bug-1_2');
+  });
+
+  it('负责人配置为空时关闭派工而不是放行全部事项', async () => {
+    const { deps, deliveries } = createHarness();
+
+    await expect(
+      runGitHubProjectDispatchCycle({ ...config, assignee: '' }, deps),
+    ).rejects.toThrow('负责人账号不能为空');
+    expect(deliveries).toHaveLength(0);
+  });
+
+  it('pending 事项取消后重新分配仍用原代次和稳定消息 ID', async () => {
+    const { deps, deliveries, states } = createHarness();
+    states.set('6:bug-1', {
+      projectNumber: 6,
+      itemId: 'bug-1',
+      lastStatus: 'Ready',
+      readyGeneration: 1,
+      dispatchStatus: 'pending',
+      targetJid: 'fs:oc_c3',
+    });
+    let currentItem = { ...bugItem, assignees: ['brookgao'] };
+    deps.listProjectItems = async () => [currentItem];
+    const assignedConfig = {
+      ...config,
+      assignee: 'tier2tech-tian',
+      routes: [config.routes[0]],
+    };
+
+    await runGitHubProjectDispatchCycle(assignedConfig, deps);
+    expect(states.get('6:bug-1')).toMatchObject({
+      lastStatus: 'ineligible:Ready',
+      readyGeneration: 1,
+      dispatchStatus: 'pending',
+    });
+
+    currentItem = { ...currentItem, assignees: ['tier2tech-tian'] };
+    await runGitHubProjectDispatchCycle(assignedConfig, deps);
+
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].messageId).toBe('ipc_github_project_6_bug-1_1');
   });
 
   it('一个项目查询失败不阻断另一个项目', async () => {
@@ -830,6 +913,7 @@ describe('GitHub Project 启动与队列接线', () => {
         { projectNumber: 6, taskType: 'Bug' as const, targetAlias: 'C3' },
       ],
       maxBodyLength: 8000,
+      assignee: 'tier2tech-tian',
     };
 
     expect(
