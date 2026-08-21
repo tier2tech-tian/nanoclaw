@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import type { ChildProcess } from 'child_process';
 
 import { GroupQueue } from './group-queue.js';
 
@@ -60,6 +61,33 @@ describe('GroupQueue', () => {
 
     // Second enqueue should have been queued, not concurrent
     expect(maxConcurrent).toBe(1);
+  });
+
+  it('只在群空闲或 Agent 等待输入时接受新的独立任务', async () => {
+    expect(queue.canAcceptNewTask('group1@g.us')).toBe(true);
+
+    let resolveWork!: () => void;
+    queue.setProcessMessagesFn(
+      async () =>
+        new Promise<boolean>((resolve) => {
+          resolveWork = () => resolve(true);
+        }),
+    );
+    queue.enqueueMessageCheck('group1@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+    queue.registerProcess(
+      'group1@g.us',
+      { pid: undefined } as ChildProcess,
+      'container-1',
+      'test-group',
+    );
+
+    expect(queue.canAcceptNewTask('group1@g.us')).toBe(false);
+    queue.notifyIdle('group1@g.us');
+    expect(queue.canAcceptNewTask('group1@g.us')).toBe(true);
+
+    resolveWork();
+    await vi.advanceTimersByTimeAsync(10);
   });
 
   // --- Global concurrency limit ---

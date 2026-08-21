@@ -183,6 +183,21 @@ function createSchema(database: Database.Database): void {
       ON delegation_tasks(target_group)
       WHERE status IN ('dispatched', 'progress', 'blocked', 'question');
 
+    CREATE TABLE IF NOT EXISTS github_project_dispatch_state (
+      project_number   INTEGER NOT NULL,
+      item_id          TEXT NOT NULL,
+      last_status      TEXT NOT NULL,
+      ready_generation INTEGER NOT NULL DEFAULT 0,
+      dispatch_status  TEXT NOT NULL,
+      target_jid       TEXT,
+      last_error       TEXT,
+      dispatched_at    TEXT,
+      updated_at       TEXT NOT NULL,
+      PRIMARY KEY (project_number, item_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_github_project_dispatch_status
+      ON github_project_dispatch_state(dispatch_status);
+
     CREATE TABLE IF NOT EXISTS task_ledger_tasks (
       id                  TEXT PRIMARY KEY,
       title               TEXT NOT NULL,
@@ -592,6 +607,98 @@ export function deleteGroupAlias(alias: string): boolean {
   return result.changes > 0;
 }
 
+export interface GitHubProjectDispatchRecord {
+  projectNumber: number;
+  itemId: string;
+  lastStatus: string;
+  readyGeneration: number;
+  dispatchStatus: 'pending' | 'sent' | 'failed' | 'observed';
+  targetJid: string | null;
+  lastError: string | null;
+  dispatchedAt: string | null;
+  updatedAt: string;
+}
+
+interface GitHubProjectDispatchRow {
+  project_number: number;
+  item_id: string;
+  last_status: string;
+  ready_generation: number;
+  dispatch_status: GitHubProjectDispatchRecord['dispatchStatus'];
+  target_jid: string | null;
+  last_error: string | null;
+  dispatched_at: string | null;
+  updated_at: string;
+}
+
+function mapGitHubProjectDispatchRow(
+  row: GitHubProjectDispatchRow,
+): GitHubProjectDispatchRecord {
+  return {
+    projectNumber: row.project_number,
+    itemId: row.item_id,
+    lastStatus: row.last_status,
+    readyGeneration: row.ready_generation,
+    dispatchStatus: row.dispatch_status,
+    targetJid: row.target_jid,
+    lastError: row.last_error,
+    dispatchedAt: row.dispatched_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function getGitHubProjectDispatchState(
+  projectNumber: number,
+  itemId: string,
+): GitHubProjectDispatchRecord | undefined {
+  const row = db
+    .prepare(
+      `SELECT project_number, item_id, last_status, ready_generation,
+              dispatch_status, target_jid, last_error, dispatched_at, updated_at
+       FROM github_project_dispatch_state
+       WHERE project_number = ? AND item_id = ?`,
+    )
+    .get(projectNumber, itemId) as GitHubProjectDispatchRow | undefined;
+  return row ? mapGitHubProjectDispatchRow(row) : undefined;
+}
+
+export function upsertGitHubProjectDispatchState(input: {
+  projectNumber: number;
+  itemId: string;
+  lastStatus: string;
+  readyGeneration: number;
+  dispatchStatus: GitHubProjectDispatchRecord['dispatchStatus'];
+  targetJid: string | null;
+  lastError?: string | null;
+  dispatchedAt?: string | null;
+}): void {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO github_project_dispatch_state (
+       project_number, item_id, last_status, ready_generation,
+       dispatch_status, target_jid, last_error, dispatched_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(project_number, item_id) DO UPDATE SET
+       last_status = excluded.last_status,
+       ready_generation = excluded.ready_generation,
+       dispatch_status = excluded.dispatch_status,
+       target_jid = excluded.target_jid,
+       last_error = excluded.last_error,
+       dispatched_at = COALESCE(excluded.dispatched_at, dispatched_at),
+       updated_at = excluded.updated_at`,
+  ).run(
+    input.projectNumber,
+    input.itemId,
+    input.lastStatus,
+    input.readyGeneration,
+    input.dispatchStatus,
+    input.targetJid,
+    input.lastError ?? null,
+    input.dispatchedAt ?? null,
+    now,
+  );
+}
+
 /**
  * Get timestamp of last group metadata sync.
  */
@@ -706,6 +813,37 @@ export function storeMessageDirect(msg: {
   );
 }
 
+/**
+ * Store a synthetic inbound message exactly once.
+ * Unlike storeMessageDirect, retries never replace the original timestamp.
+ */
+export function storeMessageDirectIfAbsent(msg: {
+  id: string;
+  chat_jid: string;
+  sender: string;
+  sender_name: string;
+  content: string;
+  timestamp: string;
+  is_from_me: boolean;
+  is_bot_message?: boolean;
+}): boolean {
+  const result = db
+    .prepare(
+      `INSERT OR IGNORE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      msg.id,
+      msg.chat_jid,
+      msg.sender,
+      msg.sender_name,
+      msg.content,
+      msg.timestamp,
+      msg.is_from_me ? 1 : 0,
+      msg.is_bot_message ? 1 : 0,
+    );
+  return result.changes > 0;
+}
+
 export function getNewMessages(
   jids: string[],
   lastTimestamp: string,
@@ -726,6 +864,7 @@ export function getNewMessages(
       FROM messages
       WHERE timestamp > ? AND chat_jid IN (${placeholders})
         AND is_bot_message = 0 AND content NOT LIKE ?
+        AND COALESCE(sender, '') != 'github-project'
         AND content != '' AND content IS NOT NULL
       ORDER BY timestamp DESC
       LIMIT ?

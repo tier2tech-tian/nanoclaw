@@ -175,6 +175,17 @@ export class GroupQueue {
   }
 
   /**
+   * Whether a new independent task may enter this group's conversation.
+   * Processing containers must finish first; an idle-waiting conversation can
+   * safely accept the next task through its normal message IPC path.
+   */
+  canAcceptNewTask(groupJid: string): boolean {
+    const state = this.groups.get(groupJid);
+    if (!state?.active) return true;
+    return state.idleWaiting && !state.isTaskContainer;
+  }
+
+  /**
    * 杀掉指定 group 的活跃容器进程。
    * 用于 /account 切换账号时立即终止旧容器，让新消息用新 key 起新容器。
    * 进程退出后 runForGroup 的 finally 块会自动 drain 后续消息。

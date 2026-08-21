@@ -20,6 +20,7 @@ import {
   CHAT_INDEX_ENABLED,
   DATA_DIR,
   DEFAULT_TRIGGER,
+  GITHUB_PROJECT_AUTO_DISPATCH_CONFIG,
   getTriggerPattern,
   GROUPS_DIR,
   IDLE_TIMEOUT,
@@ -57,6 +58,8 @@ import {
   getAllRegisteredGroups,
   getAllSessions,
   getChatName,
+  getGitHubProjectDispatchState,
+  getGroupAlias,
   deleteSession,
   getAllTasks,
   getLastBotMessageTimestamp,
@@ -73,7 +76,16 @@ import {
   getActiveDelegationByGroup,
   hasIpcTriggerForTask,
   storeMessageDirect,
+  storeMessageDirectIfAbsent,
+  upsertGitHubProjectDispatchState,
 } from './db.js';
+import {
+  createGhProjectItemLoader,
+  createGroupQueueWake,
+  createStoredMessageDelivery,
+  nextDispatchMessageTimestamp,
+  startGitHubProjectDispatcherIfEnabled,
+} from './github-project-dispatcher.js';
 import { GroupQueue } from './group-queue.js';
 import { isValidGroupFolder, resolveGroupFolderPath } from './group-folder.js';
 import { formatMessagesForAgent } from './multimodal-input.js';
@@ -2354,6 +2366,10 @@ async function main(): Promise<void> {
     getMemoryQueue();
   }
 
+  let githubProjectDispatcher: ReturnType<
+    typeof startGitHubProjectDispatcherIfEnabled
+  > | null = null;
+
   // 初始化聊天记录索引（如启用）
   if (CHAT_INDEX_ENABLED) {
     getChatIndex()
@@ -2366,6 +2382,7 @@ async function main(): Promise<void> {
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
+    githubProjectDispatcher?.stop();
     // 先杀所有 agent 子进程（5 秒宽限期）
     await queue.shutdown(5000);
     // flush 聊天索引
@@ -2628,6 +2645,67 @@ async function main(): Promise<void> {
     );
   });
   recoverPendingMessages();
+  {
+    const config = GITHUB_PROJECT_AUTO_DISPATCH_CONFIG;
+    githubProjectDispatcher = startGitHubProjectDispatcherIfEnabled(
+      config.enabled,
+      {
+        routes: config.routes,
+        maxBodyLength: config.maxBodyLength,
+        intervalMs: config.intervalMs,
+        assignee: config.assignee,
+      },
+      {
+        listProjectItems: createGhProjectItemLoader({
+          owner: config.owner,
+          limit: config.limit,
+        }),
+        getState: getGitHubProjectDispatchState,
+        saveState: upsertGitHubProjectDispatchState,
+        resolveAlias: getGroupAlias,
+        isRegistered: (jid) => Boolean(registeredGroups[jid]),
+        canDispatch: (jid) => queue.canAcceptNewTask(jid),
+        deliver: createStoredMessageDelivery({
+          storeIfAbsent: storeMessageDirectIfAbsent,
+          now: (jid) => {
+            // 先固化读取基线，避免新群随后从更晚的可见通知恢复 cursor，
+            // 从而永久跳过已经持久化、但仍在队列等待的派工任务。
+            let cursor = getOrRecoverCursor(jid);
+            if (!cursor) {
+              cursor = new Date(0).toISOString();
+              advanceAgentCursor(jid, cursor);
+            }
+            return nextDispatchMessageTimestamp(cursor);
+          },
+          wake: createGroupQueueWake(queue),
+          sendVisible: async (jid, message) => {
+            const channel = findChannel(channels, jid);
+            if (!channel) throw new Error(`No channel for JID: ${jid}`);
+            await channel.sendMessage(jid, formatOutbound(message));
+          },
+          onVisibleError: (err, context) =>
+            logger.warn(
+              { err, ...context },
+              'GitHub Project 派工已入库，但可见通知发送失败',
+            ),
+        }),
+        onError: (err, context) =>
+          logger.error({ err, ...context }, 'GitHub Project 自动派工轮询失败'),
+        onBlocked: (context) =>
+          logger.debug(context, 'GitHub Project 目标群忙，事项等待重试'),
+      },
+    );
+    if (githubProjectDispatcher) {
+      logger.info(
+        {
+          owner: config.owner,
+          intervalMs: config.intervalMs,
+          routes: config.routes,
+        },
+        'GitHub Project 自动派工已启动',
+      );
+    }
+  }
   startMessageLoop().catch((err) => {
     logger.fatal({ err }, 'Message loop crashed unexpectedly');
     process.exit(1);
