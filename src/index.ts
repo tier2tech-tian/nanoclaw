@@ -2666,8 +2666,16 @@ async function main(): Promise<void> {
         canDispatch: (jid) => queue.canAcceptNewTask(jid),
         deliver: createStoredMessageDelivery({
           storeIfAbsent: storeMessageDirectIfAbsent,
-          now: (jid) =>
-            nextDispatchMessageTimestamp(lastAgentTimestamp[jid] || ''),
+          now: (jid) => {
+            // 先固化读取基线，避免新群随后从更晚的可见通知恢复 cursor，
+            // 从而永久跳过已经持久化、但仍在队列等待的派工任务。
+            let cursor = getOrRecoverCursor(jid);
+            if (!cursor) {
+              cursor = new Date(0).toISOString();
+              advanceAgentCursor(jid, cursor);
+            }
+            return nextDispatchMessageTimestamp(cursor);
+          },
           wake: createGroupQueueWake(queue),
           sendVisible: async (jid, message) => {
             const channel = findChannel(channels, jid);

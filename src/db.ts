@@ -864,6 +864,7 @@ export function getNewMessages(
       FROM messages
       WHERE timestamp > ? AND chat_jid IN (${placeholders})
         AND is_bot_message = 0 AND content NOT LIKE ?
+        AND COALESCE(sender, '') != 'github-project'
         AND content != '' AND content IS NOT NULL
       ORDER BY timestamp DESC
       LIMIT ?

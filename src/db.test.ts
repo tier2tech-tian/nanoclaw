@@ -661,6 +661,30 @@ describe('getNewMessages', () => {
     expect(messages[0].content).toBe('g1 msg2');
   });
 
+  it('不让未来时间的 GitHub 派工消息推进全局消息游标', () => {
+    storeMessageDirect({
+      id: 'ipc_github_project_6_item-1_1',
+      chat_jid: 'group1@g.us',
+      sender: 'github-project',
+      sender_name: 'GitHub Project',
+      content: '派工内容',
+      timestamp: '2099-01-01T00:00:00.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+    });
+
+    const { messages, newTimestamp } = getNewMessages(
+      ['group1@g.us', 'group2@g.us'],
+      '2024-01-01T00:00:00.000Z',
+      'Andy',
+    );
+
+    expect(messages.map((message) => message.id)).not.toContain(
+      'ipc_github_project_6_item-1_1',
+    );
+    expect(newTimestamp).toBe('2024-01-01T00:00:04.000Z');
+  });
+
   it('returns empty for no registered groups', () => {
     const { messages, newTimestamp } = getNewMessages([], '', 'Andy');
     expect(messages).toHaveLength(0);

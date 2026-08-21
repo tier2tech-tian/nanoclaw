@@ -25,9 +25,15 @@ describe('GitHub Project 自动派工纯逻辑', () => {
     expect(nextDispatchMessageTimestamp('', 1_777_777_777_777)).toBe(
       new Date(1_777_777_777_777).toISOString(),
     );
-    expect(nextDispatchMessageTimestamp('坏游标', 1_777_777_777_777)).toBe(
-      new Date(1_777_777_777_777).toISOString(),
-    );
+    expect(() =>
+      nextDispatchMessageTimestamp('坏游标', 1_777_777_777_777),
+    ).toThrow('非标准 ISO 时间');
+    expect(() =>
+      nextDispatchMessageTimestamp(
+        '2026-08-21T20:00:00+08:00',
+        1_777_777_777_777,
+      ),
+    ).toThrow('非标准 ISO 时间');
   });
 
   it('解析 Issue 与 Draft，并保留 Project Item ID', () => {
@@ -328,7 +334,7 @@ describe('GitHub Project dispatcher 生命周期', () => {
 });
 
 describe('GitHub Project 消息投递', () => {
-  it('先以稳定 ID 入库，重复调用不再发送可见通知', async () => {
+  it('先固化时间基线并以稳定 ID 入库，重复调用不再发送可见通知', async () => {
     const events: string[] = [];
     const storeIfAbsent = vi.fn(() => {
       events.push('store');
@@ -353,7 +359,10 @@ describe('GitHub Project 消息投递', () => {
       storeIfAbsent,
       sendVisible,
       wake,
-      now: () => '2026-08-21T12:00:00.000Z',
+      now: (targetJid) => {
+        events.push(`clock:${targetJid}`);
+        return '2026-08-21T12:00:00.000Z';
+      },
     });
     const input = {
       targetJid: 'fs:oc_c3',
@@ -378,7 +387,15 @@ describe('GitHub Project 消息投递', () => {
     expect(wake).toHaveBeenCalledTimes(2);
     expect(wake).toHaveBeenNthCalledWith(1, input.targetJid);
     expect(wake).toHaveBeenNthCalledWith(2, input.targetJid);
-    expect(events).toEqual(['store', 'wake', 'visible', 'store', 'wake']);
+    expect(events).toEqual([
+      'clock:fs:oc_c3',
+      'store',
+      'wake',
+      'visible',
+      'clock:fs:oc_c3',
+      'store',
+      'wake',
+    ]);
   });
 
   it('可见通知失败不回滚已入库的 Agent 任务', async () => {

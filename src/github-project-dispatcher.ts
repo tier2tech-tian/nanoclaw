@@ -445,6 +445,13 @@ export function nextDispatchMessageTimestamp(
   nowMs = Date.now(),
 ): string {
   const cursorMs = Date.parse(currentCursor);
+  if (
+    currentCursor &&
+    (!Number.isFinite(cursorMs) ||
+      new Date(cursorMs).toISOString() !== currentCursor)
+  ) {
+    throw new Error(`目标群游标为非标准 ISO 时间: ${currentCursor}`);
+  }
   const minimumMs = Number.isFinite(cursorMs) ? cursorMs + 1 : 0;
   return new Date(Math.max(nowMs, minimumMs)).toISOString();
 }
