@@ -1,0 +1,43 @@
+sequenceDiagram
+    participant U as 你在飞书
+    participant N as Nine 后端
+    participant S as sandbox-api
+    participant R as agent-runner
+    participant C as Claude API
+
+    Note over R: 平时它一直活着 守在 VM 里等你下一句
+
+    Note over U,C: 正常的一轮
+    U->>N: 提问
+    N->>S: 带上 session_id
+    S->>R: 投递消息
+    R->>C: 调用模型
+    C-->>R: 正常返回
+    R-->>S: 结果 + 终止帧
+    S-->>U: 你看到回答
+    Note over R: 继续活着 等下一句
+
+    Note over U,C: 第一阶段 529 把 runner 打死
+    U->>N: 提问
+    N->>S: 带上 session_id
+    S->>R: 投递消息
+    R->>C: 调用模型
+    C-->>R: 529 Overloaded
+    R-->>S: 错误帧
+    S-->>U: 你看到 529 这条能看懂
+    Note over R: 同时退出循环 进程就此结束
+
+    Note over U,S: 第二阶段 你看到尸检报告
+    U->>N: 再问一句
+    N->>S: 带上同一个 session_id
+    S->>R: 投递消息
+    Note over S,R: 人已经不在了
+    S-->>U: exited without terminal frame
+    Note over S: 顺手清掉自己这边的会话记录
+
+    Note over U,S: 第三阶段 卡成死循环
+    U->>N: 再问
+    N->>S: 仍然带着那个已作废的 session_id
+    Note over S: 我这边根本没有这个会话
+    S-->>U: no active cc session
+    Note over U,S: 每次重试都走这条 永远不会自动新建
