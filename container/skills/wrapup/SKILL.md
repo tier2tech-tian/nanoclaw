@@ -24,7 +24,7 @@ description: 任务收尾工作流。回顾任务全过程，总结踩坑记录�
 驾驶舱存在 `github_project_item_id` 时，在生成 Wiki、归档 OpenSpec 和标记群完成前执行：
 
 1. `github_tracking_kind: issue` 时检查 `github_issue_url` 状态：PR 的 `Closes <完整 Issue URL>` 已自动关闭就只核验，仍为 open 才执行 `gh issue close <Issue 编号> --repo <owner/repo> --reason completed`；`github_tracking_kind: draft` 的草稿项不执行 Issue 关闭命令。
-2. 回读当前状态；已经是 `Done` / `完成` 就幂等跳过。否则用 `gh project field-list <项目编号> --owner TierIITech --format json` 获取 Status 字段与真实 option ID，再执行 `gh project item-edit --id <Item ID> --project-id <Project ID> --field-id <Status 字段 ID> --single-select-option-id <完成态选项 ID>` 推进完成态：#6/#7 使用 `Done`，#5 使用 `完成`。未来专项只接受 `Done` / `完成` 的唯一精确匹配，找不到或不唯一就询问，禁止猜测。
+2. 回读当前状态；已经是 `Done` / `完成` 就幂等跳过。否则用 `gh project field-list <项目编号> --owner TierIITech --format json` 获取 Status 字段与真实 option ID，再执行 `gh project item-edit --id <Item ID> --project-id <Project ID> --field-id <Status 字段 ID> --single-select-option-id <完成态选项 ID>` 推进完成态：#9 使用 `完成`，#5 使用 `完成`。未来专项只接受 `Done` / `完成` 的唯一精确匹配，找不到或不唯一就询问，禁止猜测。
 3. 回读项目 Item，确认状态为 `Done` / `完成`；issue 跟踪还要确认 Issue 已关闭。把 `github_project_status` 和关闭证据写回驾驶舱。
 
 **Gate**：项目 Item 已完成 + issue 跟踪的 Issue 已关闭 + 驾驶舱证据已落盘。项目自动化只能加速，不能代替这次回读验收。

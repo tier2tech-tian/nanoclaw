@@ -139,10 +139,9 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 路由优先级从高到低：
 
 1. **用户显式指定项目优先**：给了项目 URL/编号就直接采用；只给项目名时，用 `gh project list --owner TierIITech --format json --limit 100` 解析，先匹配完整项目名，再匹配唯一的名称片段。命中 0 个或多个时必须询问，禁止猜。
-2. **Bug 默认进 #9**：[整体项目 Bug](https://github.com/orgs/TierIITech/projects/9)（2026-08-21 大杰拍板，替换原 #6 bug管理）。
-3. **需求、功能和重构默认进 #7**：[@tier2tech-tian's 需求迭代](https://github.com/orgs/TierIITech/projects/7/views/1)。
+2. **Bug、需求、功能和重构默认进 #9**：[许愿池](https://github.com/orgs/TierIITech/projects/9)（2026-08-21 Bug 入池拍板，2026-08-26 需求合并入池拍板）。
 
-[webUI 重构 #5](https://github.com/orgs/TierIITech/projects/5) 是显式专项示例：只有用户点名 Web UI 项目或给出该链接时才进入，不能因为改了前端代码就自行推断。
+[webUI 重构 #5](https://github.com/orgs/TierIITech/projects/5)、[CCVM 稳定性专项 #12](https://github.com/orgs/TierIITech/projects/12) 等是显式专项示例：只有用户点名对应项目或给出该链接时才进入，不能因为改了前端代码或 CCVM 代码就自行推断。
 
 ### 3.5.2 创建或复用跟踪项
 
@@ -157,11 +156,12 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
    `gh project item-create <项目编号> --owner TierIITech --title <标题> --body <任务摘要> --format json`
 
    网络错误、鉴权失败不算“不可用”，不能拿草稿项掩盖真实故障。
-5. 用 `gh project view <项目编号> --owner TierIITech --format json` 获取 Project ID，用 `gh project field-list <项目编号> --owner TierIITech --format json` 获取真实字段和选项 ID。新建且状态为空的 Item 先进入待办池：#9/#7 使用 `Backlog`/`Todo`（按项目实际选项唯一精确匹配），#5 使用 `准备`。未来专项只在 `Backlog` / `准备` / `Ready` 中接受唯一精确匹配；找不到或不唯一就询问，禁止猜。复用已有 Item 时回读并保留真实状态，任何情况下都禁止把 `In progress` / `进行中`、`In review` / `评审中` / `审核中`、`Done` / `完成` 等后续状态降回待办池。需要写状态时执行：
+5. 用 `gh project view <项目编号> --owner TierIITech --format json` 获取 Project ID，用 `gh project field-list <项目编号> --owner TierIITech --format json` 获取真实字段和选项 ID。新建且状态为空的 Item 先进入待办池：#9 使用 `待办`（按项目实际选项唯一精确匹配），#5 使用 `准备`。未来专项只在 `Backlog` / `准备` / `Ready` 中接受唯一精确匹配；找不到或不唯一就询问，禁止猜。复用已有 Item 时回读并保留真实状态，任何情况下都禁止把 `In progress` / `进行中`、`In review` / `评审中` / `审核中`、`Done` / `完成` 等后续状态降回待办池。需要写状态时执行：
 
    `gh project item-edit --id <Item ID> --project-id <Project ID> --field-id <Status 字段 ID> --single-select-option-id <状态选项 ID>`
 
-6. 把以下字段写入同一个驾驶舱，作为 implement 和 wrapup 的唯一交接来源：
+6. **#9 许愿池专用——设置"类型"字段**：入池 #9 时必须同时设置"类型"单选字段（field_id=`PVTSSF_lADOECCMa84BhAPzzhgbb_8`），根据任务性质选择：Bug（`5a92b684`）、需求（`07c73586`）、稳定性专项（`ff12e435`）。Bug 类还需设置"环境"字段（生产/测试）。执行同 item-edit 命令。其他项目无此字段则跳过。
+7. 把以下字段写入同一个驾驶舱，作为 implement 和 wrapup 的唯一交接来源：
    - `github_tracking_kind: issue | draft`
    - `github_issue_url`（仅 issue）
    - `github_project_url`
@@ -186,7 +186,7 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 轨道 A 在 A3 分流后进入修复时、轨道 B 在 B6 分流后进入实现时执行（含挂账红灯但有独立部分要改码的，照常执行）；直接触发 implement 时也必须执行（灯色判定同样适用，规则见「自主分级」章节）：
 
 1. 从驾驶舱读取 Project ID、Item ID 和项目编号，回读 Item 当前真实状态。
-2. 当前为空、`To triage`、`Backlog`、`Ready`、`草稿`、`准备` 时，读取 Status 字段的真实选项：#9/#7 推进到 `In progress`，#5 推进到 `进行中`；未来专项只接受 `In progress` / `进行中` 的唯一精确匹配。执行 `gh project item-edit --id <Item ID> --project-id <Project ID> --field-id <Status 字段 ID> --single-select-option-id <开工态选项 ID>`。
+2. 当前为空、`To triage`、`Backlog`、`Ready`、`草稿`、`准备` 时，读取 Status 字段的真实选项：#9 推进到 `处理中`，#5 推进到 `进行中`；未来专项只接受 `In progress` / `进行中` 的唯一精确匹配。执行 `gh project item-edit --id <Item ID> --project-id <Project ID> --field-id <Status 字段 ID> --single-select-option-id <开工态选项 ID>`。
 3. 已经是 `In progress` / `进行中`、`In review` / `评审中` / `审核中`、`Done` / `完成` 就保持原状，禁止倒退。状态未知、找不到唯一开工态或无法判断先后时询问用户，禁止猜。
 4. 再次回读，把真实值写回 `github_project_status`。
 
