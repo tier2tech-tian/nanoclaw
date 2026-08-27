@@ -119,6 +119,98 @@ describe('FeishuChannel', () => {
     });
   });
 
+  describe('thinking 同卡展示', () => {
+    const jid = 'fs:oc_thinking_panel';
+
+    it('在起手卡原地加入默认折叠的深度思考面板', async () => {
+      mockCreate.mockResolvedValueOnce({
+        data: { message_id: 'msg_thinking_panel' },
+      });
+      await channel.setTyping!(jid, true);
+      mockPatch.mockClear();
+
+      await (channel as any).updateThinking(
+        jid,
+        '先核对 Authorization: Bearer secret-token-123456，再判断。',
+      );
+
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      expect(mockPatch).toHaveBeenCalledTimes(1);
+      const card = JSON.parse(mockPatch.mock.calls[0][0].data.content);
+      const serialized = JSON.stringify(card);
+      expect(serialized).toContain('深度思考');
+      expect(serialized).toContain('collapsible_panel');
+      expect(serialized).toContain('"expanded":false');
+      expect(serialized).toContain('Authorization&#58; &#91;REDACTED&#93;');
+      expect(serialized).not.toContain('secret-token');
+    });
+
+    it('最新 thinking 覆盖旧内容，重复内容不重复 patch', async () => {
+      mockCreate.mockResolvedValueOnce({
+        data: { message_id: 'msg_thinking_latest' },
+      });
+      await channel.setTyping!(jid, true);
+      mockPatch.mockClear();
+
+      await (channel as any).updateThinking(jid, '第一版判断');
+      await (channel as any).updateThinking(jid, '第二版判断');
+      await (channel as any).updateThinking(jid, '第二版判断');
+
+      expect(mockPatch).toHaveBeenCalledTimes(2);
+      const latest = mockPatch.mock.calls.at(-1)?.[0].data.content;
+      expect(latest).toContain('第二版判断');
+      expect(latest).not.toContain('第一版判断');
+    });
+
+    it('正式回复后拒绝迟到 thinking', async () => {
+      (channel as any).progressDone.add(jid);
+
+      await (channel as any).updateThinking(jid, '迟到内容');
+
+      expect(mockCreate).not.toHaveBeenCalled();
+      expect(mockPatch).not.toHaveBeenCalled();
+    });
+
+    it('完成卡保留最后一版 thinking，且不写进过程步骤', async () => {
+      (channel as any).progressCards.set(jid, {
+        messageId: 'msg_thinking_completed',
+        sessionId: 'sess_thinking_completed',
+        steps: [{ title: '已完成：验证实现' }],
+        allSteps: [{ title: '已完成：验证实现' }],
+        frame: 0,
+        startTime: Date.now(),
+        thinkingText: '最后的判断依据',
+      });
+
+      await channel.cleanupProgressCard(jid);
+
+      const content = mockPatch.mock.calls[0][0].data.content;
+      expect(content).toContain('深度思考');
+      expect(content).toContain('最后的判断依据');
+      expect(content.match(/最后的判断依据/g)).toHaveLength(1);
+    });
+
+    it('超长 thinking 的面板正文和截断提示不突破预算', async () => {
+      mockCreate.mockResolvedValueOnce({
+        data: { message_id: 'msg_thinking_budget' },
+      });
+      await channel.setTyping!(jid, true);
+      mockPatch.mockClear();
+
+      await (channel as any).updateThinking(jid, '/路径:值_'.repeat(2000));
+
+      const card = JSON.parse(mockPatch.mock.calls[0][0].data.content);
+      const panel = card.body.elements.find(
+        (element: any) =>
+          element.tag === 'collapsible_panel' &&
+          JSON.stringify(element.header).includes('深度思考'),
+      );
+      const body = panel.elements[0].content as string;
+      expect(Buffer.byteLength(body, 'utf8')).toBeLessThanOrEqual(6144);
+      expect(body).toContain('内容已截断');
+    });
+  });
+
   describe('connect / disconnect', () => {
     it('connect 后 isConnected 为 true', async () => {
       expect(channel.isConnected()).toBe(false);
@@ -2636,6 +2728,27 @@ describe('FeishuChannel', () => {
       expect(mockNotifyVoice).toHaveBeenCalledTimes(1);
     });
 
+    it('thinking 起手卡原地转正后保留折叠面板和最终答案', async () => {
+      mockCreate.mockResolvedValueOnce({
+        data: { message_id: 'msg_start_thinking' },
+      });
+      await channel.setTyping!(jid, true);
+      await channel.updateThinking!(jid, '先检查真实状态，再给结论');
+      mockPatch.mockClear();
+
+      const result = await channel.sendMessage(jid, '这是最终答案');
+
+      expect(result).toBe('msg_start_thinking');
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      expect(mockPatch).toHaveBeenCalledTimes(1);
+      const finalCard = JSON.parse(mockPatch.mock.calls[0][0].data.content);
+      const serialized = JSON.stringify(finalCard);
+      expect(serialized).toContain('深度思考');
+      expect(serialized).toContain('先检查真实状态，再给结论');
+      expect(serialized).toContain('这是最终答案');
+      expect(serialized).not.toContain('处理中');
+    });
+
     it('生命周期日志只记录状态、耗时和正文长度，不记录正文', async () => {
       const infoSpy = vi.spyOn(logger, 'info');
       mockCreate.mockResolvedValueOnce({
@@ -2932,6 +3045,34 @@ describe('FeishuChannel', () => {
       );
       expect(mockPatch.mock.calls[0][0].data.content).toContain(
         '建卡期间到达的 Phase',
+      );
+    });
+
+    it('建卡期间先到的 thinking 在 create 完成后立即合并 patch', async () => {
+      let releaseCreate!: (value: { data: { message_id: string } }) => void;
+      const pendingCreate = new Promise<{ data: { message_id: string } }>(
+        (resolve) => {
+          releaseCreate = resolve;
+        },
+      );
+      mockCreate.mockImplementationOnce(() => pendingCreate);
+
+      const typingPromise = channel.setTyping!(jid, true);
+      await Promise.resolve();
+      await channel.updateThinking!(jid, '建卡期间到达的思考');
+      releaseCreate({ data: { message_id: 'msg_buffered_thinking' } });
+      await typingPromise;
+      await (channel as any).progressCards
+        .get(jid)
+        .patchLoopPromise?.catch(() => {});
+
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      expect(mockPatch).toHaveBeenCalledTimes(1);
+      expect(mockPatch.mock.calls[0][0].path.message_id).toBe(
+        'msg_buffered_thinking',
+      );
+      expect(mockPatch.mock.calls[0][0].data.content).toContain(
+        '建卡期间到达的思考',
       );
     });
 

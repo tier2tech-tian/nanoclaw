@@ -194,6 +194,7 @@ const PHASE_TITLE_BUDGET = 30;
 const PHASE_ACTION_BUDGET = 48;
 /** 卡片展开区 narration 全文上限（超出截断并提示看过程记录） */
 const NARRATION_CARD_LIMIT = 2000;
+const THINKING_CARD_LIMIT = 2000;
 /**
  * 单个可展开正文的转义后 UTF-8 字节预算（review R5 P1）：飞书卡片整体
  * 上限 30KB，窗口最多 3 个 narration 面板，6KB×3 + 标题/动作/结构余量
@@ -496,6 +497,37 @@ function stepToElements(step: ProgressStep): unknown[] {
   return [{ tag: 'markdown', content: title }];
 }
 
+/** 模型公开 thinking 的独立折叠面板；不进入步骤或过程记录。 */
+function buildThinkingPanel(text: string): unknown {
+  const redacted = redactProgressText(text).trim();
+  const originalCodePoints = Array.from(redacted);
+  const cpTruncated = originalCodePoints.length > THINKING_CARD_LIMIT;
+  const cpLimited = originalCodePoints.slice(0, THINKING_CARD_LIMIT).join('');
+  const hint = '\n\n<font color="grey">（内容已截断）</font>';
+  let byteLimited = truncateByEscapedBytes(cpLimited, PANEL_BODY_BYTE_BUDGET);
+  const showHint = cpTruncated || byteLimited.truncated;
+  if (showHint) {
+    byteLimited = truncateByEscapedBytes(
+      cpLimited,
+      PANEL_BODY_BYTE_BUDGET - Buffer.byteLength(hint, 'utf8'),
+    );
+  }
+  const body =
+    escapeCardMarkdownText(byteLimited.text) + (showHint ? hint : '');
+  return {
+    tag: 'collapsible_panel',
+    expanded: false,
+    background_color: 'grey',
+    header: {
+      title: { tag: 'plain_text', content: '深度思考' },
+      vertical_align: 'center',
+    },
+    vertical_spacing: '2px',
+    padding: '4px 8px 4px 8px',
+    elements: [{ tag: 'markdown', content: body }],
+  };
+}
+
 /** 格式化耗时字符串 */
 function formatElapsed(startTime: number): string {
   const ms = Date.now() - startTime;
@@ -552,6 +584,7 @@ function buildProgressCard(
   frame: number = 0,
   startTime?: number,
   sessionId?: string,
+  thinkingText?: string,
 ): string {
   // 短语轮换：按时间（每 5 秒切换一次），不按 frame，避免 tool_call 密集时切换过快
   const elapsedSec = startTime
@@ -563,10 +596,11 @@ function buildProgressCard(
   const progressUrl = sessionId ? getProgressUrl(sessionId) : undefined;
 
   const elements: unknown[] =
-    steps.length === 0
+    steps.length === 0 && !thinkingText
       ? [{ tag: 'markdown', content: titleText }]
       : [
           ...buildTitleRow(titleText, progressUrl),
+          ...(thinkingText ? [buildThinkingPanel(thinkingText)] : []),
           ...steps.flatMap(stepToElements),
         ];
 
@@ -676,6 +710,7 @@ function buildCompletedCard(
   startTime?: number,
   sessionId?: string,
   thinking?: 'adaptive' | 'disabled',
+  thinkingText?: string,
 ): string {
   const timeStr = startTime ? ` ${formatElapsed(startTime)}` : '';
   const titleText = `**✓ 已完成${timeStr}**`;
@@ -683,6 +718,7 @@ function buildCompletedCard(
 
   const elements: unknown[] = [
     ...buildTitleRow(titleText, progressUrl),
+    ...(thinkingText ? [buildThinkingPanel(thinkingText)] : []),
     ...steps.flatMap(stepToElements),
   ];
   if (usage) appendUsageFooter(elements, usage, thinking);
@@ -698,8 +734,10 @@ function buildReplyCard(
   text: string,
   usage?: ContainerOutput['usage'],
   thinking?: 'adaptive' | 'disabled',
+  thinkingText?: string,
 ): string {
   const elements: unknown[] = [
+    ...(thinkingText ? [buildThinkingPanel(thinkingText), { tag: 'hr' }] : []),
     { tag: 'markdown', content: text, text_size: 'nano_body' },
   ];
   if (usage) appendUsageFooter(elements, usage, thinking);
@@ -717,9 +755,10 @@ function buildBoundedReplyCard(
   text: string,
   usage?: ContainerOutput['usage'],
   thinking?: 'adaptive' | 'disabled',
+  thinkingText?: string,
 ): string {
   const maxBytes = 29_000;
-  const fullCard = buildReplyCard(text, usage, thinking);
+  const fullCard = buildReplyCard(text, usage, thinking, thinkingText);
   if (Buffer.byteLength(fullCard, 'utf8') <= maxBytes) return fullCard;
 
   const suffix = '\n\n（内容已截断，全文见过程记录）';
@@ -728,13 +767,14 @@ function buildBoundedReplyCard(
   );
   let low = 0;
   let high = codePoints.length;
-  let best = buildReplyCard(suffix, usage, thinking);
+  let best = buildReplyCard(suffix, usage, thinking, thinkingText);
   while (low <= high) {
     const mid = Math.floor((low + high) / 2);
     const candidate = buildReplyCard(
       codePoints.slice(0, mid).join('') + suffix,
       usage,
       thinking,
+      thinkingText,
     );
     if (Buffer.byteLength(candidate, 'utf8') <= maxBytes) {
       best = candidate;
@@ -760,6 +800,7 @@ interface ProgressCardEntry {
   textCandidateBytes?: number;
   textCandidateTruncated?: boolean;
   narrationSeparatelySent?: boolean;
+  thinkingText?: string;
   patchInFlight?: boolean;
   patchPending?: boolean;
   finalized?: boolean;
@@ -916,6 +957,25 @@ export class FeishuChannel implements Channel {
     return jid.startsWith(JID_PREFIX);
   }
 
+  async updateThinking(jid: string, text: string): Promise<void> {
+    if (this.progressDone.has(jid)) {
+      logger.info({ jid }, '[thinking] 正式回复已到达，忽略迟到内容');
+      return;
+    }
+    const redacted = redactProgressText(text).trim();
+    if (!redacted) return;
+
+    if (!this.progressCards.has(jid)) {
+      await this.ensureStartCard(jid, chatIdFromJid(jid));
+    }
+    const entry = this.progressCards.get(jid);
+    if (!entry || entry.finalized || this.progressDone.has(jid)) return;
+    if (entry.thinkingText === redacted) return;
+
+    entry.thinkingText = redacted;
+    if (entry.messageId) this.schedulePatch(jid);
+  }
+
   /** 发送消息，正式回复返回飞书 message_id（进度/命令回复返回 undefined） */
   async sendMessage(
     jid: string,
@@ -973,7 +1033,7 @@ export class FeishuChannel implements Channel {
         return;
       }
 
-      // 💭 消息：模型内部独白（历史兼容），直接丢弃不暴露给用户
+      // 💭 普通进度消息：历史兼容入口继续丢弃；公开 thinking 只走 updateThinking 专用入口。
       if (title.startsWith('💭')) {
         logger.info(
           { jid, len: title.length },
@@ -1632,21 +1692,21 @@ export class FeishuChannel implements Channel {
     await progressEntry.patchLoopPromise?.catch(() => {});
 
     if (!progressEntry.messageId) {
-      deleteSession(progressEntry.sessionId);
+      if (progressEntry.sessionId) deleteSession(progressEntry.sessionId);
       return;
     }
 
     try {
-      const hasToolSteps = progressEntry.steps.some(
-        (s) => !s.title.startsWith('💭'),
-      );
-      if (!hasToolSteps) {
-        deleteSession(progressEntry.sessionId);
+      const hasVisibleProcess =
+        progressEntry.steps.some((s) => !s.title.startsWith('💭')) ||
+        !!progressEntry.thinkingText;
+      if (!hasVisibleProcess) {
+        if (progressEntry.sessionId) deleteSession(progressEntry.sessionId);
         await this.client.im.message.delete({
           path: { message_id: progressEntry.messageId },
         });
       } else {
-        completeSession(progressEntry.sessionId);
+        if (progressEntry.sessionId) completeSession(progressEntry.sessionId);
         try {
           await this.client.im.message.patch({
             path: { message_id: progressEntry.messageId },
@@ -1657,6 +1717,7 @@ export class FeishuChannel implements Channel {
                 progressEntry.startTime,
                 progressEntry.sessionId,
                 undefined,
+                progressEntry.thinkingText,
               ),
             },
           });
@@ -1925,7 +1986,7 @@ export class FeishuChannel implements Channel {
         return;
       }
       placeholder.messageId = messageId;
-      if (placeholder.steps.length > 0) {
+      if (placeholder.steps.length > 0 || placeholder.thinkingText) {
         this.schedulePatch(jid);
       }
       this.startSpinner(jid, startedAt);
@@ -2021,7 +2082,12 @@ export class FeishuChannel implements Channel {
     const finalText = entry.textCandidateTruncated
       ? `${text}\n\n（内容过长，全文见过程记录）`
       : text;
-    const fullCard = buildReplyCard(finalText, usage, thinking);
+    const fullCard = buildReplyCard(
+      finalText,
+      usage,
+      thinking,
+      entry.thinkingText,
+    );
     if (
       contentState === 'start-only' &&
       Buffer.byteLength(fullCard, 'utf8') >= 30_000
@@ -2041,7 +2107,12 @@ export class FeishuChannel implements Channel {
     }
     const finalCard =
       contentState === 'text-only'
-        ? buildBoundedReplyCard(finalText, usage, thinking)
+        ? buildBoundedReplyCard(
+            finalText,
+            usage,
+            thinking,
+            entry.thinkingText,
+          )
         : fullCard;
     this.progressDone.add(jid);
     this.clearSpinnerTimer(jid);
@@ -2178,6 +2249,7 @@ export class FeishuChannel implements Channel {
                 entry.frame,
                 entry.startTime,
                 entry.sessionId,
+                entry.thinkingText,
               ),
             },
           });
@@ -2387,10 +2459,11 @@ export class FeishuChannel implements Channel {
         textCandidateBytes: placeholder.textCandidateBytes,
         textCandidateTruncated: placeholder.textCandidateTruncated,
         narrationSeparatelySent: placeholder.narrationSeparatelySent,
+        thinkingText: placeholder.thinkingText,
       });
 
       // 缓冲期间有新步骤，经串行队列 patch 卡片以显示最新状态（C9）
-      if (bufferedSteps.length > 0) {
+      if (bufferedSteps.length > 0 || placeholder.thinkingText) {
         upsertSession(sessionId, progressRecordSteps(mergedAllSteps), now);
         this.schedulePatch(jid);
       }

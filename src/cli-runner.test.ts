@@ -276,6 +276,25 @@ describe('mapToContainerOutput', () => {
     expect(outputs[0].result).toContain('echo hello');
   });
 
+  it('assistant thinking block 映射为 thinking progress', () => {
+    const outputs = mapToContainerOutput({
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'thinking', thinking: '我先核对事件来源，再判断展示路径。' },
+        ],
+      },
+    } as any);
+
+    expect(outputs).toEqual([
+      expect.objectContaining({
+        status: 'progress',
+        progressType: 'thinking',
+        detail: '我先核对事件来源，再判断展示路径。',
+      }),
+    ]);
+  });
+
   it('user tool_result 映射为同 ID 的完成事件', () => {
     const outputs = mapToContainerOutput({
       type: 'user',

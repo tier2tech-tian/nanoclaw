@@ -20,6 +20,7 @@ import {
   type ClaudeToolResultBlock,
   type StructuredProgress,
 } from './progress-types.js';
+import { buildThinkingProgress } from './sse-parser.js';
 
 // ---- 类型定义 ----
 
@@ -35,6 +36,7 @@ export interface CliStreamMessage {
       id?: string;
       tool_use_id?: string;
       text?: string;
+      thinking?: string;
       name?: string;
       input?: unknown;
       content?: unknown;
@@ -207,6 +209,13 @@ export function mapToContainerOutput(
     const outputs: ContainerOutput[] = [];
 
     for (const block of content) {
+      if (block.type === 'thinking' && block.thinking) {
+        const thinking = buildThinkingProgress({
+          type: 'thinking',
+          thinking: block.thinking,
+        });
+        if (thinking) outputs.push(thinking);
+      }
       if (block.type === 'tool_use' && block.name) {
         const input = block.input as Record<string, unknown> | null;
         const emoji = block.name === 'Bash' ? '🔧' :

@@ -19,6 +19,7 @@ import os from 'os';
 import type { ContainerOutput } from './cli-runner.js';
 import { buildSendMessageToolEnv } from './mcp-tool-policy.js';
 import { boundProgressInput, redactProgressText } from './progress-types.js';
+import { buildThinkingProgress } from './sse-parser.js';
 import type { CodexServiceTier } from './model-settings.js';
 
 // ---- 类型定义 ----
@@ -365,6 +366,16 @@ function findExecutableOnPath(command: string, pathValue?: string): boolean {
 
 /** 把 item.started 工具事件映射成进度输出（agent_message 不在此处理） */
 export function mapCodexProgress(event: CodexEvent): ContainerOutput[] {
+  if (event.item?.type === 'reasoning') {
+    if (event.type !== 'item.completed' || typeof event.item.text !== 'string') {
+      return [];
+    }
+    const thinking = buildThinkingProgress({
+      type: 'thinking',
+      thinking: event.item.text,
+    });
+    return thinking ? [thinking] : [];
+  }
   if (event.type === 'item.completed' && event.item && event.item.type !== 'agent_message') {
     const it = event.item;
     const exitCode = typeof it.exit_code === 'number' ? it.exit_code : null;

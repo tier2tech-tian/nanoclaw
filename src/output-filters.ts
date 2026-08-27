@@ -1,8 +1,10 @@
+import type { Channel } from './types.js';
+
 /**
  * 输出过滤器 — 拦截不应发送给用户的 agent 输出
  *
  * 两类过滤：
- * 1. thinking progress — 模型内部思考过程，发出去会被用户看到并触发新一轮处理（死循环）
+ * 1. thinking progress — 只能走 Channel 专用进度载体，禁止作为普通消息发送（会触发新一轮处理）
  * 2. 模型拒绝文本 — "No response requested." 等，模型认为不需要回复时产生的文本
  */
 
@@ -19,6 +21,26 @@ export function shouldFilterProgress(
   progressType: string | undefined,
 ): boolean {
   return progressType === 'thinking';
+}
+
+/**
+ * thinking 只走 Channel 专用进度能力。返回 true 表示该事件已被消费，
+ * 即使当前 Channel 不支持也不能降级为普通消息。
+ */
+export async function routeThinkingProgress(
+  channel: Channel,
+  jid: string,
+  progressType: string | undefined,
+  text: string,
+  onError?: (err: unknown) => void,
+): Promise<boolean> {
+  if (progressType !== 'thinking') return false;
+  try {
+    await channel.updateThinking?.(jid, text);
+  } catch (err) {
+    onError?.(err);
+  }
+  return true;
 }
 
 /**

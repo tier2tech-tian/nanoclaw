@@ -286,6 +286,8 @@ export interface Channel {
   disconnect(): Promise<void>;
   // Optional: typing indicator. Channels that support it implement it.
   setTyping?(jid: string, isTyping: boolean): Promise<void>;
+  // Optional: 把模型公开 thinking 更新到通道自己的安全进度载体，禁止降级普通消息。
+  updateThinking?(jid: string, text: string): Promise<void>;
   // Optional: sync group/chat names from the platform.
   syncGroups?(force: boolean): Promise<void>;
   // Optional: rename the chat/group on the platform.

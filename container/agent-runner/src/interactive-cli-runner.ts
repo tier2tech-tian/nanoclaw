@@ -23,11 +23,13 @@ import {
   createMessageAccumulator,
   buildToolUseProgress,
   buildTextProgress,
+  buildThinkingProgress,
   decideTextBlockAction,
   mapAccumulatorToResult,
   type SseEvent,
   type ContainerOutput,
   type TextBlock,
+  type ThinkingBlock,
   type MessageAccumulator,
 } from './sse-parser.js';
 import { buildMcpConfig } from './cli-runner.js';
@@ -704,6 +706,15 @@ export async function runInteractiveQuery(
             // text 块结束 → 暂存，等下一个 tool_use 或 message_stop 决定命运
             log(`[interactive] buffering text block (len=${block.text.length}, idx=${stopData.index})`);
             pendingTextBlocks.push(block);
+          } else if (
+            block?.type === 'thinking' &&
+            !msgAcc.model.includes('haiku')
+          ) {
+            const progress = buildThinkingProgress(block as ThinkingBlock);
+            if (progress) {
+              log('[interactive] emit thinking progress');
+              writeOutput(progress);
+            }
           }
         }
 

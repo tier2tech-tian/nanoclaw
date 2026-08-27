@@ -19,6 +19,7 @@ import {
   type ContentBlockDeltaData,
   type MessageDeltaData,
   type TextBlock,
+  type ThinkingBlock,
   type ToolUseBlock,
 } from '../container/agent-runner/src/sse-parser.js';
 
@@ -112,6 +113,31 @@ describe('parseSseEvent', () => {
 // ---- accumulateSseEvent ----
 
 describe('accumulateSseEvent', () => {
+  it('累积 thinking block 与 thinking_delta', () => {
+    let acc = createMessageAccumulator();
+    acc = accumulateSseEvent(acc, {
+      type: 'content_block_start',
+      data: {
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'thinking', thinking: '' },
+      },
+    } as any);
+    acc = accumulateSseEvent(acc, {
+      type: 'content_block_delta',
+      data: {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'thinking_delta', thinking: '先查日志，再查代码。' },
+      },
+    } as any);
+
+    expect(acc.blocks.get(0)).toEqual({
+      type: 'thinking',
+      thinking: '先查日志，再查代码。',
+    });
+  });
+
   it('message_start 提取 model 和 usage', () => {
     const acc = createMessageAccumulator();
     const event: SseEvent = {
@@ -511,6 +537,24 @@ describe('buildTextProgress', () => {
   it('💬 emoji 前缀 — 飞书 channel 通过此 emoji 识别独立消息路径', () => {
     const result = buildTextProgress({ type: 'text', text: '一些回复内容' });
     expect(result!.result?.startsWith('💬 ')).toBe(true);
+  });
+});
+
+describe('buildThinkingProgress', () => {
+  it('把公开 thinking 正文映射为专用进度', async () => {
+    const parser = await import('../container/agent-runner/src/sse-parser.js');
+    const result = (parser as any).buildThinkingProgress({
+      type: 'thinking',
+      thinking: '先确认边界，再动手。',
+    } satisfies ThinkingBlock);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: 'progress',
+        progressType: 'thinking',
+        detail: '先确认边界，再动手。',
+      }),
+    );
   });
 });
 

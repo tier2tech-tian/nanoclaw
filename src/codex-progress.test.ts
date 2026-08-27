@@ -75,6 +75,30 @@ describe('mapCodexProgress — file_change', () => {
 });
 
 describe('mapCodexProgress — 回归', () => {
+  it('reasoning item 映射为 thinking 而不是工具步骤', () => {
+    const out = mapCodexProgress(
+      completed({
+        id: 'reasoning-1',
+        type: 'reasoning',
+        text: '先比较两个实现的终态行为。',
+      }),
+    );
+    expect(out).toEqual([
+      expect.objectContaining({
+        status: 'progress',
+        progressType: 'thinking',
+        detail: '先比较两个实现的终态行为。',
+      }),
+    ]);
+    expect(out[0].progress).toBeUndefined();
+  });
+
+  it('没有公开文本的 reasoning item 安全忽略', () => {
+    expect(
+      mapCodexProgress(completed({ id: 'reasoning-empty', type: 'reasoning' })),
+    ).toEqual([]);
+  });
+
   it('command_execution 仍显示命令 + bash detail', () => {
     const out = mapCodexProgress(
       started({ id: 'c1', type: 'command_execution', command: 'npm test' }),

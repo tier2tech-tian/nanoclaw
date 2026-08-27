@@ -30,7 +30,11 @@ import {
   TIMEZONE,
 } from './config.js';
 import { getChatIndex } from './chat-index.js';
-import { shouldFilterProgress, isModelRefusal } from './output-filters.js';
+import {
+  shouldFilterProgress,
+  isModelRefusal,
+  routeThinkingProgress,
+} from './output-filters.js';
 import {
   buildSessionRecoveryMessage,
   isSessionRecoveryError,
@@ -778,7 +782,27 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   const mainOnOutput = async (result: ContainerOutput) => {
     // 进度消息 — 转发给 channel 显示进度卡片
     if (result.status === 'progress' && result.result) {
-      // thinking 类型的 progress 不发给用户（模型内部思考过程，发出去会触发死循环）
+      if (
+        await routeThinkingProgress(
+          channel,
+          chatJid,
+          result.progressType,
+          result.detail ?? result.result.replace(/^💭\s*/u, ''),
+          (err) => {
+            logger.warn(
+              { err, chatJid },
+              '[progress] thinking 进度载体更新失败，已降级忽略',
+            );
+          },
+        )
+      ) {
+        logger.info(
+          { chatJid, supported: !!channel.updateThinking },
+          '[progress] thinking 已走 Channel 专用进度路径',
+        );
+        return;
+      }
+      // 防御性兜底：thinking 绝不降级成普通消息，避免触发新一轮处理。
       if (shouldFilterProgress(result.progressType)) {
         logger.info(
           { chatJid, text: result.result.slice(0, 100) },
