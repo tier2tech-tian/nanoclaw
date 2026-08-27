@@ -837,13 +837,34 @@ describe('classifyProgressAction', () => {
     );
   });
 
-  it('未知命令无阶段时使用中性文案且不泄露命令', () => {
+  it.each([
+    ['./foo --bar secret', '正在执行自定义命令'],
+    [
+      "/bin/zsh -lc 'gh project field-list 9 --owner TierIITech --format json'",
+      '正在执行 gh project field-list',
+    ],
+    [
+      'sqlite3 /Users/test/private.db "select token from secrets"',
+      '正在执行 sqlite3 命令',
+    ],
+    [
+      'LABEL="customer alpha" ./deploy --token hidden',
+      '正在执行 deploy 命令',
+    ],
+    ['git checkout customer-acquisition', '正在执行 git checkout'],
+    ['docker run internal-payroll', '正在执行 docker run'],
+    ['./customer-alpha-deploy --dry-run', '正在执行自定义命令'],
+  ])('未知命令展示安全的命令摘要：%s', (command, expected) => {
     const action = classifyProgressAction(
-      started('Bash', { command: './foo --bar secret' }),
+      started('Bash', { command }),
     );
-    expect(action.title).toBe('正在执行系统检查');
-    expect(action.title).not.toContain('foo');
+    expect(action.title).toBe(expected);
     expect(action.title).not.toContain('secret');
+    expect(action.title).not.toContain('/Users');
+    expect(action.title).not.toContain('alpha');
+    expect(action.title).not.toContain('acquisition');
+    expect(action.title).not.toContain('payroll');
+    expect(action.title).not.toContain('customer');
   });
 
   it('阶段和真实计划不泄露路径、消息 ID 与内部地址', () => {
@@ -903,7 +924,7 @@ describe('classifyProgressAction', () => {
     expect(nestedSecret.title).toBe('正在搜索聊天记录');
     expect(sensitiveUpload.title).toBe('正在上传敏感配置文件');
     expect(internalEndpoint.title).toBe('正在检查 health 服务响应');
-    expect(unknown.title).toBe('正在执行系统检查');
+    expect(unknown.title).toBe('正在执行自定义命令');
     expect(visible).not.toMatch(/canary|user:pass|10\.0\.0\.8/u);
   });
 
@@ -1251,7 +1272,7 @@ describe('reduceProgressPresentation', () => {
       expect.objectContaining({
         goal: '验证失败状态展示。',
         status: 'failed',
-        outcome: '执行系统检查失败：退出码 7',
+        outcome: '执行 exit 命令失败：退出码 7',
       }),
     ]);
   });
@@ -1283,10 +1304,10 @@ describe('reduceProgressPresentation', () => {
     });
 
     expect(state.steps[0].title).toBe(
-      '执行系统检查失败：checkdir error: cannot create archive',
+      '执行 unzip 命令失败：checkdir error: cannot create arc…',
     );
     expect((state as any).phases[0].outcome).toBe(
-      '执行系统检查失败：checkdir error: cannot create archive',
+      '执行 unzip 命令失败：checkdir error: cannot create arc…',
     );
   });
 
@@ -1402,7 +1423,7 @@ describe('reduceProgressPresentation', () => {
           'failed at "/Users/dajay/My Projects/private/file.txt" then retry',
       },
     });
-    expect(state.steps[0].title).toBe('执行系统检查失败：failed at 相关文件');
+    expect(state.steps[0].title).toBe('执行 deploy 命令失败：failed at 相关文件');
   });
 
   it('阶段上下文持续生效且不会被四十个工具步骤挤掉', () => {
@@ -2078,7 +2099,7 @@ describe('reduceProgressPresentation', () => {
       );
       state = completeWithExit(state, 'd-1', 1);
       expect(state.steps[0].status).toBe('failed');
-      expect(state.steps[0].title).toBe('执行系统检查失败：退出码 1');
+      expect(state.steps[0].title).toBe('执行 diff 命令失败：退出码 1');
     });
   });
 
@@ -2217,6 +2238,83 @@ describe('reduceProgressPresentation', () => {
     });
     expect(state.steps).toHaveLength(1);
     expect(state.steps[0].title).toBe('正在运行测试');
+  });
+
+  it('连续相同命令合并为同一个 fallback 阶段', () => {
+    let state = createProgressPresentationState();
+    state = reduceProgressPresentation(state, {
+      kind: 'tool',
+      progress: started('Bash', { command: 'sqlite3 first.db ".schema"' }, 'db-1'),
+    });
+    state = reduceProgressPresentation(state, {
+      kind: 'tool',
+      progress: {
+        provider: 'codex',
+        lifecycle: 'completed',
+        toolName: 'command_execution',
+        toolCallId: 'db-1',
+        exitCode: 0,
+      },
+    });
+    state = reduceProgressPresentation(state, {
+      kind: 'tool',
+      progress: started('Bash', { command: 'sqlite3 second.db ".tables"' }, 'db-2'),
+    });
+
+    expect(state.phases).toHaveLength(1);
+    expect(state.phases[0]).toMatchObject({
+      goal: '正在执行 sqlite3 命令',
+      status: 'running',
+      toolCallIds: ['db-1', 'db-2'],
+    });
+  });
+
+  it('新轮次的相同命令不合并进上一轮 fallback 阶段', () => {
+    let state = createProgressPresentationState();
+    state = reduceProgressPresentation(state, {
+      kind: 'tool',
+      progress: started('Bash', { command: 'sqlite3 first.db ".schema"' }, 'db-1'),
+    });
+    state = reduceProgressPresentation(state, {
+      kind: 'tool',
+      progress: {
+        provider: 'codex',
+        lifecycle: 'completed',
+        toolName: 'command_execution',
+        toolCallId: 'db-1',
+        exitCode: 0,
+      },
+    });
+    state = reduceProgressPresentation(state, { kind: 'turn_end' });
+    state = reduceProgressPresentation(state, {
+      kind: 'tool',
+      progress: started('Bash', { command: 'sqlite3 second.db ".tables"' }, 'db-2'),
+    });
+
+    expect(state.phases).toHaveLength(2);
+    expect(state.phases.map((phase) => phase.toolCallIds)).toEqual([
+      ['db-1'],
+      ['db-2'],
+    ]);
+  });
+
+  it('新轮次的 narration 不追加进上一轮已封口阶段', () => {
+    let state = createProgressPresentationState();
+    state = reduceProgressPresentation(state, {
+      kind: 'narration',
+      text: '先检查当前状态。',
+    });
+    state = reduceProgressPresentation(state, { kind: 'turn_end' });
+    state = reduceProgressPresentation(state, {
+      kind: 'narration',
+      text: '再检查最新状态。',
+    });
+
+    expect(state.phases).toHaveLength(2);
+    expect(state.phases.map((phase) => phase.narrationText)).toEqual([
+      '先检查当前状态。',
+      '再检查最新状态。',
+    ]);
   });
 
   it('失败、取消和缺失结果不误报成功', () => {

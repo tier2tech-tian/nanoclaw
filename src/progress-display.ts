@@ -65,6 +65,8 @@ export interface PresentationPhase {
   narrationText?: string;
   /** 该 narration 之后是否已有工具活动（含 ToolSearch/plan 控制/completion-only 事件），驱动连续 narration 合并判定 */
   hasToolActivity?: boolean;
+  /** turn_end 后封口，禁止下一轮继续复用该阶段。 */
+  turnClosed?: boolean;
   currentAction?: string;
   categories: ProgressCategory[];
   actionSummaries?: string[];
@@ -605,6 +607,88 @@ function simpleShellAction(
     : actionText('正在查看当前目录', '查看当前目录', base, 'read');
 }
 
+const SAFE_PRIMARY_SUBCOMMANDS: Readonly<Record<string, readonly string[]>> = {
+  cargo: ['build', 'check', 'clippy', 'fmt', 'run', 'test', 'update'],
+  docker: ['build', 'compose', 'exec', 'images', 'logs', 'ps', 'pull', 'push', 'restart', 'run', 'start', 'stop'],
+  gh: ['auth', 'issue', 'pr', 'project', 'release', 'repo', 'run', 'workflow'],
+  git: ['add', 'blame', 'branch', 'checkout', 'cherry-pick', 'clone', 'commit', 'diff', 'fetch', 'log', 'merge', 'pull', 'push', 'rebase', 'remote', 'reset', 'restore', 'revert', 'show', 'status', 'switch', 'tag', 'worktree'],
+  go: ['build', 'clean', 'env', 'fmt', 'generate', 'get', 'install', 'list', 'mod', 'run', 'test', 'tool', 'version', 'vet'],
+  npm: ['ci', 'exec', 'install', 'publish', 'run', 'test', 'version'],
+  openspec: ['archive', 'list', 'show', 'status', 'validate'],
+  pnpm: ['add', 'build', 'install', 'run', 'test'],
+  systemctl: ['reload', 'restart', 'start', 'status', 'stop'],
+  yarn: ['add', 'build', 'install', 'run', 'test'],
+};
+
+const SAFE_SECONDARY_SUBCOMMANDS: Readonly<Record<string, readonly string[]>> = {
+  'docker compose': ['build', 'config', 'down', 'exec', 'logs', 'ps', 'pull', 'restart', 'run', 'start', 'stop', 'up'],
+  'gh issue': ['close', 'comment', 'create', 'edit', 'list', 'reopen', 'status', 'view'],
+  'gh pr': ['checks', 'close', 'comment', 'create', 'diff', 'edit', 'list', 'merge', 'ready', 'reopen', 'review', 'status', 'view'],
+  'gh project': ['field-list', 'item-list', 'list', 'view'],
+  'gh repo': ['clone', 'create', 'edit', 'fork', 'list', 'view'],
+  'go mod': ['download', 'edit', 'graph', 'init', 'tidy', 'vendor', 'verify', 'why'],
+};
+
+const SAFE_EXECUTABLE_NAMES = new Set([
+  ...Object.keys(SAFE_PRIMARY_SUBCOMMANDS),
+  'awk',
+  'bun',
+  'cmake',
+  'cp',
+  'deploy',
+  'diff',
+  'exit',
+  'jq',
+  'kubectl',
+  'make',
+  'mkdir',
+  'mv',
+  'npx',
+  'query',
+  'rsync',
+  'sqlite3',
+  'tar',
+  'unzip',
+  'zip',
+]);
+
+function safeCommandWord(value: string): string | undefined {
+  const word = cleanShellToken(value).split(/[\\/]/u).at(-1) ?? '';
+  if (!/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/u.test(word)) return undefined;
+  if (/(?:credential|password|secret|token|private[_-]?key)/iu.test(word))
+    return undefined;
+  return word;
+}
+
+/** 未识别命令只展示可执行名和白名单子命令，不展示位置参数与 flags。 */
+function safeShellCommandSummary(command: string): string | undefined {
+  const invocation = shellInvocation(command);
+  if (!invocation) return undefined;
+  const executable = safeCommandWord(invocation.name);
+  if (!executable) return undefined;
+  const executableKey = executable.toLowerCase().replace(/\.(?:bash|sh|zsh)$/u, '');
+  if (!SAFE_EXECUTABLE_NAMES.has(executableKey)) return undefined;
+  const subcommands: string[] = [];
+  const tokens = shellTokens(invocation.args, 0).map(cleanShellToken);
+  const primary = safeCommandWord(tokens[0] ?? '');
+  if (
+    primary &&
+    SAFE_PRIMARY_SUBCOMMANDS[executableKey]?.includes(primary.toLowerCase())
+  ) {
+    subcommands.push(primary);
+    const secondary = safeCommandWord(tokens[1] ?? '');
+    if (
+      secondary &&
+      SAFE_SECONDARY_SUBCOMMANDS[`${executableKey} ${primary.toLowerCase()}`]?.includes(
+        secondary.toLowerCase(),
+      )
+    ) {
+      subcommands.push(secondary);
+    }
+  }
+  return [executableKey, ...subcommands].join(' ');
+}
+
 function actionText(
   running: string,
   completed: string,
@@ -718,7 +802,7 @@ function unwrapShellCommand(command: string): string | undefined {
   return wrapper[1] === '"' ? wrapper[2].replace(/\\"/gu, '"') : wrapper[2];
 }
 
-function interpreterInvocation(
+function shellInvocation(
   command: string,
 ): { name: string; args: string } | undefined {
   let remaining = command.trimStart();
@@ -779,9 +863,21 @@ function interpreterInvocation(
   const name = (
     executable.split(/[\\/]/u).at(-1)?.toLowerCase() ?? ''
   ).replace(/\.exe$/u, '');
-  if (!/^(?:python(?:\d+(?:\.\d+)*)?|node|ruby|perl)$/u.test(name))
-    return undefined;
   return { name, args: invocation[4].trimStart() };
+}
+
+function interpreterInvocation(
+  command: string,
+): { name: string; args: string } | undefined {
+  const invocation = shellInvocation(command);
+  if (
+    !invocation ||
+    !/^(?:python(?:\d+(?:\.\d+)*)?|node|ruby|perl|env|command)$/u.test(
+      invocation.name,
+    )
+  )
+    return undefined;
+  return invocation;
 }
 
 function probeExecutableOf(
@@ -1351,9 +1447,20 @@ function classifyProgressActionInner(
   }
   const simpleAction = simpleShellAction(command, base);
   if (simpleAction) return simpleAction;
+  const commandSummary = safeShellCommandSummary(command);
+  if (commandSummary) {
+    const suffix = commandSummary.includes(' ') ? '' : ' 命令';
+    return actionText(
+      `正在执行 ${commandSummary}${suffix}`,
+      `执行 ${commandSummary}${suffix}`,
+      base,
+      'system',
+      'fallback',
+    );
+  }
   return actionText(
-    '正在执行系统检查',
-    '执行系统检查',
+    '正在执行自定义命令',
+    '执行自定义命令',
     base,
     'system',
     'fallback',
@@ -1592,7 +1699,12 @@ function upsertPhaseForStarted(
       )
     : state.activePhaseId
       ? phases.findIndex((phase) => phase.id === state.activePhaseId)
-      : -1;
+      : source === 'fallback' &&
+          phases.at(-1)?.source === 'fallback' &&
+          !phases.at(-1)?.turnClosed &&
+          phases.at(-1)?.goal === action.title
+        ? phases.length - 1
+        : -1;
   if (phaseIndex < 0) {
     const id = `phase-${phases.length + 1}`;
     phases.push({
@@ -1647,9 +1759,8 @@ function completedTitle(step: PresentationStep): string {
   return step.title;
 }
 
-// 与飞书 Phase 动作行 48cp 总预算对齐：最长动作前缀
-// “执行系统检查失败：”占 9cp，原因 38cp + 省略号后刚好不触发二次截断。
-const FAILURE_REASON_BUDGET = 38;
+// 与飞书 Phase 动作行 48cp 总预算对齐，避免渲染层再次做中段截断。
+const FAILURE_LINE_BUDGET = 48;
 const CREDENTIAL_ASSIGNMENT_LINE =
   /(?:^|[\s"'`])(?:authorization|cookie|set-cookie|[A-Z0-9_]*(?:api[_-]?key|token|secret|password|passwd))\s*[:=]/iu;
 const ANSI_ESCAPE_PATTERN = new RegExp(
@@ -1657,7 +1768,10 @@ const ANSI_ESCAPE_PATTERN = new RegExp(
   'gu',
 );
 
-function failureReason(summary: string | undefined): string | undefined {
+function failureReason(
+  summary: string | undefined,
+  budget: number,
+): string | undefined {
   if (!summary) return undefined;
   const reason = summary
     .replace(ANSI_ESCAPE_PATTERN, '')
@@ -1682,8 +1796,8 @@ function failureReason(summary: string | undefined): string | undefined {
     .trim();
   if (!safe) return undefined;
   const codePoints = Array.from(safe);
-  return codePoints.length > FAILURE_REASON_BUDGET
-    ? `${codePoints.slice(0, FAILURE_REASON_BUDGET).join('')}…`
+  return codePoints.length > budget
+    ? `${codePoints.slice(0, Math.max(0, budget - 1)).join('')}…`
     : safe;
 }
 
@@ -1697,7 +1811,11 @@ function failedTitle(
     : step.title;
   const separator = /[\x21-\x7e]$/u.test(action) ? ' ' : '';
   const base = `${action}${separator}失败`;
-  const reason = failureReason(resultSummary);
+  const reasonBudget = Math.max(
+    1,
+    FAILURE_LINE_BUDGET - Array.from(`${base}：`).length,
+  );
+  const reason = failureReason(resultSummary, reasonBudget);
   if (reason) return `${base}：${reason}`;
   return exitCode != null ? `${base}：退出码 ${exitCode}` : base;
 }
@@ -1741,6 +1859,7 @@ export function reduceProgressPresentation(
     if (
       latest &&
       latest.source === 'narration' &&
+      !latest.turnClosed &&
       !latest.hasToolActivity
     ) {
       const phases = [...state.phases];
@@ -1762,7 +1881,8 @@ export function reduceProgressPresentation(
     // 开局裸动作行（fallback）原地升级为首个 narration Phase
     const fallbackIndex =
       state.phases.length > 0 &&
-      state.phases.every((phase) => phase.source === 'fallback')
+      state.phases.every((phase) => phase.source === 'fallback') &&
+      !state.phases.at(-1)?.turnClosed
         ? state.phases.length - 1
         : -1;
     if (fallbackIndex >= 0) {
@@ -1814,13 +1934,17 @@ export function reduceProgressPresentation(
             : { ...step, status: 'unknown', title: unknownTitle(step.category) }
           : step,
       ),
-      phases: state.phases.map((phase) =>
-        phase.status === 'running'
-          ? phase.source === 'plan'
-            ? phase
-            : { ...phase, status: 'unknown', outcome: unknownPhaseOutcome(phase) }
-          : phase,
-      ),
+      phases: state.phases.map((phase) => {
+        if (phase.source === 'plan') return phase;
+        return phase.status === 'running'
+          ? {
+              ...phase,
+              status: 'unknown',
+              outcome: unknownPhaseOutcome(phase),
+              turnClosed: true,
+            }
+          : { ...phase, turnClosed: true };
+      }),
     };
   }
 

@@ -1117,7 +1117,7 @@ describe('FeishuChannel', () => {
       expect(
         record?.steps.find((step: any) => step.toolCallId === 'hidden-0')
           ?.title,
-      ).toBe('已执行系统检查');
+      ).toBe('已执行自定义命令');
     });
 
     it('完成结果与 started 技术详情有界合并，不覆盖原命令', async () => {
@@ -1195,14 +1195,14 @@ describe('FeishuChannel', () => {
 
       const entry = (channel as any).progressCards.get(jid);
       expect(entry.steps[0].grayTail).toBe(
-        '执行系统检查失败：ODPS column project_name cannot be res…',
+        '执行 query 命令失败：ODPS column project_name cannot b…',
       );
       const patchArg = mockPatch.mock.calls.at(-1)?.[0];
       const serialized = JSON.stringify(
         JSON.parse(patchArg?.data?.content ?? '{}'),
       );
       expect(serialized).toContain(
-        '执行系统检查失败：ODPS column project&#95;name cannot be res…',
+        '执行 query 命令失败：ODPS column project&#95;name cannot b…',
       );
     });
 
