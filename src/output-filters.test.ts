@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import * as outputFilters from './output-filters.js';
 
 import {
   MODEL_REFUSAL_PATTERN,
@@ -35,6 +36,55 @@ describe('shouldFilterProgress', () => {
   it('不过滤其他类型', () => {
     expect(shouldFilterProgress('progress')).toBe(false);
     expect(shouldFilterProgress('status')).toBe(false);
+  });
+});
+
+describe('routeThinkingProgress', () => {
+  it('thinking 只调用 Channel 专用能力', async () => {
+    const updateThinking = vi.fn().mockResolvedValue(undefined);
+    const sendMessage = vi.fn();
+    const handled = await (outputFilters as any).routeThinkingProgress(
+      { updateThinking, sendMessage } as any,
+      'fs:oc_thinking',
+      'thinking',
+      '先检查真实事件。',
+    );
+
+    expect(handled).toBe(true);
+    expect(updateThinking).toHaveBeenCalledWith(
+      'fs:oc_thinking',
+      '先检查真实事件。',
+    );
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('不支持专用能力时仍消费 thinking，绝不降级普通消息', async () => {
+    const sendMessage = vi.fn();
+    const handled = await (outputFilters as any).routeThinkingProgress(
+      { sendMessage } as any,
+      'tg:chat',
+      'thinking',
+      '不会作为普通消息发出',
+    );
+
+    expect(handled).toBe(true);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('专用载体更新失败时仍消费 thinking，并上报错误', async () => {
+    const error = new Error('patch failed');
+    const updateThinking = vi.fn().mockRejectedValue(error);
+    const onError = vi.fn();
+    const handled = await (outputFilters as any).routeThinkingProgress(
+      { updateThinking } as any,
+      'fs:oc_thinking',
+      'thinking',
+      '公开思考摘要',
+      onError,
+    );
+
+    expect(handled).toBe(true);
+    expect(onError).toHaveBeenCalledWith(error);
   });
 });
 

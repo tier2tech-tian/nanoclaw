@@ -5,7 +5,11 @@
  * 所有函数无副作用，可直接单元测试。
  */
 
-import { boundProgressInput, type StructuredProgress } from './progress-types.js';
+import {
+  boundProgressInput,
+  redactProgressText,
+  type StructuredProgress,
+} from './progress-types.js';
 
 // ---- SSE 事件类型 ----
 
@@ -44,8 +48,9 @@ export interface ContentBlockStartData {
   type: 'content_block_start';
   index: number;
   content_block: {
-    type: 'text' | 'tool_use';
+    type: 'text' | 'thinking' | 'tool_use';
     text?: string;
+    thinking?: string;
     id?: string;
     name?: string;
     input?: unknown;
@@ -57,8 +62,9 @@ export interface ContentBlockDeltaData {
   type: 'content_block_delta';
   index: number;
   delta: {
-    type: 'text_delta' | 'input_json_delta';
+    type: 'text_delta' | 'thinking_delta' | 'input_json_delta';
     text?: string;
+    thinking?: string;
     partial_json?: string;
   };
 }
@@ -88,7 +94,12 @@ export interface ToolUseBlock {
   inputJson: string;
 }
 
-export type ContentBlock = TextBlock | ToolUseBlock;
+export interface ThinkingBlock {
+  type: 'thinking';
+  thinking: string;
+}
+
+export type ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock;
 
 // ---- Message 累积器 ----
 
@@ -233,6 +244,11 @@ export function accumulateSseEvent(
       const block = data.content_block;
       if (block.type === 'text') {
         next.blocks.set(data.index, { type: 'text', text: block.text || '' });
+      } else if (block.type === 'thinking') {
+        next.blocks.set(data.index, {
+          type: 'thinking',
+          thinking: block.thinking || '',
+        });
       } else if (block.type === 'tool_use') {
         next.blocks.set(data.index, {
           type: 'tool_use',
@@ -253,6 +269,14 @@ export function accumulateSseEvent(
         next.blocks.set(data.index, {
           ...existing,
           text: existing.text + (data.delta.text || ''),
+        });
+      } else if (
+        existing.type === 'thinking' &&
+        data.delta.type === 'thinking_delta'
+      ) {
+        next.blocks.set(data.index, {
+          ...existing,
+          thinking: existing.thinking + (data.delta.thinking || ''),
         });
       } else if (existing.type === 'tool_use' && data.delta.type === 'input_json_delta') {
         next.blocks.set(data.index, {
@@ -392,6 +416,26 @@ export function buildTextProgress(block: TextBlock): ContainerOutput | null {
     result: `💬 ${short}`,
     progressType: 'text',
     detail: stripped.length > 80 ? stripped : undefined,
+  };
+}
+
+/** 把模型公开提供的 thinking/reasoning 映射为专用进度，不混入普通文本。 */
+export function buildThinkingProgress(
+  block: ThinkingBlock,
+): ContainerOutput | null {
+  const redacted = redactProgressText(block.thinking).trim();
+  if (!redacted) return null;
+  const codePoints = Array.from(redacted);
+  const truncated = codePoints.length > 20_000;
+  const detail =
+    codePoints.slice(0, 20_000).join('') +
+    (truncated ? '\n\n（上游 thinking 内容已截断）' : '');
+  const short = Array.from(detail).slice(0, 80).join('');
+  return {
+    status: 'progress',
+    result: `💭 ${short}${Array.from(detail).length > 80 ? '...' : ''}`,
+    progressType: 'thinking',
+    detail,
   };
 }
 

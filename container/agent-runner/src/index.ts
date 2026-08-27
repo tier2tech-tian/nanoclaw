@@ -56,6 +56,7 @@ import {
   type ClaudeToolResultBlock,
   type StructuredProgress,
 } from './progress-types.js';
+import { buildThinkingProgress } from './sse-parser.js';
 
 interface ContainerInput {
   prompt: string;
@@ -893,7 +894,7 @@ async function runQuery(
   //
   // 背景：assistant message.content 数组里有两种"非工具调用"块：
   //   - block.type === 'text'     → 模型给用户看的回复内容（含工具调用之间的叙述性文字）
-  //   - block.type === 'thinking' → 模型内部独白（reasoning），accumulateSseEvent 不累积
+  //   - block.type === 'thinking' → 模型公开 thinking，走专用 progress，不加入 text 候选
   //
   // 这里缓存的全是 text block — 历史变量名叫 pendingThought 是误导，实际语义是
   // "可能是中间叙述也可能是最终回复的一段文本"。决策时机（按到达顺序优先级）：
@@ -1195,12 +1196,19 @@ async function runQuery(
     if (message.type === 'assistant') {
       const msg = message as Record<string, unknown>;
       const innerMsg = msg.message as Record<string, unknown> | undefined;
-      const innerContent = innerMsg?.content as Array<{ type: string; name?: string; input?: unknown; text?: string }> | undefined;
-      const outerContent = msg.content as Array<{ type: string; name?: string; input?: unknown; text?: string }> | undefined;
+      const innerContent = innerMsg?.content as Array<{ type: string; name?: string; input?: unknown; text?: string; thinking?: string }> | undefined;
+      const outerContent = msg.content as Array<{ type: string; name?: string; input?: unknown; text?: string; thinking?: string }> | undefined;
       const content = innerContent || outerContent;
       log(`[assistant] innerKeys=${innerMsg ? Object.keys(innerMsg).join(',') : 'N/A'}, contentTypes=${Array.isArray(content) ? content.map(b => b.type).join(',') : 'none'}`);
       if (Array.isArray(content)) {
         for (const block of content) {
+          if (block.type === 'thinking' && block.thinking) {
+            const progress = buildThinkingProgress({
+              type: 'thinking',
+              thinking: block.thinking,
+            });
+            if (progress) writeOutput(progress);
+          }
           // 工具调用 — 提取工具名、输入摘要、详情
           if (block.type === 'tool_use' && block.name) {
             // 累积「当前缓存文本之后出现的工具名」，供 tool_result 到达时判定是否
