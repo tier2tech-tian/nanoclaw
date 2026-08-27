@@ -4,9 +4,18 @@
 # 原理: launchctl kickstart -k 会优雅杀掉旧进程树并按 start.sh 重新拉起，
 #       绝不手动 kill/pkill（会引发双实例或自杀死循环）。
 
-set -e
 LABEL="com.nanoclaw"
 LOG="/Users/dajay/AI_Workspace/nanoclaw/logs/nanoclaw.log"
+NOTIFY_CHAT="${REBOOT_NOTIFY_CHAT:-oc_0a34db4c63283dc7f75589cbb4a02bda}"
+
+notify_failure() {
+  local msg="$1"
+  LARK_CLI_NO_PROXY=1 lark-cli im +messages-send --chat-id "$NOTIFY_CHAT" \
+    --text "[reboot] ❌ $msg" 2>/dev/null || true
+}
+
+set -e
+trap 'notify_failure "重启失败：$(tail -3 /Users/dajay/AI_Workspace/nanoclaw/logs/reboot-command.log | tr "\n" " ")"' ERR
 
 OLDPID=$(launchctl list | awk -v l="$LABEL" '$0 ~ l {print $1}')
 echo "[restart] 旧主进程 PID: ${OLDPID:-无}"
@@ -43,8 +52,7 @@ fi
 
 echo "[restart] 完成。实时日志: tail -f $LOG"
 
-# 重启结果通知到飞书主群（REBOOT_NOTIFY_CHAT 可覆盖）
-NOTIFY_CHAT="${REBOOT_NOTIFY_CHAT:-oc_0a34db4c63283dc7f75589cbb4a02bda}"
+# 重启结果通知到飞书主群
 if [ -n "$NEWPID" ] && [ "$NEWPID" != "$OLDPID" ]; then
   LARK_CLI_NO_PROXY=1 lark-cli im +messages-send --chat-id "$NOTIFY_CHAT" \
     --text "[reboot] ✅ 重启成功，新 PID: $NEWPID" 2>/dev/null || true
