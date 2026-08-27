@@ -241,6 +241,8 @@ export function buildCodexArgs(config: {
     args.push('-m', config.model);
   }
 
+  args.push('-c', 'model_reasoning_summary="detailed"');
+
   if (config.effort) {
     args.push('-c', `model_reasoning_effort="${config.effort}"`);
   }

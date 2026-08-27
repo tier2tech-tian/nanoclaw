@@ -437,6 +437,12 @@ describe('readCodexModelInfo', () => {
 });
 
 describe('buildCodexArgs', () => {
+  it('始终请求 Codex 输出公开推理摘要', () => {
+    const args = buildCodexArgs({ model: 'gpt-5.6-sol' });
+
+    expect(args).toContain('model_reasoning_summary="detailed"');
+  });
+
   it('包含 effort 时输出 -c model_reasoning_effort', () => {
     const args = buildCodexArgs({
       model: 'gpt-5.6-sol',
@@ -444,8 +450,7 @@ describe('buildCodexArgs', () => {
       mcpConfigPath: '/tmp/config.toml',
     });
     expect(args).toContain('-c');
-    const cIdx = args.indexOf('-c');
-    expect(args[cIdx + 1]).toBe('model_reasoning_effort="ultra"');
+    expect(args).toContain('model_reasoning_effort="ultra"');
   });
 
   it('无 effort 时不输出 -c', () => {
