@@ -1,31 +1,5 @@
 import { describe, it, expect } from 'vitest';
-
-/**
- * 空壳 result 判定逻辑的单元测试。
- * 验证 isNoOp 条件：字段必须明确存在且等于 0，缺失不算。
- */
-
-interface ResultMsg {
-  num_turns?: number;
-  total_cost_usd?: number;
-}
-interface RawUsage {
-  input_tokens?: number;
-  output_tokens?: number;
-}
-
-function isNoOpResult(
-  hasResult: boolean,
-  promotedFinalText: string | null,
-  numTurns: number | undefined,
-  rawUsage: RawUsage | undefined,
-): boolean {
-  return !hasResult && !promotedFinalText
-    && numTurns === 0
-    && rawUsage !== undefined
-    && rawUsage.input_tokens === 0
-    && rawUsage.output_tokens === 0;
-}
+import { isNoOpResult } from './noop-result.js';
 
 describe('isNoOpResult 空壳 result 判定', () => {
   it('标准空壳：0 turns + 0 usage + 无 result → true', () => {

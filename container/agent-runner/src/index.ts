@@ -25,6 +25,7 @@ import {
 import { fileURLToPath } from 'url';
 import { runCliQuery } from './cli-runner.js';
 import { runCodexQuery } from './codex-runner.js';
+import { isNoOpResult } from './noop-result.js';
 import { runGeminiQuery } from './gemini-runner.js';
 import {
   runInteractiveQuery,
@@ -1405,12 +1406,7 @@ async function runQuery(
         log(`[result] ⚠️ result 为空但有 ${rawUsage?.output_tokens} output tokens — 模型可能仅产出 thinking 无 text content`);
       }
       const numTurns = msg.num_turns as number | undefined;
-      // 空壳判定：字段必须明确存在且等于 0，缺失不算（防吞协议异常）
-      const isNoOp = !hasResult && !promotedFinalText
-        && numTurns === 0
-        && rawUsage !== undefined
-        && rawUsage.input_tokens === 0
-        && rawUsage.output_tokens === 0;
+      const isNoOp = isNoOpResult(hasResult, promotedFinalText, numTurns, rawUsage);
       log(
         `[result] #${resultCount} model=${lastAssistantModel || 'unknown'} input=${rawUsage?.input_tokens ?? '?'} output=${rawUsage?.output_tokens ?? '?'} turns=${numTurns ?? '?'} cost=$${((msg.total_cost_usd as number) ?? 0).toFixed(3)} hasResult=${hasResult}${isNoOp ? ' (no-op, skipping)' : ''}`,
       );
