@@ -22,6 +22,7 @@ import { readEnvFile } from './env.js';
 import { OneCLI } from '@onecli-sh/sdk';
 import { CliMode, ContainerConfig, RegisteredGroup } from './types.js';
 import { parseOneCLIList } from './onecli-util.js';
+import { observeQuestionCardToolUse } from './question-card-auth.js';
 
 // resolveCliMode 已抽到无副作用的 cli-mode.ts；import 供本模块使用 + re-export 保持既有 import 路径兼容。
 import {
@@ -347,6 +348,12 @@ export interface ContainerOutput {
   progress?: import('./progress-display.js').StructuredProgress;
   /** CLI interactive 模式：终端态错误已污染当前 Claude session，需要提示用户决定是否清理。 */
   terminalSessionCorruption?: boolean;
+  terminalReply?: boolean;
+  questionCardToolUse?: {
+    toolName: string;
+    toolCallId?: string;
+    input: Record<string, unknown>;
+  };
   usage?: {
     inputTokens: number;
     outputTokens: number;
@@ -912,6 +919,15 @@ export async function runContainerAgent(
             lastStreamingOutput = parsed;
             if (parsed.newSessionId) {
               newSessionId = parsed.newSessionId;
+            }
+            if (parsed.questionCardToolUse) {
+              observeQuestionCardToolUse(
+                group.folder,
+                input.chatJid,
+                parsed.questionCardToolUse.toolName,
+                parsed.questionCardToolUse.input,
+                parsed.questionCardToolUse.toolCallId,
+              );
             }
             const now = Date.now();
             const gap = ((now - lastOutputTime) / 1000).toFixed(1);

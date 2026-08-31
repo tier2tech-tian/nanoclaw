@@ -12,10 +12,12 @@ import fs from 'fs';
 import path from 'path';
 import { CronExpressionParser } from 'cron-parser';
 import { shouldRegisterSendMessage } from './mcp-tool-policy.js';
+import { writeTerminalReplyMarker } from './terminal-reply.js';
 
 const IPC_DIR = process.env.NANOCLAW_IPC_DIR!;
 const MESSAGES_DIR = path.join(IPC_DIR, 'messages');
 const TASKS_DIR = path.join(IPC_DIR, 'tasks');
+const QUESTION_CARDS_DIR = path.join(IPC_DIR, 'question-cards');
 
 // Context from environment variables (set by the agent runner)
 const chatJid = process.env.NANOCLAW_CHAT_JID!;
@@ -1579,6 +1581,64 @@ server.tool(
           {
             type: 'text' as const,
             text: `区间查询失败: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  },
+);
+
+server.tool(
+  'send_question_card',
+  '向当前飞书会话发送问题卡片。支持 1-5 个必答问题、单选和多选；推荐项只高亮不预选。卡片发送成功后当前轮次结束，不要等待回答，也不要再输出确认文字。',
+  {
+    title: z.string().min(1).describe('卡片标题'),
+    questions: z
+      .array(
+        z.object({
+          question: z.string().min(1).describe('问题正文'),
+          multi: z.boolean().optional().default(false).describe('是否多选'),
+          options: z.array(z.string().min(1)).min(2).max(6),
+          recommended: z
+            .array(z.number().int().min(0))
+            .optional()
+            .default([])
+            .describe('推荐项索引，只高亮不勾选'),
+        }),
+      )
+      .min(1)
+      .max(5),
+  },
+  async (args) => {
+    const requestId = crypto.randomUUID();
+    writeIpcFile(QUESTION_CARDS_DIR, {
+      requestId,
+      chatJid,
+      title: args.title,
+      questions: args.questions,
+      timestamp: new Date().toISOString(),
+    });
+    try {
+      const response = await waitForResponse(requestId);
+      if ('error' in response && response.error) {
+        throw new Error(String(response.error));
+      }
+      writeTerminalReplyMarker(IPC_DIR);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: '问题卡片已发送。本轮到此结束，不要再输出确认消息。',
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `问题卡片发送失败：${err instanceof Error ? err.message : String(err)}`,
           },
         ],
         isError: true,

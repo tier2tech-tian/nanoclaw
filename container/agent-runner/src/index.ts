@@ -58,6 +58,10 @@ import {
   type StructuredProgress,
 } from './progress-types.js';
 import { buildThinkingProgress } from './sse-parser.js';
+import {
+  clearTerminalReplyMarker,
+  suppressTerminalReplyOutput,
+} from './terminal-reply.js';
 
 interface ContainerInput {
   prompt: string;
@@ -100,6 +104,12 @@ interface ContainerOutput {
   progress?: StructuredProgress;
   /** CLI interactive 模式：终端态错误已污染当前 Claude session，需要提示用户决定是否清理。 */
   terminalSessionCorruption?: boolean;
+  terminalReply?: boolean;
+  questionCardToolUse?: {
+    toolName: string;
+    toolCallId?: string;
+    input: Record<string, unknown>;
+  };
   /** token 用量（仅 result 消息） */
   usage?: {
     inputTokens: number;
@@ -166,6 +176,11 @@ const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 
 function writeOutput(output: ContainerOutput): void {
+  const suppression = suppressTerminalReplyOutput('/workspace/ipc', output);
+  if (suppression.suppressed) {
+    log('[terminal-reply] 问题卡片已作为本轮回复，抑制重复终态文字');
+  }
+  output = suppression.output;
   console.log(OUTPUT_START_MARKER);
   console.log(JSON.stringify(output));
   console.log(OUTPUT_END_MARKER);
@@ -804,6 +819,7 @@ async function runQuery(
   lastAssistantUuid?: string;
   closedDuringQuery: boolean;
 }> {
+  clearTerminalReplyMarker('/workspace/ipc');
   const { stream, diagnostics: initialDiagnostics } =
     await createMultimodalMessageStream(
       prompt,
@@ -1254,6 +1270,14 @@ async function runQuery(
                 toolCallId: (block as { id?: string }).id,
                 input: boundProgressInput(input),
               },
+              questionCardToolUse:
+                block.name === 'mcp__nanoclaw__send_question_card'
+                  ? {
+                      toolName: block.name,
+                      toolCallId: (block as { id?: string }).id,
+                      input: input ?? {},
+                    }
+                  : undefined,
               newSessionId: undefined,
             });
           }

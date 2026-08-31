@@ -119,6 +119,9 @@ import type { CliMode } from './types.js';
 import { logger } from './logger.js';
 import { finalizeInteractiveTurn } from './progress-turn-finalizer.js';
 import { withLogContext } from './log-context.js';
+import type { QuestionCardDraft } from './question-card.js';
+import { startQuestionCardIpcWatcher } from './question-card-ipc.js';
+import { messageMatchesQuestionCardTrigger } from './question-card-trigger.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -132,6 +135,16 @@ let messageLoopRunning = false;
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
+const activeQuestionCardTurns = new Map<
+  string,
+  {
+    senderId: string;
+    sendQuestionCard: (
+      groupFolder: string,
+      draft: QuestionCardDraft,
+    ) => Promise<string>;
+  }
+>();
 
 /**
  * 单调推进 per-JID cursor。只有 ts > 当前值才写入，防止被旧值覆盖回退。
@@ -544,11 +557,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   if (!isMainGroup && group.requiresTrigger !== false) {
     const triggerPattern = getTriggerPattern(group.trigger);
     const allowlistCfg = loadSenderAllowlist();
-    const hasTrigger = missedMessages.some(
-      (m) =>
+    const hasTrigger = missedMessages.some((m) =>
+      messageMatchesQuestionCardTrigger(
+        m.id,
         m.id.startsWith('ipc_') || // 跨群 IPC 消息直接绕过 trigger 检查
-        (triggerPattern.test(m.content.trim()) &&
-          isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
+          (triggerPattern.test(m.content.trim()) &&
+            isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
+      ),
     );
     if (!hasTrigger) return true;
   }
@@ -780,6 +795,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   // 主 onOutput 回调（提取为命名 const 以便 API error 重试 loop 复用）
   const mainOnOutput = async (result: ContainerOutput) => {
+    if (result.terminalReply) {
+      outputSentToUser = true;
+      everSentToUser = true;
+      queue.notifyIdle(chatJid);
+      logger.info({ chatJid }, '问题卡片已作为本轮终态');
+      return;
+    }
     // 进度消息 — 转发给 channel 显示进度卡片
     if (result.status === 'progress' && result.result) {
       if (
@@ -1149,6 +1171,36 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         );
       });
   };
+
+  const questionCardTurn = {
+    senderId: missedMessages[missedMessages.length - 1].sender,
+    sendQuestionCard: async (groupFolder: string, draft: QuestionCardDraft) => {
+      if (!('sendQuestionCard' in channel)) {
+        throw new Error('问题卡片当前仅支持飞书');
+      }
+      const cardId = await (
+        channel as FeishuChannel & {
+          sendQuestionCard: FeishuChannel['sendQuestionCard'];
+        }
+      ).sendQuestionCard(chatJid, {
+        groupFolder,
+        targetSenderId: missedMessages[missedMessages.length - 1].sender,
+        draft,
+      });
+      outputSentToUser = true;
+      everSentToUser = true;
+      return cardId;
+    },
+  };
+  activeQuestionCardTurns.set(chatJid, questionCardTurn);
+  setTimeout(
+    () => {
+      if (activeQuestionCardTurns.get(chatJid) === questionCardTurn) {
+        activeQuestionCardTurns.delete(chatJid);
+      }
+    },
+    60 * 60 * 1000,
+  );
 
   const output = await runAgent(
     group,
@@ -2167,11 +2219,13 @@ async function startMessageLoop(): Promise<void> {
           if (needsTrigger) {
             const triggerPattern = getTriggerPattern(group.trigger);
             const allowlistCfg = loadSenderAllowlist();
-            const hasTrigger = groupMessages.some(
-              (m) =>
+            const hasTrigger = groupMessages.some((m) =>
+              messageMatchesQuestionCardTrigger(
+                m.id,
                 m.id.startsWith('ipc_') || // 跨群 IPC 消息直接绕过 trigger 检查
-                (triggerPattern.test(m.content.trim()) &&
-                  isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
+                  (triggerPattern.test(m.content.trim()) &&
+                    isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
+              ),
             );
             if (!hasTrigger) continue;
           }
@@ -2660,6 +2714,16 @@ async function main(): Promise<void> {
         logger.info({ chatJid }, '飞书授权卡片已发送');
       }
     },
+  });
+  startQuestionCardIpcWatcher({
+    sendQuestionCard: async ({ chatJid, groupFolder, draft }) => {
+      const activeTurn = activeQuestionCardTurns.get(chatJid);
+      if (!activeTurn) {
+        throw new Error('找不到本轮提问人，无法发送问题卡片');
+      }
+      return activeTurn.sendQuestionCard(groupFolder, draft);
+    },
+    registeredGroups: () => registeredGroups,
   });
   startSessionCleanup();
   queue.setProcessMessagesFn((chatJid) => {

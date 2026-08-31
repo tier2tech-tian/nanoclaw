@@ -39,6 +39,23 @@ import {
 } from '../types.js';
 import type { CliMode } from '../types.js';
 import { notifyVoice } from '../voice-notify.js';
+import {
+  buildQuestionCardJson,
+  buildResolvedQuestionCardJson,
+  formatQuestionCardAnswer,
+  parseQuestionCardSubmission,
+  type QuestionCardAnswers,
+  type QuestionCardDraft,
+} from '../question-card.js';
+import {
+  attachQuestionCardMessage,
+  createQuestionCard,
+  getQuestionCard,
+  getQuestionCardByMessageId,
+  markQuestionCardSendFailed,
+  resolvePendingQuestionCardByText,
+  submitQuestionCardAnswer,
+} from '../question-card-store.js';
 
 import { registerChannel, ChannelOpts } from './registry.js';
 import { writeIpcResponse } from '../ipc.js';
@@ -879,11 +896,12 @@ export class FeishuChannel implements Channel {
           logger.error({ err }, '飞书消息处理失败');
         });
       },
-      'card.action.trigger': (data: any) => {
+      'card.action.trigger': async (data: any) => {
         try {
-          return this.handleCardAction(data);
+          return await this.handleCardAction(data);
         } catch (err) {
           logger.error({ err }, '飞书卡片回调处理失败');
+          return { toast: { type: 'error', content: '提交失败，请稍后重试' } };
         }
       },
     });
@@ -2530,6 +2548,243 @@ export class FeishuChannel implements Channel {
     }
   }
 
+  async sendQuestionCard(
+    jid: string,
+    input: {
+      groupFolder: string;
+      targetSenderId: string;
+      draft: QuestionCardDraft;
+      replaceMessageId?: string;
+    },
+  ): Promise<string> {
+    const cardId = crypto.randomUUID();
+    createQuestionCard({
+      id: cardId,
+      chatJid: jid,
+      groupFolder: input.groupFolder,
+      targetSenderId: input.targetSenderId,
+      draft: input.draft,
+      createdAt: new Date().toISOString(),
+    });
+
+    try {
+      const content = buildQuestionCardJson(cardId, input.draft);
+      let messageId = input.replaceMessageId;
+      const progressEntry = this.progressCards.get(jid);
+      if (!messageId && progressEntry?.messageId) {
+        progressEntry.finalized = true;
+        progressEntry.patchPending = false;
+        await progressEntry.patchLoopPromise;
+        messageId = progressEntry.messageId;
+        this.clearSpinnerTimer(jid);
+        await this.removeTypingReaction(jid);
+        this.progressDone.add(jid);
+        this.progressCards.delete(jid);
+        this.progressPresentations.delete(jid);
+        this.pendingUsage.delete(jid);
+        this.thinkingMode.delete(jid);
+      }
+      if (messageId) {
+        await this.client.im.message.patch({
+          path: { message_id: messageId },
+          data: { content },
+        });
+      } else {
+        const response = await this.client.im.message.create({
+          params: { receive_id_type: 'chat_id' },
+          data: {
+            receive_id: chatIdFromJid(jid),
+            content,
+            msg_type: 'interactive',
+          },
+        });
+        messageId = response?.data?.message_id;
+      }
+      if (!messageId) throw new Error('飞书未返回 message_id');
+      attachQuestionCardMessage(cardId, messageId);
+
+      const current = getQuestionCard(cardId);
+      if (current?.status === 'text_replied') {
+        await this.patchQuestionCard(
+          cardId,
+          messageId,
+          buildResolvedQuestionCardJson(current.draft, {
+            kind: 'text_replied',
+          }),
+        );
+      } else if (
+        current?.status === 'answered' &&
+        current.operatorName &&
+        current.answers
+      ) {
+        await this.patchQuestionCard(
+          cardId,
+          messageId,
+          buildResolvedQuestionCardJson(current.draft, {
+            kind: 'answered',
+            operatorName: current.operatorName,
+            answers: current.answers,
+          }),
+        );
+      }
+      logger.info({ jid, cardId, messageId }, '问题表单卡片发送成功');
+      return cardId;
+    } catch (err) {
+      markQuestionCardSendFailed(cardId);
+      throw err;
+    }
+  }
+
+  private async patchQuestionCard(
+    cardId: string,
+    messageId: string,
+    content: string,
+  ): Promise<void> {
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        await this.client.im.message.patch({
+          path: { message_id: messageId },
+          data: { content },
+        });
+        return;
+      } catch (err) {
+        if (attempt === 2) {
+          logger.warn(
+            { err, cardId, messageId },
+            '问题卡片更新连续失败（业务状态已生效）',
+          );
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
+  }
+
+  private async handleQuestionCardAction(
+    rawData: any,
+  ): Promise<Record<string, unknown> | undefined> {
+    const data = rawData?.event ?? rawData;
+    const action = data?.action ?? rawData?.action;
+    let value: Record<string, unknown> = {};
+    if (typeof action?.value === 'string') {
+      try {
+        value = JSON.parse(action.value);
+      } catch {
+        return undefined;
+      }
+    } else if (action?.value && typeof action.value === 'object') {
+      value = action.value;
+    }
+
+    const messageId = data?.context?.open_message_id;
+    const cardByMessage = messageId
+      ? getQuestionCardByMessageId(messageId)
+      : undefined;
+    if (value.action !== 'question_card' && !cardByMessage) return undefined;
+
+    const cardId =
+      typeof value.cardId === 'string'
+        ? value.cardId
+        : (cardByMessage?.id ?? '');
+    if (cardByMessage && cardId && cardByMessage.id !== cardId) {
+      return { toast: { type: 'warning', content: '卡片参数不匹配' } };
+    }
+    const card =
+      cardByMessage ?? (cardId ? getQuestionCard(cardId) : undefined);
+    if (!card) return { toast: { type: 'info', content: '该问题已失效' } };
+
+    const operatorId =
+      data?.operator?.open_id ?? rawData?.operator?.open_id ?? '';
+    if (!operatorId || operatorId !== card.targetSenderId) {
+      return {
+        toast: { type: 'warning', content: '这张卡片需要由提问对象回答' },
+      };
+    }
+    if (card.status !== 'pending') {
+      return { toast: { type: 'info', content: '该问题已经回答' } };
+    }
+
+    let answers: QuestionCardAnswers;
+    try {
+      if (
+        typeof value.questionId === 'string' &&
+        typeof value.optionId === 'string'
+      ) {
+        const question = card.draft.questions[0];
+        if (
+          card.draft.questions.length !== 1 ||
+          question.multi ||
+          question.id !== value.questionId ||
+          !question.options.some((option) => option.id === value.optionId)
+        ) {
+          throw new Error('无效选项');
+        }
+        answers = { [value.questionId]: [value.optionId] };
+      } else {
+        const rawForm = action?.form_value;
+        const formValue =
+          typeof rawForm === 'string'
+            ? (JSON.parse(rawForm) as Record<string, unknown>)
+            : (rawForm ?? {});
+        answers = parseQuestionCardSubmission(card.draft, formValue);
+      }
+    } catch (err) {
+      return {
+        toast: {
+          type: 'warning',
+          content: err instanceof Error ? err.message : '请完成所有必答题',
+        },
+      };
+    }
+
+    const operatorName = await this.getUserName(
+      operatorId,
+      chatIdFromJid(card.chatJid),
+    );
+    const eventId =
+      data?.event_id ??
+      data?.header?.event_id ??
+      crypto
+        .createHash('sha256')
+        .update(`${cardId}:${operatorId}:${JSON.stringify(answers)}`)
+        .digest('hex');
+    const result = submitQuestionCardAnswer({
+      cardId,
+      eventId,
+      operatorId,
+      operatorName,
+      answers,
+      syntheticContent: formatQuestionCardAnswer(card.draft, answers),
+      timestamp: new Date().toISOString(),
+    });
+    if (result.status !== 'accepted') {
+      return {
+        toast: {
+          type: result.status === 'unauthorized' ? 'warning' : 'info',
+          content:
+            result.status === 'unauthorized'
+              ? '这张卡片需要由提问对象回答'
+              : '该问题已经回答',
+        },
+      };
+    }
+
+    const resolvedMessageId = result.card.messageId ?? messageId;
+    if (resolvedMessageId) {
+      void this.patchQuestionCard(
+        cardId,
+        resolvedMessageId,
+        buildResolvedQuestionCardJson(card.draft, {
+          kind: 'answered',
+          operatorName,
+          answers,
+        }),
+      );
+    }
+    logger.info({ cardId, eventId, operatorId }, '问题卡片答案已接收');
+    return { toast: { type: 'success', content: '已提交' } };
+  }
+
   async sendChoiceCard(
     jid: string,
     choice: {
@@ -2614,19 +2869,21 @@ export class FeishuChannel implements Channel {
     }
   }
 
-  handleCardAction(data: {
-    action: { value: string | Record<string, unknown> };
-    operator?: { open_id?: string };
-  }): Record<string, unknown> | void {
+  async handleCardAction(data: any): Promise<Record<string, unknown> | void> {
+    const questionResponse = await this.handleQuestionCardAction(data);
+    if (questionResponse) return questionResponse;
+
+    const action = data?.event?.action ?? data?.action;
+    if (!action?.value) return;
     let value: Record<string, unknown>;
-    if (typeof data.action.value === 'string') {
+    if (typeof action.value === 'string') {
       try {
-        value = JSON.parse(data.action.value);
+        value = JSON.parse(action.value);
       } catch {
         return;
       }
     } else {
-      value = data.action.value;
+      value = action.value;
     }
 
     if (value.action !== 'ask_choice') return;
@@ -2646,7 +2903,7 @@ export class FeishuChannel implements Channel {
     writeIpcResponse(pending.groupFolder, requestId, {
       selected: value.text,
       index: value.index,
-      operator: data.operator?.open_id,
+      operator: data?.event?.operator?.open_id ?? data?.operator?.open_id,
     });
 
     logger.info(
@@ -3608,6 +3865,30 @@ export class FeishuChannel implements Channel {
     );
 
     const senderName = await this.getUserName(senderId, message.chat_id);
+    const receivedAt = new Date().toISOString();
+
+    if (message.message_type === 'text' || message.message_type === 'post') {
+      const resolvedCards = resolvePendingQuestionCardByText({
+        chatJid: jid,
+        senderId,
+        messageId: message.message_id,
+        timestamp: receivedAt,
+      });
+      void Promise.all(
+        resolvedCards.map(async (card) => {
+          if (!card.messageId) return;
+          await this.patchQuestionCard(
+            card.id,
+            card.messageId,
+            buildResolvedQuestionCardJson(card.draft, {
+              kind: 'text_replied',
+            }),
+          );
+        }),
+      ).catch((err) =>
+        logger.warn({ err, jid }, '问题卡片文字回复状态更新失败'),
+      );
+    }
 
     // 获取被回复消息的内容和发送者
     let replyContent: string | undefined;
@@ -3626,7 +3907,7 @@ export class FeishuChannel implements Channel {
       sender: senderId,
       sender_name: senderName,
       content: text,
-      timestamp: new Date().toISOString(),
+      timestamp: receivedAt,
       reply_to_message_id: message.parent_id,
       reply_to_message_content: replyContent,
       reply_to_sender_name: replySenderName,

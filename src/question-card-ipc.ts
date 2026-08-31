@@ -67,9 +67,7 @@ export async function processQuestionCardRequest(
   }
   try {
     const targetGroup = deps.registeredGroups()[data.chatJid];
-    const targetSession = targetGroup
-      ? targetGroup.sessionFolder || targetGroup.folder
-      : undefined;
+    const targetSession = targetGroup?.folder;
     if (!targetGroup || targetSession !== sourceGroup) {
       throw new Error('只能向当前会话发送问题卡片');
     }
