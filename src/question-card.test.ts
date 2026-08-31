@@ -73,12 +73,18 @@ describe('问题表单卡片契约', () => {
     });
 
     const card = JSON.parse(buildQuestionCardJson('card-1', draft));
-    const actions = card.body.elements[1].actions;
-    expect(actions).toHaveLength(2);
-    expect(actions[0].type).toBe('primary');
-    expect(actions[0].text.content).toContain('推荐');
-    expect(actions[0].value).toBeUndefined();
-    expect(actions[0].behaviors[0].value).toMatchObject({
+    const buttons = card.body.elements.slice(1);
+    expect(buttons).toHaveLength(2);
+    expect(
+      buttons.every((item: { tag: string }) => item.tag === 'button'),
+    ).toBe(true);
+    expect(
+      card.body.elements.some((item: { tag: string }) => item.tag === 'action'),
+    ).toBe(false);
+    expect(buttons[0].type).toBe('primary');
+    expect(buttons[0].text.content).toContain('推荐');
+    expect(buttons[0].value).toBeUndefined();
+    expect(buttons[0].behaviors[0].value).toMatchObject({
       action: 'question_card',
       cardId: 'card-1',
       questionId: 'q1',

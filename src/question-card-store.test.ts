@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('./logger.js', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
 
 import {
   _initTestDatabase,
@@ -12,6 +16,7 @@ import {
   createQuestionCard,
   getQuestionCard,
   getQuestionCardByMessageId,
+  isQuestionCardAnswerMessage,
   resolvePendingQuestionCardByText,
   submitQuestionCardAnswer,
 } from './question-card-store.js';
@@ -92,12 +97,8 @@ describe('问题卡片持久状态', () => {
     expect(first.status).toBe('accepted');
     expect(repeated.status).toBe('already_resolved');
     expect(
-      getNewMessages(
-        ['fs:oc_test'],
-        '2026-08-31T12:00:00.000Z',
-        'Andy',
-        10,
-      ).messages,
+      getNewMessages(['fs:oc_test'], '2026-08-31T12:00:00.000Z', 'Andy')
+        .messages,
     ).toMatchObject([
       {
         id: 'question-card:evt-1',
@@ -105,7 +106,7 @@ describe('问题卡片持久状态', () => {
       },
     ]);
     expect(
-      getMessagesSince('fs:oc_test', '2026-08-31T12:00:00.000Z', 'Andy', 10),
+      getMessagesSince('fs:oc_test', '2026-08-31T12:00:00.000Z', 'Andy'),
     ).toMatchObject([
       {
         id: 'question-card:evt-1',
@@ -114,6 +115,8 @@ describe('问题卡片持久状态', () => {
         content: '我已回答《发布确认》：\n1. 发布窗口？ → 明天',
       },
     ]);
+    expect(isQuestionCardAnswerMessage('question-card:evt-1')).toBe(true);
+    expect(isQuestionCardAnswerMessage('question-card:forged')).toBe(false);
   });
 
   it('非目标用户不能提交', () => {
@@ -131,7 +134,7 @@ describe('问题卡片持久状态', () => {
     expect(result.status).toBe('unauthorized');
     expect(getQuestionCard('card-1')?.status).toBe('pending');
     expect(
-      getMessagesSince('fs:oc_test', '2026-08-31T12:00:00.000Z', 'Andy', 10),
+      getMessagesSince('fs:oc_test', '2026-08-31T12:00:00.000Z', 'Andy'),
     ).toEqual([]);
   });
 
@@ -155,9 +158,10 @@ describe('问题卡片持久状态', () => {
 
     expect(closed.map((item) => item.id)).toEqual(['card-1']);
     expect(getQuestionCard('card-1')?.status).toBe('text_replied');
+    expect(isQuestionCardAnswerMessage('om_text_reply')).toBe(true);
     expect(click.status).toBe('already_resolved');
     expect(
-      getMessagesSince('fs:oc_test', '2026-08-31T12:00:00.000Z', 'Andy', 10),
+      getMessagesSince('fs:oc_test', '2026-08-31T12:00:00.000Z', 'Andy'),
     ).toEqual([]);
   });
 

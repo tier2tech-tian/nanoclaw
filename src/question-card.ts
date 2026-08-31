@@ -118,25 +118,22 @@ export function buildQuestionCardJson(
     return JSON.stringify(
       baseCard(draft.title, [
         { tag: 'markdown', content: `**${question.question}**` },
-        {
-          tag: 'action',
-          actions: question.options.map((option) => ({
-            tag: 'button',
-            text: { tag: 'plain_text', content: optionText(option) },
-            type: option.recommended ? 'primary' : 'default',
-            behaviors: [
-              {
-                type: 'callback',
-                value: {
-                  action: 'question_card',
-                  cardId,
-                  questionId: question.id,
-                  optionId: option.id,
-                },
+        ...question.options.map((option) => ({
+          tag: 'button',
+          text: { tag: 'plain_text', content: optionText(option) },
+          type: option.recommended ? 'primary' : 'default',
+          behaviors: [
+            {
+              type: 'callback',
+              value: {
+                action: 'question_card',
+                cardId,
+                questionId: question.id,
+                optionId: option.id,
               },
-            ],
-          })),
-        },
+            },
+          ],
+        })),
       ]),
     );
   }

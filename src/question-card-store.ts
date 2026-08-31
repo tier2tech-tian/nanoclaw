@@ -97,9 +97,7 @@ export function attachQuestionCardMessage(
   messageId: string,
 ): void {
   getDb()
-    .prepare(
-      `UPDATE question_cards SET message_id = ? WHERE id = ?`,
-    )
+    .prepare(`UPDATE question_cards SET message_id = ? WHERE id = ?`)
     .run(messageId, cardId);
 }
 
@@ -223,4 +221,17 @@ export function resolvePendingQuestionCardByText(input: {
     }
     return resolved;
   })();
+}
+
+export function isQuestionCardAnswerMessage(messageId: string): boolean {
+  return Boolean(
+    getDb()
+      .prepare(
+        `SELECT 1 FROM question_cards
+         WHERE resolved_message_id = ?
+            OR ('question-card:' || resolved_event_id) = ?
+         LIMIT 1`,
+      )
+      .get(messageId, messageId),
+  );
 }
