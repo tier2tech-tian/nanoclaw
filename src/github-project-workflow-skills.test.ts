@@ -12,32 +12,39 @@ const readSkill = (name: string) =>
     path.join(repoRoot, 'container/skills', name, 'SKILL.md'),
     'utf-8',
   );
+const readSkillTree = (name: string): string => {
+  const root = path.join(repoRoot, 'container/skills', name);
+  const contents: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const target = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(target);
+      else contents.push(fs.readFileSync(target, 'utf-8'));
+    }
+  };
+  walk(root);
+  return contents.join('\n');
+};
 
 describe('GitHub Projects 开发任务生命周期', () => {
   const kickoff = readSkill('kickoff');
   const implement = readSkill('implement');
   const wrapup = readSkill('wrapup');
+  const governance = readSkill('github-project-governance');
 
   it('kickoff 按任务类型和用户显式指定路由项目', () => {
-    expect(kickoff).toContain(
-      'https://github.com/orgs/TierIITech/projects/6/views/1',
-    );
-    expect(kickoff).toContain(
-      'https://github.com/orgs/TierIITech/projects/7/views/1',
-    );
+    expect(kickoff).toContain('https://github.com/orgs/TierIITech/projects/9');
     expect(kickoff).toContain('https://github.com/orgs/TierIITech/projects/5');
-    expect(kickoff).toMatch(/Bug.*#6/);
-    expect(kickoff).toMatch(/需求.*#7/);
-    expect(kickoff).toMatch(/显式指定.*优先/);
+    expect(kickoff).toContain('https://github.com/orgs/TierIITech/projects/12');
+    expect(kickoff).toMatch(/Bug、需求、功能和重构默认进 #9/);
+    expect(kickoff).toMatch(/显式指定项目优先/);
     expect(kickoff).toMatch(/项目名.*唯一/);
     expect(kickoff).toMatch(/命中 0 个或多个.*询问/);
     expect(kickoff).toMatch(/不能因为改了前端代码.*推断/);
   });
 
-  it('kickoff 在需求启动时建卡，Bug 则等获准修复后建卡', () => {
-    expect(kickoff).toContain('获准实施');
+  it('kickoff 在进入实现前建卡并推进开工态', () => {
     expect(kickoff).toMatch(/轨道 B.*立即执行 3\.5\.1\/3\.5\.2.*3\.5\.3.*B6/);
-    expect(kickoff).toMatch(/Bug.*A3.*获准实施/);
     const bugAuthorization = kickoff.slice(
       kickoff.indexOf('### A3:'),
       kickoff.indexOf('---', kickoff.indexOf('### A3:')),
@@ -59,14 +66,7 @@ describe('GitHub Projects 开发任务生命周期', () => {
     expect(implementContext).toContain('Step 3.5.1');
     expect(implementContext).toContain('Step 3.5.2');
     expect(implementContext).toContain('Step 3.5.3');
-    expect(kickoff).toMatch(/新建.*Backlog.*准备/);
-    expect(kickoff).toContain('hasIssuesEnabled');
-    expect(kickoff).toContain('gh project item-list');
-    expect(kickoff).toContain('--limit 1000');
-    expect(kickoff).toContain('gh issue create');
-    expect(kickoff).toContain('gh project item-add');
-    expect(kickoff).toContain('In progress');
-    expect(kickoff).toContain('进行中');
+    expect(kickoff).toMatch(/新建.*待办.*准备/);
     expect(kickoff).toContain('github_issue_url');
     expect(kickoff).toContain('github_project_id');
     expect(kickoff).toContain('github_project_item_id');
@@ -74,7 +74,6 @@ describe('GitHub Projects 开发任务生命周期', () => {
   });
 
   it('仓库关闭 Issues 时退化为项目草稿项', () => {
-    expect(kickoff).toContain('gh project item-create');
     expect(kickoff).toContain('github_tracking_kind');
     expect(kickoff).toMatch(/Issues.*关闭|关闭.*Issues/);
     expect(kickoff).toMatch(/网络错误、鉴权失败.*不算/);
@@ -86,8 +85,6 @@ describe('GitHub Projects 开发任务生命周期', () => {
   it('implement 用关闭关键字绑定 PR，并推进到评审中', () => {
     expect(implement).toContain('github_issue_url');
     expect(implement).toContain('Closes <完整 Issue URL>');
-    expect(implement).toContain('gh project item-edit');
-    expect(implement).toContain('--single-select-option-id');
     expect(implement).toContain('In review');
     expect(implement).toContain('评审中');
   });
@@ -109,10 +106,44 @@ describe('GitHub Projects 开发任务生命周期', () => {
     expect(wrapup).toContain('合并');
     expect(wrapup).toMatch(/E2E|验收/);
     expect(wrapup).toContain('gh issue close');
-    expect(wrapup).toContain('gh project item-edit');
     expect(wrapup).toContain('Done');
     expect(wrapup).toContain('完成');
     expect(wrapup).toMatch(/当前状态.*Done.*完成.*跳过/);
+  });
+
+  it('三个阶段统一加载治理 skill，禁止旁路高成本命令或内联 GraphQL', () => {
+    for (const skill of ['kickoff', 'implement', 'wrapup']) {
+      const contents = readSkillTree(skill);
+      expect(contents).toContain('github-project-governance');
+      expect(contents).not.toMatch(/\bgh\s+project\b/);
+      expect(contents).not.toMatch(/\bgh\s+api\s+graphql\b/);
+    }
+    for (const skill of [kickoff, implement, wrapup]) {
+      expect(skill).toContain('github-project-governance');
+    }
+  });
+
+  it('治理 skill 规定低成本查询、低水位熔断和写后回读', () => {
+    expect(governance).toContain('gh api graphql');
+    expect(governance).toContain('fieldValueByName');
+    expect(governance).toContain('fieldValueByName(name:"环境")');
+    expect(governance).toContain('rateLimit');
+    expect(governance).toMatch(/remaining.*<=.*100/);
+    expect(governance).toContain('addProjectV2ItemById');
+    expect(governance).toContain('addProjectV2DraftIssue');
+    expect(governance).toContain('updateProjectV2ItemFieldValue');
+    const draftMutation = governance
+      .split('\n')
+      .find((line) => line.includes('addProjectV2DraftIssue'));
+    expect(draftMutation).toContain('projectItem');
+    expect(draftMutation).not.toContain('projectV2Item');
+    expect(governance).toContain('errors');
+    expect(governance).toMatch(/回读.*幂等|幂等.*回读/);
+    expect(governance).not.toMatch(/fieldValues\s*\(/);
+    expect(governance).not.toMatch(/gh project(?:\s|`)/);
+    expect(governance).toContain('fields(first:$first,after:$after)');
+    expect(governance).toContain('projectsV2(first:$first,after:$after)');
+    expect(governance).toContain('pageInfo');
   });
 
   it('三个阶段复用同一个项目 Item，并在项目收口后才标群完成', () => {
