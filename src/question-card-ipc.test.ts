@@ -46,8 +46,7 @@ function createIpcDeps() {
     registeredGroups: () => ({
       [request.chatJid]: {
         name: '测试群',
-        folder: 'agent',
-        sessionFolder: 'session-current',
+        folder: 'session-current',
         trigger: 'always',
         added_at: new Date().toISOString(),
       },
@@ -71,8 +70,7 @@ describe('问题卡片独立 IPC', () => {
       registeredGroups: () => ({
         [request.chatJid]: {
           name: '测试群',
-          folder: 'agent',
-          sessionFolder: 'session-current',
+          folder: 'session-current',
           trigger: 'always',
           added_at: new Date().toISOString(),
         },
@@ -98,9 +96,7 @@ describe('问题卡片独立 IPC', () => {
       registeredGroups: () => ({
         [request.chatJid]: {
           name: '测试群',
-          folder: 'agent',
-          sessionFolder: 'session-current',
-          agentId: 'agent',
+          folder: 'session-current',
           trigger: 'always',
           added_at: new Date().toISOString(),
         },
@@ -125,8 +121,7 @@ describe('问题卡片独立 IPC', () => {
       registeredGroups: () => ({
         [request.chatJid]: {
           name: '测试群',
-          folder: 'agent',
-          sessionFolder: 'session-current',
+          folder: 'session-current',
           trigger: 'always',
           added_at: new Date().toISOString(),
         },

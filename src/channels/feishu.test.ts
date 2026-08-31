@@ -69,6 +69,14 @@ const mockGetAllGroupAliases = vi.fn().mockReturnValue({});
 vi.mock('../db.js', () => ({
   getMessageById: (...args: unknown[]) => mockGetMessageById(...args),
   getAllGroupAliases: () => mockGetAllGroupAliases(),
+  getDb: () => ({
+    transaction: (operation: () => unknown) => operation,
+    prepare: () => ({
+      all: () => [],
+      get: () => undefined,
+      run: () => ({ changes: 0 }),
+    }),
+  }),
 }));
 
 const mockNotifyVoice = vi.fn();

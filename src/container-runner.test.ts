@@ -138,6 +138,8 @@ import type { RegisteredGroup } from './types.js';
 import fs from 'fs';
 import { spawn } from 'child_process';
 import { logger } from './logger.js';
+import { consumeQuestionCardAuthorization } from './question-card-auth.js';
+import { normalizeQuestionCardDraft } from './question-card.js';
 
 const testGroup: RegisteredGroup = {
   name: 'Test Group',
@@ -329,6 +331,57 @@ describe('agent spawn and timeout', () => {
     const result = await resultPromise;
     expect(result.status).toBe('success');
     expect(result.newSessionId).toBe('session-456');
+  });
+
+  it('问题卡片 tool_use 输出会生成当前群的一次性宿主授权', async () => {
+    const onOutput = vi.fn(async () => {});
+    const resultPromise = runContainerAgent(
+      testGroup,
+      testInput,
+      () => {},
+      onOutput,
+    );
+    const draft = normalizeQuestionCardDraft({
+      title: '确认方案',
+      questions: [
+        {
+          question: '是否继续？',
+          options: ['继续', '暂停'],
+          recommended: [0],
+        },
+      ],
+    });
+
+    emitOutputMarker(fakeProc, {
+      status: 'progress',
+      result: null,
+      questionCardToolUse: {
+        toolName: 'mcp__nanoclaw__send_question_card',
+        toolCallId: 'toolu_question_card_1',
+        input: {
+          title: '确认方案',
+          questions: [
+            {
+              question: '是否继续？',
+              options: ['继续', '暂停'],
+              recommended: [0],
+            },
+          ],
+        },
+      },
+    });
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(
+      consumeQuestionCardAuthorization(testGroup.folder, testInput.chatJid, draft),
+    ).toBe(true);
+    expect(
+      consumeQuestionCardAuthorization(testGroup.folder, testInput.chatJid, draft),
+    ).toBe(false);
+
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
   });
 
   it('结构化 error 输出后正常退出时保留精确错误语义', async () => {

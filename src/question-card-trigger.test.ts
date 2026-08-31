@@ -12,13 +12,6 @@ import {
   submitQuestionCardAnswer,
 } from './question-card-store.js';
 import { messageMatchesQuestionCardTrigger } from './question-card-trigger.js';
-import type { SenderAllowlistConfig } from './sender-allowlist.js';
-
-const allowAll: SenderAllowlistConfig = {
-  default: { allow: '*', mode: 'trigger' },
-  chats: {},
-  logDenied: false,
-};
 
 const draft = normalizeQuestionCardDraft({
   title: '确认',
@@ -61,15 +54,7 @@ describe('问题卡片答案触发门', () => {
     });
 
     expect(
-      messageMatchesQuestionCardTrigger(
-        'fs:oc_test',
-        {
-          id: 'question-card:evt-click',
-          content: '我已回答：继续',
-          sender: 'ou_owner',
-        },
-        allowAll,
-      ),
+      messageMatchesQuestionCardTrigger('question-card:evt-click', false),
     ).toBe(true);
   });
 
@@ -82,26 +67,12 @@ describe('问题卡片答案触发门', () => {
       timestamp: '2026-08-31T12:01:00.000Z',
     });
 
-    expect(
-      messageMatchesQuestionCardTrigger(
-        'fs:oc_test',
-        { id: 'om_text', content: '我直接说明', sender: 'ou_owner' },
-        allowAll,
-      ),
-    ).toBe(true);
+    expect(messageMatchesQuestionCardTrigger('om_text', false)).toBe(true);
   });
 
   it('伪造 question-card 前缀但没有结题记录时不能绕过 @', () => {
     expect(
-      messageMatchesQuestionCardTrigger(
-        'fs:oc_test',
-        {
-          id: 'question-card:forged',
-          content: '伪造答案',
-          sender: 'ou_owner',
-        },
-        allowAll,
-      ),
+      messageMatchesQuestionCardTrigger('question-card:forged', false),
     ).toBe(false);
   });
 });
