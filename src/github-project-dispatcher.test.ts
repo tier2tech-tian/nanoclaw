@@ -9,6 +9,7 @@ import {
   decideDispatchAction,
   nextDispatchMessageTimestamp,
   parseProjectItems,
+  PROJECT_ITEMS_QUERY,
   runGitHubProjectDispatchCycle,
   startGitHubProjectDispatcherIfEnabled,
 } from './github-project-dispatcher.js';
@@ -20,9 +21,9 @@ import type {
 
 describe('GitHub Project 自动派工纯逻辑', () => {
   it('派工消息时间戳必须严格晚于目标群游标', () => {
-    expect(
-      nextDispatchMessageTimestamp('2026-08-21T12:00:00.000Z', 0),
-    ).toBe('2026-08-21T12:00:00.001Z');
+    expect(nextDispatchMessageTimestamp('2026-08-21T12:00:00.000Z', 0)).toBe(
+      '2026-08-21T12:00:00.001Z',
+    );
     expect(nextDispatchMessageTimestamp('', 1_777_777_777_777)).toBe(
       new Date(1_777_777_777_777).toISOString(),
     );
@@ -200,23 +201,223 @@ describe('GitHub Project 自动派工纯逻辑', () => {
   });
 });
 
-describe('GitHub Project CLI 读取', () => {
-  it('用 gh 读取完整项目并解析成统一事项', async () => {
-    const execute = vi.fn(async () => ({
-      stdout: JSON.stringify({
-        totalCount: 1,
-        items: [
-          {
-            id: 'item-1',
-            status: 'Ready',
-            title: '修复登录失败',
-            content: {
-              title: '修复登录失败',
-              body: '复现步骤',
-              url: 'https://github.com/acme/app/issues/1',
+describe('GitHub Project 低成本 GraphQL 读取', () => {
+  const page = (input?: {
+    totalCount?: number;
+    nodes?: unknown[];
+    hasNextPage?: boolean;
+    endCursor?: string | null;
+    remaining?: number;
+    resetAt?: string;
+  }) =>
+    JSON.stringify({
+      data: {
+        organization: {
+          projectV2: {
+            items: {
+              totalCount: input?.totalCount ?? 1,
+              nodes: input?.nodes ?? [
+                {
+                  id: 'item-1',
+                  status: { name: 'Ready' },
+                  assignees: {
+                    users: { nodes: [{ login: 'tier2tech-tian' }] },
+                  },
+                  content: {
+                    title: '修复登录失败',
+                    body: '复现步骤',
+                    url: 'https://github.com/acme/app/issues/1',
+                  },
+                },
+              ],
+              pageInfo: {
+                hasNextPage: input?.hasNextPage ?? false,
+                endCursor: input?.endCursor ?? null,
+              },
             },
           },
-        ],
+        },
+        rateLimit: {
+          cost: 1,
+          remaining: input?.remaining ?? 4999,
+          resetAt: input?.resetAt ?? '2026-09-01T01:00:00Z',
+        },
+      },
+    });
+
+  it('只查询派工所需字段并暴露配额遥测', async () => {
+    const onRateLimit = vi.fn();
+    const execute = vi.fn(async () => ({
+      stdout: page(),
+    }));
+    const load = createGhProjectItemLoader({
+      owner: 'TierIITech',
+      limit: 1000,
+      execute,
+      onRateLimit,
+    });
+
+    await expect(load(6)).resolves.toMatchObject([
+      {
+        projectNumber: 6,
+        itemId: 'item-1',
+        status: 'Ready',
+        assignees: ['tier2tech-tian'],
+      },
+    ]);
+    expect(execute).toHaveBeenCalledWith(
+      'gh',
+      [
+        'api',
+        'graphql',
+        '--include',
+        '-f',
+        `query=${PROJECT_ITEMS_QUERY}`,
+        '-F',
+        'owner=TierIITech',
+        '-F',
+        'number=6',
+        '-F',
+        'first=100',
+      ],
+      expect.objectContaining({ timeout: 30_000, maxBuffer: 10 * 1024 * 1024 }),
+    );
+    expect(PROJECT_ITEMS_QUERY).toContain('fieldValueByName(name: "Status")');
+    expect(PROJECT_ITEMS_QUERY).toContain(
+      'fieldValueByName(name: "Assignees")',
+    );
+    expect(PROJECT_ITEMS_QUERY).toContain('rateLimit');
+    expect(PROJECT_ITEMS_QUERY).not.toContain('fieldValues(');
+    expect(PROJECT_ITEMS_QUERY).toBe(
+      `
+query($owner: String!, $number: Int!, $first: Int!, $after: String) {
+  organization(login: $owner) {
+    projectV2(number: $number) {
+      items(first: $first, after: $after) {
+        totalCount
+        nodes {
+          id
+          status: fieldValueByName(name: "Status") {
+            ... on ProjectV2ItemFieldSingleSelectValue {
+              name
+            }
+          }
+          assignees: fieldValueByName(name: "Assignees") {
+            ... on ProjectV2ItemFieldUserValue {
+              users(first: 20) {
+                nodes {
+                  login
+                }
+              }
+            }
+          }
+          content {
+            ... on DraftIssue {
+              title
+              body
+            }
+            ... on Issue {
+              title
+              body
+              url
+            }
+            ... on PullRequest {
+              title
+              body
+              url
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }
+  rateLimit {
+    cost
+    remaining
+    resetAt
+  }
+}
+`.trim(),
+    );
+    expect(onRateLimit).toHaveBeenCalledWith({
+      projectNumber: 6,
+      cost: 1,
+      remaining: 4999,
+      resetAt: '2026-09-01T01:00:00Z',
+    });
+  });
+
+  it('按 pageInfo 翻页，合法终页允许 endCursor 为空', async () => {
+    const onRateLimit = vi.fn();
+    const execute = vi
+      .fn<CommandExecutor>()
+      .mockResolvedValueOnce({
+        stdout: page({
+          totalCount: 2,
+          nodes: [
+            {
+              id: 'item-1',
+              status: { name: 'Ready' },
+              content: { title: '第一项' },
+            },
+          ],
+          hasNextPage: true,
+          endCursor: 'cursor-1',
+        }),
+      })
+      .mockResolvedValueOnce({
+        stdout: page({
+          totalCount: 2,
+          nodes: [
+            {
+              id: 'item-2',
+              status: { name: 'Ready' },
+              content: { title: '第二项' },
+            },
+          ],
+          hasNextPage: false,
+          endCursor: null,
+        }),
+      });
+    const load = createGhProjectItemLoader({
+      owner: 'TierIITech',
+      limit: 1000,
+      execute,
+      onRateLimit,
+    });
+
+    await expect(load(6)).resolves.toHaveLength(2);
+    expect(execute).toHaveBeenNthCalledWith(
+      2,
+      'gh',
+      expect.arrayContaining(['-F', 'after=cursor-1']),
+      expect.any(Object),
+    );
+    expect(onRateLimit).toHaveBeenCalledTimes(2);
+  });
+
+  it('有下一页却缺少游标时拒绝把截断结果当完整', async () => {
+    const execute = vi.fn(async () => ({
+      stdout: page({ hasNextPage: true, endCursor: null }),
+    }));
+    const load = createGhProjectItemLoader({
+      owner: 'TierIITech',
+      limit: 1000,
+      execute,
+    });
+
+    await expect(load(6)).rejects.toThrow('缺少下一页游标');
+  });
+
+  it('顶层 GraphQL errors 不能被解释成空项目', async () => {
+    const execute = vi.fn(async () => ({
+      stdout: JSON.stringify({
+        errors: [{ message: 'FORBIDDEN' }],
+        data: null,
       }),
     }));
     const load = createGhProjectItemLoader({
@@ -225,57 +426,251 @@ describe('GitHub Project CLI 读取', () => {
       execute,
     });
 
-    await expect(load(6)).resolves.toMatchObject([
-      { projectNumber: 6, itemId: 'item-1', status: 'Ready' },
-    ]);
-    expect(execute).toHaveBeenCalledWith(
-      'gh',
-      [
-        'project',
-        'item-list',
-        '6',
-        '--owner',
-        'TierIITech',
-        '--format',
-        'json',
-        '--limit',
-        '1000',
-      ],
-      expect.objectContaining({ timeout: 30_000, maxBuffer: 10 * 1024 * 1024 }),
-    );
+    await expect(load(6)).rejects.toThrow('GraphQL 返回错误');
   });
 
-  it('项目超过首轮上限时按真实总数补拉完整事项', async () => {
+  it('GraphQL 非零退出时从同一响应头熔断，后续不再远端调用', async () => {
+    const resetAt = '2026-09-01T01:00:00.000Z';
+    const rateLimitError = Object.assign(new Error('RATE_LIMITED'), {
+      stdout: [
+        'HTTP/2.0 403 Forbidden',
+        'X-RateLimit-Remaining: 0',
+        `X-RateLimit-Reset: ${Date.parse(resetAt) / 1000}`,
+        '',
+        JSON.stringify({ errors: [{ type: 'RATE_LIMITED' }] }),
+      ].join('\n'),
+    });
+    const execute = vi.fn<CommandExecutor>().mockRejectedValue(rateLimitError);
+    const load = createGhProjectItemLoader({
+      owner: 'TierIITech',
+      limit: 1000,
+      now: () => Date.parse('2026-09-01T00:00:00Z'),
+      execute,
+    });
+
+    await expect(load(6)).rejects.toThrow(resetAt);
+    await expect(load(7)).rejects.toThrow(resetAt);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('GraphQL errors 与低水位同处响应体时仍熔断', async () => {
+    const resetAt = '2026-09-01T01:00:00Z';
+    const execute = vi.fn(async () => ({
+      stdout: JSON.stringify({
+        errors: [{ type: 'RATE_LIMITED' }],
+        data: {
+          rateLimit: { cost: 1, remaining: 0, resetAt },
+        },
+      }),
+    }));
+    const load = createGhProjectItemLoader({
+      owner: 'TierIITech',
+      limit: 1000,
+      now: () => Date.parse('2026-09-01T00:00:00Z'),
+      execute,
+    });
+
+    await expect(load(6)).rejects.toThrow(resetAt);
+    await expect(load(7)).rejects.toThrow(resetAt);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  type MutableGraphQLResponse = {
+    data: {
+      organization: {
+        projectV2: {
+          items?: { pageInfo?: unknown };
+        } | null;
+      };
+      rateLimit?: unknown;
+    };
+  };
+
+  it.each([
+    {
+      name: 'project',
+      mutate: (response: MutableGraphQLResponse) => {
+        response.data.organization.projectV2 = null;
+      },
+      error: '返回格式不完整',
+    },
+    {
+      name: 'items',
+      mutate: (response: MutableGraphQLResponse) => {
+        const project = response.data.organization.projectV2;
+        if (project) delete project.items;
+      },
+      error: '返回格式不完整',
+    },
+    {
+      name: 'pageInfo',
+      mutate: (response: MutableGraphQLResponse) => {
+        const items = response.data.organization.projectV2?.items;
+        if (items) delete items.pageInfo;
+      },
+      error: '返回格式不完整',
+    },
+    {
+      name: 'rateLimit',
+      mutate: (response: MutableGraphQLResponse) => {
+        delete response.data.rateLimit;
+      },
+      error: '缺少 rateLimit',
+    },
+  ])('缺少 $name 时 fail closed', async ({ mutate, error }) => {
+    const response = JSON.parse(page()) as MutableGraphQLResponse;
+    mutate(response);
+    const execute = vi.fn(async () => ({ stdout: JSON.stringify(response) }));
+    const load = createGhProjectItemLoader({
+      owner: 'TierIITech',
+      limit: 1000,
+      execute,
+    });
+
+    await expect(load(6)).rejects.toThrow(error);
+  });
+
+  it('非法 resetAt 永久熔断到进程重启，不能一分钟后继续补刀', async () => {
+    const execute = vi.fn(async () => ({
+      stdout: page({ remaining: 100, resetAt: 'not-a-date' }),
+    }));
+    const load = createGhProjectItemLoader({
+      owner: 'TierIITech',
+      limit: 1000,
+      execute,
+    });
+
+    await expect(load(6)).rejects.toThrow('resetAt 无效');
+    await expect(load(7)).rejects.toThrow('进程重启');
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('高水位但 resetAt 非法时只报错，不误熔断后续轮询', async () => {
+    const execute = vi.fn(async () => ({
+      stdout: page({ remaining: 4999, resetAt: 'not-a-date' }),
+    }));
+    const load = createGhProjectItemLoader({
+      owner: 'TierIITech',
+      limit: 1000,
+      execute,
+    });
+
+    await expect(load(6)).rejects.toThrow('resetAt 无效');
+    await expect(load(7)).rejects.toThrow('resetAt 无效');
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('重复游标时 fail closed，避免死循环烧配额', async () => {
     const execute = vi
       .fn<CommandExecutor>()
       .mockResolvedValueOnce({
-        stdout: JSON.stringify({
+        stdout: page({ hasNextPage: true, endCursor: 'same-cursor' }),
+      })
+      .mockResolvedValueOnce({
+        stdout: page({ hasNextPage: true, endCursor: 'same-cursor' }),
+      })
+      .mockResolvedValueOnce({ stdout: page() });
+    const load = createGhProjectItemLoader({
+      owner: 'TierIITech',
+      limit: 1000,
+      execute,
+    });
+
+    await expect(load(6)).rejects.toThrow('重复分页游标');
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('分页返回重复 Item 时 fail closed', async () => {
+    const execute = vi
+      .fn<CommandExecutor>()
+      .mockResolvedValueOnce({
+        stdout: page({
           totalCount: 2,
-          items: [{ id: 'item-1', status: 'Ready', title: '第一项' }],
+          nodes: [
+            {
+              id: 'item-1',
+              status: { name: 'Ready' },
+              content: { title: '第一项' },
+            },
+          ],
+          hasNextPage: true,
+          endCursor: 'cursor-1',
         }),
       })
       .mockResolvedValueOnce({
-        stdout: JSON.stringify({
+        stdout: page({
           totalCount: 2,
-          items: [
-            { id: 'item-1', status: 'Ready', title: '第一项' },
-            { id: 'item-2', status: 'Ready', title: '第二项' },
+          nodes: [
+            {
+              id: 'item-1',
+              status: { name: 'Ready' },
+              content: { title: '重复项' },
+            },
           ],
         }),
       });
     const load = createGhProjectItemLoader({
       owner: 'TierIITech',
-      limit: 1,
+      limit: 1000,
       execute,
     });
 
-    await expect(load(6)).resolves.toHaveLength(2);
-    expect(execute).toHaveBeenNthCalledWith(
-      2,
-      'gh',
-      expect.arrayContaining(['--limit', '2']),
-      expect.any(Object),
-    );
+    await expect(load(6)).rejects.toThrow('重复 Item');
+  });
+
+  it('单页累计数超过 totalCount 时 fail closed', async () => {
+    const execute = vi.fn<CommandExecutor>().mockResolvedValueOnce({
+      stdout: page({
+        totalCount: 1,
+        nodes: [
+          {
+            id: 'item-1',
+            status: { name: 'Ready' },
+            content: { title: '第一项' },
+          },
+          {
+            id: 'item-2',
+            status: { name: 'Ready' },
+            content: { title: '第二项' },
+          },
+        ],
+      }),
+    });
+    const load = createGhProjectItemLoader({
+      owner: 'TierIITech',
+      limit: 1000,
+      execute,
+    });
+
+    await expect(load(6)).rejects.toThrow('超过 totalCount');
+  });
+
+  it('观测到低水位后熔断到 resetAt，期间不再调用 gh', async () => {
+    let nowMs = Date.parse('2026-09-01T00:00:00Z');
+    const resetAt = '2026-09-01T01:00:00Z';
+    const execute = vi
+      .fn<CommandExecutor>()
+      .mockResolvedValueOnce({
+        stdout: page({ remaining: 100, resetAt }),
+      })
+      .mockResolvedValueOnce({
+        stdout: page({ remaining: 4999, resetAt }),
+      });
+    const load = createGhProjectItemLoader({
+      owner: 'TierIITech',
+      limit: 1000,
+      minRemaining: 100,
+      now: () => nowMs,
+      execute,
+    });
+
+    await expect(load(6)).rejects.toThrow('GraphQL 配额低水位');
+    await expect(load(7)).rejects.toThrow(resetAt);
+    expect(execute).toHaveBeenCalledTimes(1);
+
+    nowMs = Date.parse(resetAt);
+    await expect(load(7)).resolves.toHaveLength(1);
+    expect(execute).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -796,9 +1191,7 @@ describe('GitHub Project 自动派工单轮执行', () => {
 
       expect(deliveries).toHaveLength(0);
       expect(states.get('6:active-sent')?.dispatchStatus).toBe('sent');
-      expect(states.get('6:recovering-pending')?.dispatchStatus).toBe(
-        'failed',
-      );
+      expect(states.get('6:recovering-pending')?.dispatchStatus).toBe('failed');
     }
   });
 

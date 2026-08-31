@@ -2683,6 +2683,8 @@ async function main(): Promise<void> {
         listProjectItems: createGhProjectItemLoader({
           owner: config.owner,
           limit: config.limit,
+          onRateLimit: (snapshot) =>
+            logger.debug({ ...snapshot }, 'GitHub Project GraphQL 配额'),
         }),
         getState: getGitHubProjectDispatchState,
         saveState: upsertGitHubProjectDispatchState,
