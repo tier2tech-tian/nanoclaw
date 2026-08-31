@@ -5,7 +5,7 @@ description: 编码实现工作流。写代码 → 写测试 → 审代码 → �
 
 # 编码实现工作流
 
-kickoff 管"想清楚"，implement 管"动手做"，wrapup 管"收尾沉淀"。三段共用一个**驾驶舱文件**（`/Users/dajay/个人资产/驾驶舱/YYYY-MM-DD-任务名.md`）：kickoff 建，implement 过程中随写（拍板/推翻/里程碑三类时刻当场记），wrapup 归档。task-ledger 账本已废弃（2026-08-06），禁止调 task_* 工具。
+kickoff 管"想清楚"，implement 管"动手做"，wrapup 管"收尾沉淀"。三段共用一个**驾驶舱文件**（`/Users/dajay/个人资产/驾驶舱/YYYY-MM-DD-任务名.md`）：kickoff 建，implement 过程中随写（拍板/推翻/里程碑三类时刻当场记），wrapup 归档。task-ledger 账本已废弃（2026-08-06），禁止调 task\_\* 工具。
 
 ## 核心纪律
 
@@ -27,6 +27,8 @@ kickoff 管"想清楚"，implement 管"动手做"，wrapup 管"收尾沉淀"。�
 ---
 
 ## Step 0: 加载上下文
+
+若任务驾驶舱存在 `github_project_item_id`，先加载 `github-project-governance` skill；所有项目读写、配额检查和写后回读必须由它执行。禁止使用 GitHub CLI 的 Project 子命令，也禁止在本 skill 内自写项目 GraphQL。
 
 1. **检查 OpenSpec**：当前项目是否有相关 OpenSpec change？
    - 有 → 读取 design.md 作为实现蓝图
@@ -58,6 +60,7 @@ kickoff 管"想清楚"，implement 管"动手做"，wrapup 管"收尾沉淀"。�
 按实现清单逐项编码。
 
 **要求**：
+
 - 每完成一个模块，确保**编译/lint 通过**（不能积攒错误到最后）
 - 改动要**可增量验证**：改一块确认一块，不要一次改 20 个文件然后祈祷
 - 如果 OpenSpec 的 design 有明确的函数签名/接口设计，严格遵守
@@ -70,6 +73,7 @@ kickoff 管"想清楚"，implement 管"动手做"，wrapup 管"收尾沉淀"。�
   - 用结构化日志格式（如 `logger.info({ key: value }, 'message')`），不要拼字符串
 
 **禁止**：
+
 - ⛔ 不写测试（这是 Step 2 的事）
 - ⛔ 不做 code review（这是 Step 3 的事）
 - ⛔ 不提 PR（这是 Step 6 的事）
@@ -93,6 +97,7 @@ kickoff 管"想清楚"，implement 管"动手做"，wrapup 管"收尾沉淀"。�
 针对 Step 1 写的代码编写测试。
 
 **要求**：
+
 - **单元测试**覆盖核心逻辑（纯函数、关键分支）
 - **集成测试**覆盖关键路径（API 调用链、数据流）
 - **边界 case**：空值、超长、并发、异常输入
@@ -100,11 +105,13 @@ kickoff 管"想清楚"，implement 管"动手做"，wrapup 管"收尾沉淀"。�
 - 测试必须**真的在测业务逻辑**，不是测 mock 本身
 
 **测试分层参考**：
+
 - P0（必须有）：核心功能的 happy path + 最关键的异常路径
 - P1（应该有）：边界条件、参数校验、错误处理
 - P2（最好有）：性能、并发、极端场景
 
 **禁止**：
+
 - ⛔ 不跑测试（这是 Step 5 的事）
 - ⛔ 不写"测试桩"占位（`test_xxx(): pass`）
 - ⛔ 不跳过难测的部分（难测 = 说明代码可能需要重构）
@@ -133,6 +140,7 @@ kickoff 管"想清楚"，implement 管"动手做"，wrapup 管"收尾沉淀"。�
 为什么这步不能省：implement 期读进上下文的全文，到 review 时多半已被**上下文压缩**吃掉，必须重新召回。离线实测：用 diff 的改动范围当 query，命中率 **80%**（query 跟 kickoff/implement 阶段都不同，召回的页基本不重叠，重读不是浪费）。
 
 怎么做：
+
 1. 用「本次改了哪些文件 / 哪个模块 / 涉及什么契约」当 query 召回团队知识库
 2. 重点捞标 **INVARIANT** 的不变量页、契约页（和 Step 0 记下的那批对照，看 review 阶段有没有新召回的）
 3. 把召回到的不变量/契约**逐条对着 diff 过一遍**：这次改动有没有破约？
@@ -156,6 +164,7 @@ cd <项目目录> && env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_pro
 ⚠️ **禁止**直接跑 `codex` CLI（那是独立终端工具，需要 TTY，会卡住）。必须用上面的 `codex-companion.mjs` 脚本。
 
 **其他命令**（同一脚本路径，替换最后的子命令）：
+
 - `status` — 查看当前 review 任务状态
 - `cancel <job-id>` — 取消卡住的任务
 - `result <job-id>` — 获取已完成任务的结果
@@ -164,11 +173,13 @@ cd <项目目录> && env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_pro
 **超时处理**：如果 review 超过 5 分钟没返回，用 `status` 检查，卡住就 `cancel` 后重跑。
 
 插件会：
+
 1. 收集当前 worktree 的 git diff
 2. 发送给 Codex 评审器
 3. 返回结构化结果（verdict + findings）
 
 **Codex Review 返回格式**：
+
 ```json
 {
   "verdict": "approve | needs-attention",
@@ -186,11 +197,13 @@ cd <项目目录> && env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_pro
 ```
 
 **严重级别映射**：
+
 - `critical` / `high` → 🔴 必须修
 - `medium` → 🟡 建议修
 - `low` → 🟢 可选优化
 
 **Codex Review 的强项**：
+
 - 时序 bug、并发问题、边界条件遗漏（人工 review 容易忽略的）
 - 跨函数的数据流分析
 - 与 API 契约不一致的问题
@@ -279,6 +292,7 @@ cd <项目目录> && env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_pro
 ```
 
 **收到审查结果后**：
+
 1. 🔴 必须补的测试 → 补写
 2. 🟡 建议补的 → 判断后决定
 3. 修改有问题的现有测试
@@ -301,11 +315,13 @@ cd <项目目录> && env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_pro
 运行全量测试。
 
 **要求**：
+
 - 跑**全部**测试，不是只跑新写的
 - 如果项目有 CI 命令（`npm test` / `pytest` / `go test`），用标准命令
 - 必须看到**完整的测试输出**，不能只看退出码
 
 **如果测试失败**：
+
 1. 分析失败原因
 2. 修复代码或测试（取决于是代码 bug 还是测试写错）
 3. 重新跑，**循环直到全绿**
@@ -335,8 +351,8 @@ cd <项目目录> && env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_pro
 
 1. 先写**总体设计思路**（一段话：覆盖策略 + 回归范围），再按表列出具体用例：
 
-| # | 场景 | 触发方式 | 预期结果 |
-|---|------|---------|---------|
+| #   | 场景 | 触发方式 | 预期结果 |
+| --- | ---- | -------- | -------- |
 
 2. **自行逐条执行，不等确认**。例外：含红灯动作的用例（如向本群之外发真实消息，判定见 kickoff「自主分级」红灯清单）挂账等拍板，其余照跑
 3. 汇报三段式：总体设计思路 + 用例列表 + 逐条执行结果
@@ -366,7 +382,7 @@ cd <项目目录> && env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_pro
 
 1. 将所有改动提交（commit message 遵循项目规范）
 2. 从驾驶舱读取跟踪类型并写 PR body：`github_tracking_kind: issue` 时必须单列 `Closes <完整 Issue URL>`，使用完整 URL避免跨仓库关错；`github_tracking_kind: draft` 时写 `Tracks <项目 URL>`，并把 PR URL补进草稿项 body，不能伪造关闭关键字。
-3. 创建 PR 后先回读当前状态：已经是 `Done` / `完成` 就跳过，禁止倒退；已经是评审态也跳过。否则读取项目真实字段，并在 `In review` / `评审中` / `审核中` 中选择唯一精确匹配的选项，执行 `gh project item-edit --id <Item ID> --project-id <Project ID> --field-id <Status 字段 ID> --single-select-option-id <评审态选项 ID>`；找不到或不唯一就询问，禁止记假状态。
+3. 创建 PR 后先按治理 skill 回读当前状态：已经是 `Done` / `完成` 就跳过，禁止倒退；已经是评审态也跳过。否则读取项目真实字段，并在 `In review` / `评审中` / `审核中` 中选择唯一精确匹配的选项，更新后再次回读；找不到或不唯一就询问，禁止记假状态。
 4. 回读项目 Item，把 PR URL 和 `github_project_status: <回读到的真实评审态>` 追加到驾驶舱，不能用预期值冒充真实值。
 5. 向用户汇报
 
@@ -399,6 +415,7 @@ cd <项目目录> && env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_pro
 ```
 
 **禁止**：
+
 - ⛔ 禁止 `--auto` 自动合并
 - ⛔ 禁止不等确认就 merge
 - ⛔ 禁止在汇报中隐瞒已知问题
@@ -419,10 +436,10 @@ cd <项目目录> && env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_pro
 
 ## 异常处理
 
-| 场景 | 处理方式 |
-|------|---------|
-| 编译失败修不好 | 停在当前步骤，汇报具体错误，等用户指示 |
-| 测试死循环（3次+修不过） | 停下来，列出每次失败的不同原因，等用户判断 |
-| 审查意见跟 OpenSpec 矛盾 | 以 OpenSpec 为准，记录矛盾点汇报给用户 |
-| 发现需求理解有误 | 立刻停下来跟用户确认，不要带着错误理解继续写 |
-| worktree 冲突 | 不要 force，汇报冲突内容让用户决定 |
+| 场景                     | 处理方式                                     |
+| ------------------------ | -------------------------------------------- |
+| 编译失败修不好           | 停在当前步骤，汇报具体错误，等用户指示       |
+| 测试死循环（3次+修不过） | 停下来，列出每次失败的不同原因，等用户判断   |
+| 审查意见跟 OpenSpec 矛盾 | 以 OpenSpec 为准，记录矛盾点汇报给用户       |
+| 发现需求理解有误         | 立刻停下来跟用户确认，不要带着错误理解继续写 |
+| worktree 冲突            | 不要 force，汇报冲突内容让用户决定           |

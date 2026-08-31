@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { PassThrough } from 'node:stream';
+import path from 'path';
 
 // Sentinel markers must match container-runner.ts
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
@@ -510,6 +511,36 @@ describe('prepareCodexSkills', () => {
       expect.stringContaining('not-a-skill'),
       expect.any(String),
       expect.any(Object),
+    );
+  });
+
+  it('Claude SDK 与 Codex 从同一来源同步 GraphQL 治理 skill', () => {
+    vi.mocked(fs.readdirSync).mockReturnValue([
+      'github-project-governance',
+    ] as unknown as ReturnType<typeof fs.readdirSync>);
+    vi.mocked(fs.statSync).mockReturnValue({
+      isDirectory: () => true,
+    } as unknown as ReturnType<typeof fs.statSync>);
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+
+    prepareGroupSession('group-a');
+    prepareCodexSkills('group-a');
+
+    const source = path.join(
+      process.cwd(),
+      'container',
+      'skills',
+      'github-project-governance',
+    );
+    expect(fs.cpSync).toHaveBeenCalledWith(
+      source,
+      '/tmp/nanoclaw-test-data/sessions/group-a/.claude/skills/github-project-governance',
+      { recursive: true },
+    );
+    expect(fs.cpSync).toHaveBeenCalledWith(
+      source,
+      '/tmp/nanoclaw-test-groups/group-a/.codex-home/skills/github-project-governance',
+      { recursive: true },
     );
   });
 });

@@ -23,6 +23,7 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 ```
 
 必须记日志的节点：
+
 - **任务分类结果**：判定走哪条轨道 + 依据
 - **定位问题**：每个 Phase 的发现和结论
 - **OpenSpec 各步**：new/proposal/specs/design 每步的执行结果（成功/跳过/失败）
@@ -104,16 +105,16 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 
 根据用户意图判断任务类型：
 
-| 类型 | 信号词 | 走哪条轨道 | task_type |
-|------|--------|------------|-----------|
-| **定位问题** | "定位"、"排查"、"为什么"、"怎么回事"、"挂了"、"报错"、"不工作" | → **轨道 A** | `bug` / `research` |
-| **构建功能** | "加一个"、"改成"、"重构"、"优化"、"新功能"、"写 spec" | → **轨道 B** | `feature` / `refactor` |
+| 类型         | 信号词                                                         | 走哪条轨道   | task_type              |
+| ------------ | -------------------------------------------------------------- | ------------ | ---------------------- |
+| **定位问题** | "定位"、"排查"、"为什么"、"怎么回事"、"挂了"、"报错"、"不工作" | → **轨道 A** | `bug` / `research`     |
+| **构建功能** | "加一个"、"改成"、"重构"、"优化"、"新功能"、"写 spec"          | → **轨道 B** | `feature` / `refactor` |
 
 **拿不准时默认走轨道 A**（先定位再动手，比反过来安全）。
 
 ## Step 3: 建立驾驶舱
 
-> ⚠️ task-ledger 账本机制已废弃（2026-08-06，状态机过重），禁止再调 `task_create` 等 task_* 工具。过程记录一律走驾驶舱。
+> ⚠️ task-ledger 账本机制已废弃（2026-08-06，状态机过重），禁止再调 `task_create` 等 task\_\* 工具。过程记录一律走驾驶舱。
 
 分类完成后，**立即建驾驶舱文件** `/Users/dajay/个人资产/驾驶舱/YYYY-MM-DD-任务名.md`（模板见该目录 README.md）：
 
@@ -124,6 +125,7 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 > ⚠️ **幂等**：同任务已有驾驶舱文件就复用追加，不要重复建。
 
 **📋 日志**：
+
 ```
 📋 [建驾驶舱] 驾驶舱/YYYY-MM-DD-任务名.md
 ```
@@ -134,33 +136,25 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 
 这一步只适用于**要修改版本库的开发任务**。纯调查、答疑和个人资料整理不创建跟踪项，也不改项目看板。轨道 B 在完成任务分类和驾驶舱后立即执行 3.5.1/3.5.2 入池，3.5.3 在 B6 分流后进入实现时执行（含挂账红灯但有独立部分要改码的，照常执行）；Bug 轨道在 A3 分流后进入修复时，才从 3.5.1 开始执行。
 
+开始本步骤前必须加载 `github-project-governance` skill，所有项目查询、绑定、字段更新、配额检查和写后回读都按该 skill 执行。禁止使用 GitHub CLI 的 Project 子命令，也禁止在本 skill 内自写项目 GraphQL。
+
 ### 3.5.1 选择项目
 
 路由优先级从高到低：
 
-1. **用户显式指定项目优先**：给了项目 URL/编号就直接采用；只给项目名时，用 `gh project list --owner TierIITech --format json --limit 100` 解析，先匹配完整项目名，再匹配唯一的名称片段。命中 0 个或多个时必须询问，禁止猜。
+1. **用户显式指定项目优先**：给了项目 URL/编号就直接采用；只给项目名时，按治理 skill 的“解析项目和字段”执行，先匹配完整项目名，再匹配唯一的名称片段。命中 0 个或多个时必须询问，禁止猜。
 2. **Bug、需求、功能和重构默认进 #9**：[许愿池](https://github.com/orgs/TierIITech/projects/9)（2026-08-21 Bug 入池拍板，2026-08-26 需求合并入池拍板）。
 
 [webUI 重构 #5](https://github.com/orgs/TierIITech/projects/5)、[CCVM 稳定性专项 #12](https://github.com/orgs/TierIITech/projects/12) 等是显式专项示例：只有用户点名对应项目或给出该链接时才进入，不能因为改了前端代码或 CCVM 代码就自行推断。
 
 ### 3.5.2 创建或复用跟踪项
 
-1. 先读驾驶舱中的 `github_tracking_kind` 和 `github_project_item_id`，已有就核验后复用；没有时用 `gh project item-list <项目编号> --owner TierIITech --limit 1000 --format json` 按内容 URL 或规范化标题查重，不能只看默认第一页。
-2. 先用 `gh repo view <owner/repo> --json hasIssuesEnabled,viewerPermission` 核实仓库能力。仓库已启用且当前账号可写 Issues 时，使用正式 Issue：优先复用用户给出的 Issue；否则按规范化标题查找唯一的 open Issue。唯一命中就复用，零命中才执行 `gh issue create --repo <owner/repo> --title <标题> --body <任务摘要>`，多个命中先问用户。
-3. 正式 Issue 不依赖项目的 Auto-add 自动化；先检查是否已在目标项目，缺失时显式执行：
-
-   `gh project item-add <项目编号> --owner TierIITech --url <Issue URL> --format json`
-
-4. 仓库明确关闭 Issues 或按仓库策略不可用时，退化为项目草稿项，先按标题检查项目内是否已有唯一项，缺失时执行：
-
-   `gh project item-create <项目编号> --owner TierIITech --title <标题> --body <任务摘要> --format json`
-
-   网络错误、鉴权失败不算“不可用”，不能拿草稿项掩盖真实故障。
-5. 用 `gh project view <项目编号> --owner TierIITech --format json` 获取 Project ID，用 `gh project field-list <项目编号> --owner TierIITech --format json` 获取真实字段和选项 ID。新建且状态为空的 Item 先进入待办池：#9 使用 `待办`（按项目实际选项唯一精确匹配），#5 使用 `准备`。未来专项只在 `Backlog` / `准备` / `Ready` 中接受唯一精确匹配；找不到或不唯一就询问，禁止猜。复用已有 Item 时回读并保留真实状态，任何情况下都禁止把 `In progress` / `进行中`、`In review` / `评审中` / `审核中`、`Done` / `完成` 等后续状态降回待办池。需要写状态时执行：
-
-   `gh project item-edit --id <Item ID> --project-id <Project ID> --field-id <Status 字段 ID> --single-select-option-id <状态选项 ID>`
-
-6. **#9 许愿池专用——设置"类型"字段**：入池 #9 时必须同时设置"类型"单选字段（field_id=`PVTSSF_lADOECCMa84BhAPzzhgbb_8`），根据任务性质选择：Bug（`5a92b684`）、需求（`07c73586`）、稳定性专项（`ff12e435`）。Bug 类还需设置"环境"字段（生产/测试）。执行同 item-edit 命令。其他项目无此字段则跳过。
+1. 先读驾驶舱中的 `github_tracking_kind` 和 `github_project_item_id`，已有就按治理 skill 定向回读后复用；没有时按内容 URL 或规范化标题完整翻页查重，不能只看默认第一页。
+2. 按治理 skill 用 REST 核实仓库 `has_issues` 和当前账号权限。仓库已启用且当前账号可写 Issues 时，使用正式 Issue：优先复用用户给出的 Issue；否则按规范化标题查找唯一的 open Issue。唯一命中就复用，零命中才执行 `gh issue create --repo <owner/repo> --title <标题> --body <任务摘要>`，多个命中先问用户。
+3. 正式 Issue 不依赖项目的 Auto-add 自动化；按治理 skill 检查是否已在目标项目，缺失时用 `addProjectV2ItemById` 显式加入。
+4. 仓库明确关闭 Issues 或按仓库策略不可用时，退化为项目草稿项，先按标题检查项目内是否已有唯一项，缺失时用 `addProjectV2DraftIssue` 创建。网络错误、鉴权失败不算“不可用”，不能拿草稿项掩盖真实故障。
+5. 按治理 skill 读取 Project ID、真实字段和选项 ID。新建且状态为空的 Item 先进入待办池：#9 使用 `待办`（按项目实际选项唯一精确匹配），#5 使用 `准备`。未来专项只在 `Backlog` / `准备` / `Ready` 中接受唯一精确匹配；找不到或不唯一就询问，禁止猜。复用已有 Item 时回读并保留真实状态，任何情况下都禁止把 `In progress` / `进行中`、`In review` / `评审中` / `审核中`、`Done` / `完成` 等后续状态降回待办池。
+6. **#9 许愿池专用——设置“类型”字段**：入池 #9 时必须同时设置“类型”单选字段，根据任务性质选择 Bug、需求或稳定性专项；Bug 类还需设置“环境”字段（生产/测试）。字段和选项 ID 必须从当前项目真实字段回读后使用，其他项目无此字段则跳过。多个字段可按治理 skill 合并写入，但必须逐项回读并幂等补漏。
 7. 把以下字段写入同一个驾驶舱，作为 implement 和 wrapup 的唯一交接来源：
    - `github_tracking_kind: issue | draft`
    - `github_issue_url`（仅 issue）
@@ -173,6 +167,7 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 **Gate**：Issue 或草稿项已存在、项目 Item 已显式确认、当前真实状态已回读、驾驶舱字段已落盘。新 Item 应处于 `Backlog` / `准备` / `Ready`，复用 Item 可以保持更后面的状态。任一步失败都先修复或汇报，不能带着断链继续改代码。
 
 **📋 日志**：
+
 ```
 📋 [GitHub 项目绑定] 状态=✅
   - Tracking: issue <URL> / draft
@@ -186,7 +181,7 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 轨道 A 在 A3 分流后进入修复时、轨道 B 在 B6 分流后进入实现时执行（含挂账红灯但有独立部分要改码的，照常执行）；直接触发 implement 时也必须执行（灯色判定同样适用，规则见「自主分级」章节）：
 
 1. 从驾驶舱读取 Project ID、Item ID 和项目编号，回读 Item 当前真实状态。
-2. 当前为空、`To triage`、`Backlog`、`Ready`、`草稿`、`准备` 时，读取 Status 字段的真实选项：#9 推进到 `处理中`，#5 推进到 `进行中`；未来专项只接受 `In progress` / `进行中` 的唯一精确匹配。执行 `gh project item-edit --id <Item ID> --project-id <Project ID> --field-id <Status 字段 ID> --single-select-option-id <开工态选项 ID>`。
+2. 当前为空、`To triage`、`Backlog`、`Ready`、`草稿`、`准备` 时，按治理 skill 读取 Status 字段的真实选项：#9 推进到 `处理中`，#5 推进到 `进行中`；未来专项只接受 `In progress` / `进行中` 的唯一精确匹配，然后更新并回读。
 3. 已经是 `In progress` / `进行中`、`In review` / `评审中` / `审核中`、`Done` / `完成` 就保持原状，禁止倒退。状态未知、找不到唯一开工态或无法判断先后时询问用户，禁止猜。
 4. 再次回读，把真实值写回 `github_project_status`。
 
@@ -210,6 +205,7 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 > 📌 这只是**分阶段召回的第一阶段**（任务全貌）。后续 implement 阶段要按「当前改的模块」再查（命中率 93%）、review 阶段按「diff + 不变量」再查（命中率 80%）——三阶段 query 各不相同、召回的页基本不重叠，不是重复劳动。见 `implement` skill Step 0 与 Step 3。
 
 **📋 日志**：
+
 ```
 📋 [查团队库] query=xxx
   - 命中: page-a.md（已有方案）/ page-b.md（踩坑记录）
@@ -233,6 +229,7 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 **⛔ 到 Phase 3 结束后停下。禁止进入 Phase 4（实施修复）。**
 
 **📋 日志**：每个 Phase 结束后记录：查了什么 → 发现了什么 → 结论是什么。例如：
+
 ```
 📋 [Phase 1] 根因调查
   - 查了 Loki 日志 / Jaeger trace / git log
@@ -263,6 +260,7 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 ```
 
 要求：
+
 - **用人话讲**，假设读者不看代码也能理解
 - 证据链要有逻辑链条，不是罗列现象
 - 修复方向只给方向，不给实现细节
@@ -278,6 +276,7 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 - **含红灯动作** → 红灯部分及其依赖挂账（背景+选项+建议记驾驶舱「待大杰」），能独立完成的部分继续
 
 进入修复时，没有项目路由就先执行 **Step 3.5.1**，没有跟踪项再执行 **Step 3.5.2** 完成绑定，然后执行 **Step 3.5.3** 推进到开工态；随后才开 worktree 改代码（轨道 B 的 B1 步骤），任何项目都一样，哪怕只改一行。然后视情况：
+
 - 简单修复 → 在 worktree 里直接改（走 systematic-debugging Phase 4），修完按 `implement` skill 的测试 → 审查 → 提 PR 流程收口
 - 需要设计 → 转入轨道 B 写 OpenSpec
 
@@ -286,6 +285,7 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 > ⚠️ **唯一例外**：纯调查/答疑、或只改运行时数据（memory、wiki 这类非版本控制的文件）不需要 worktree。只要动到任何项目的版本控制源码，就必须先开 worktree。
 
 **📋 日志**：修复后记录：
+
 ```
 📋 [修复] 问题=xxx
   - 改了: file1.py (L100-120), file2.py (L50)
@@ -324,6 +324,7 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 **🛩️ 驾驶舱同步**：OpenSpec 每写完一个 artifact（proposal / specs / design），驾驶舱事件流水追加一条（产出+一句话结论+change 目录路径）；proposal 的目标与验收提炼进驾驶舱头部验收标准。
 
 **📋 日志**：每步执行后记录结果：
+
 ```
 📋 [OpenSpec] change=xxx
   - proposal.md: ✅ 新建 / ⏭️ 已存在跳过 → 驾驶舱已记
@@ -353,6 +354,7 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 只改有道理的建议，不合理的忽略（你来判断）。
 
 **📋 日志**：
+
 ```
 📋 [评审修改] change=xxx
   - 评审发现: N 个问题
@@ -381,6 +383,7 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 ```
 
 要求：
+
 - 总分结构，从顶层开始讲
 - 简洁，不讲实现细节
 - 不超过 20 行
@@ -392,6 +395,7 @@ description: 任务启动工作流。提取需求 → 分类（定位问题 / �
 实现完成、测试跑通后，驾驶舱追加验证证据（命令输出 / 截图路径 / trace 链接）。
 
 **📋 日志**：
+
 ```
 📋 [实现] 驾驶舱已记：进入实现
   - 改了: file1.py / file2.ts
