@@ -52,6 +52,30 @@ function createSchema(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp);
 
+    CREATE TABLE IF NOT EXISTS question_cards (
+      id TEXT PRIMARY KEY,
+      chat_jid TEXT NOT NULL,
+      group_folder TEXT NOT NULL,
+      target_sender_id TEXT NOT NULL,
+      draft_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      message_id TEXT,
+      resolved_event_id TEXT,
+      resolved_message_id TEXT,
+      operator_id TEXT,
+      operator_name TEXT,
+      answers_json TEXT,
+      created_at TEXT NOT NULL,
+      resolved_at TEXT,
+      FOREIGN KEY (chat_jid) REFERENCES chats(jid)
+    );
+    CREATE INDEX IF NOT EXISTS idx_question_cards_pending
+      ON question_cards(chat_jid, target_sender_id, created_at)
+      WHERE status = 'pending';
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_question_cards_message_id
+      ON question_cards(message_id)
+      WHERE message_id IS NOT NULL;
+
     CREATE TABLE IF NOT EXISTS scheduled_tasks (
       id TEXT PRIMARY KEY,
       group_folder TEXT NOT NULL,
