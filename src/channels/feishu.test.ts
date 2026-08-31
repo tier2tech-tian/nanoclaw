@@ -66,9 +66,30 @@ vi.mock('../group-folder.js', () => ({
 
 const mockGetMessageById = vi.fn().mockReturnValue(undefined);
 const mockGetAllGroupAliases = vi.fn().mockReturnValue({});
+const mockCreateQuestionCard = vi.fn();
+const mockAttachQuestionCardMessage = vi.fn();
+const mockMarkQuestionCardSendFailed = vi.fn();
+const mockGetQuestionCard = vi.fn();
+const mockGetQuestionCardByMessageId = vi.fn();
+const mockSubmitQuestionCardAnswer = vi.fn();
+const mockResolvePendingQuestionCardByText = vi.fn().mockReturnValue([]);
 vi.mock('../db.js', () => ({
   getMessageById: (...args: unknown[]) => mockGetMessageById(...args),
   getAllGroupAliases: () => mockGetAllGroupAliases(),
+}));
+vi.mock('../question-card-store.js', () => ({
+  createQuestionCard: (...args: unknown[]) => mockCreateQuestionCard(...args),
+  attachQuestionCardMessage: (...args: unknown[]) =>
+    mockAttachQuestionCardMessage(...args),
+  markQuestionCardSendFailed: (...args: unknown[]) =>
+    mockMarkQuestionCardSendFailed(...args),
+  getQuestionCard: (...args: unknown[]) => mockGetQuestionCard(...args),
+  getQuestionCardByMessageId: (...args: unknown[]) =>
+    mockGetQuestionCardByMessageId(...args),
+  submitQuestionCardAnswer: (...args: unknown[]) =>
+    mockSubmitQuestionCardAnswer(...args),
+  resolvePendingQuestionCardByText: (...args: unknown[]) =>
+    mockResolvePendingQuestionCardByText(...args),
 }));
 
 const mockNotifyVoice = vi.fn();
@@ -82,6 +103,7 @@ import { _getSessionForTest } from '../progress-server.js';
 import { FeishuChannel, truncateCp, truncateTailCp } from './feishu.js';
 import type { ChannelOpts } from './registry.js';
 import type { CliMode } from '../types.js';
+import { normalizeQuestionCardDraft } from '../question-card.js';
 
 // ---- 测试辅助 ----
 
@@ -103,8 +125,206 @@ describe('FeishuChannel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetAllGroupAliases.mockReturnValue({});
+    mockResolvePendingQuestionCardByText.mockReturnValue([]);
     opts = makeOpts();
     channel = new FeishuChannel('app_id', 'app_secret', opts);
+  });
+
+  describe('问题表单卡片', () => {
+    const draft = normalizeQuestionCardDraft({
+      title: '发布确认',
+      questions: [
+        {
+          question: '发布窗口？',
+          options: ['现在', '明天'],
+          recommended: [1],
+        },
+      ],
+    });
+
+    it('发送前持久化，成功后绑定飞书 message_id', async () => {
+      mockCreate.mockResolvedValueOnce({ data: { message_id: 'om_question' } });
+
+      const cardId = await channel.sendQuestionCard('fs:oc_test', {
+        groupFolder: 'test-group',
+        targetSenderId: 'ou_owner',
+        draft,
+      });
+
+      expect(mockCreateQuestionCard).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: cardId,
+          chatJid: 'fs:oc_test',
+          groupFolder: 'test-group',
+          targetSenderId: 'ou_owner',
+          draft,
+        }),
+      );
+      expect(mockAttachQuestionCardMessage).toHaveBeenCalledWith(
+        cardId,
+        'om_question',
+      );
+    });
+
+    it('发卡期间用户已用文字回复时，卡片一落地就锁定', async () => {
+      mockCreate.mockResolvedValueOnce({ data: { message_id: 'om_question' } });
+      mockGetQuestionCard.mockReturnValueOnce({
+        id: 'card-race',
+        chatJid: 'fs:oc_test',
+        targetSenderId: 'ou_owner',
+        draft,
+        status: 'text_replied',
+        messageId: 'om_question',
+      });
+
+      await channel.sendQuestionCard('fs:oc_test', {
+        groupFolder: 'test-group',
+        targetSenderId: 'ou_owner',
+        draft,
+      });
+
+      expect(mockPatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          path: { message_id: 'om_question' },
+          data: { content: expect.stringContaining('已通过文字回复') },
+        }),
+      );
+    });
+
+    it('目标用户点击后生成完整答案并锁卡', async () => {
+      mockGetQuestionCard.mockReturnValue({
+        id: 'card-1',
+        chatJid: 'fs:oc_test',
+        targetSenderId: 'ou_owner',
+        draft,
+        status: 'pending',
+        messageId: 'om_question',
+      });
+      mockSubmitQuestionCardAnswer.mockImplementation((input) => ({
+        status: 'accepted',
+        card: {
+          ...mockGetQuestionCard(),
+          status: 'answered',
+          operatorName: input.operatorName,
+          answers: input.answers,
+        },
+      }));
+
+      const response = await channel.handleCardAction({
+        event_id: 'evt-1',
+        action: {
+          value: JSON.stringify({
+            action: 'question_card',
+            cardId: 'card-1',
+            questionId: 'q1',
+            optionId: 'q1o2',
+          }),
+        },
+        operator: { open_id: 'ou_owner' },
+      });
+
+      expect(mockSubmitQuestionCardAnswer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cardId: 'card-1',
+          eventId: 'evt-1',
+          operatorId: 'ou_owner',
+          answers: { q1: ['q1o2'] },
+          syntheticContent: expect.stringContaining('发布窗口？ → 明天'),
+        }),
+      );
+      expect(mockPatch).toHaveBeenCalledWith(
+        expect.objectContaining({ path: { message_id: 'om_question' } }),
+      );
+      expect(response).toEqual(
+        expect.objectContaining({
+          toast: expect.objectContaining({ type: 'success' }),
+        }),
+      );
+    });
+
+    it('表单提交用 message_id 定位卡片并解析字符串 form_value', async () => {
+      const formDraft = normalizeQuestionCardDraft({
+        title: '发布确认',
+        questions: [
+          { question: '发布窗口？', options: ['现在', '明天'] },
+          {
+            question: '同步谁？',
+            multi: true,
+            options: ['研发', 'QA'],
+          },
+        ],
+      });
+      mockGetQuestionCardByMessageId.mockReturnValue({
+        id: 'card-form',
+        chatJid: 'fs:oc_test',
+        targetSenderId: 'ou_owner',
+        draft: formDraft,
+        status: 'pending',
+        messageId: 'om_form',
+      });
+      mockSubmitQuestionCardAnswer.mockImplementation((input) => ({
+        status: 'accepted',
+        card: {
+          ...mockGetQuestionCardByMessageId(),
+          status: 'answered',
+          operatorName: input.operatorName,
+          answers: input.answers,
+        },
+      }));
+
+      await channel.handleCardAction({
+        event_id: 'evt-form',
+        context: { open_message_id: 'om_form', open_chat_id: 'oc_test' },
+        action: {
+          value: {},
+          form_value: JSON.stringify({
+            q1: 'q1o2',
+            q2__q2o1: true,
+            q2__q2o2: false,
+          }),
+        },
+        operator: { open_id: 'ou_owner' },
+      });
+
+      expect(mockSubmitQuestionCardAnswer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cardId: 'card-form',
+          answers: { q1: ['q1o2'], q2: ['q2o1'] },
+        }),
+      );
+    });
+
+    it('普通文字先关闭待答卡片，再继续原消息链路', async () => {
+      mockResolvePendingQuestionCardByText.mockReturnValue([
+        { id: 'card-1', messageId: 'om_question', draft },
+      ]);
+
+      await (channel as any).handleMessage({
+        sender: {
+          sender_id: { open_id: 'ou_test_user' },
+          sender_type: 'user',
+        },
+        message: {
+          message_id: 'om_text',
+          chat_id: 'oc_test',
+          chat_type: 'group',
+          message_type: 'text',
+          content: JSON.stringify({ text: '我补充说明一下' }),
+        },
+      });
+
+      expect(mockResolvePendingQuestionCardByText).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chatJid: 'fs:oc_test',
+          senderId: 'ou_test_user',
+          messageId: 'om_text',
+        }),
+      );
+      expect(mockPatch).toHaveBeenCalledWith(
+        expect.objectContaining({ path: { message_id: 'om_question' } }),
+      );
+      expect(opts.onMessage).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('基本属性', () => {
