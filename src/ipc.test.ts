@@ -216,6 +216,84 @@ describe('writeIpcResponse', () => {
   });
 });
 
+describe('processTaskIpc - send_question_card', () => {
+  it('校验并发送问题卡片，立即返回已发送而不等待用户答案', async () => {
+    deps.sendQuestionCard = vi.fn().mockResolvedValue('card-1');
+
+    await processTaskIpc(
+      {
+        type: 'send_question_card',
+        requestId: 'req-question',
+        chatJid: 'fs:oc_main',
+        senderId: 'ou_owner',
+        title: '发布确认',
+        questions: [
+          {
+            question: '发布窗口？',
+            multi: false,
+            options: ['现在', '明天'],
+            recommended: [1],
+          },
+        ],
+      } as any,
+      'main_group',
+      true,
+      deps,
+    );
+
+    expect(deps.sendQuestionCard).toHaveBeenCalledWith(
+      'fs:oc_main',
+      expect.objectContaining({
+        groupFolder: 'main_group',
+        targetSenderId: 'ou_owner',
+        draft: expect.objectContaining({ title: '发布确认' }),
+      }),
+    );
+    const responsePath = path.join(
+      tmpDir,
+      'ipc',
+      'main_group',
+      'responses',
+      'req-question.json',
+    );
+    expect(JSON.parse(fs.readFileSync(responsePath, 'utf8'))).toEqual({
+      sent: true,
+      cardId: 'card-1',
+    });
+  });
+
+  it('缺少真实发送者时拒绝发卡', async () => {
+    deps.sendQuestionCard = vi.fn().mockResolvedValue('card-1');
+
+    await processTaskIpc(
+      {
+        type: 'send_question_card',
+        requestId: 'req-no-sender',
+        chatJid: 'fs:oc_main',
+        title: '发布确认',
+        questions: [
+          { question: '发布窗口？', options: ['现在', '明天'] },
+        ],
+      } as any,
+      'main_group',
+      true,
+      deps,
+    );
+
+    expect(deps.sendQuestionCard).not.toHaveBeenCalled();
+    const responsePath = path.join(
+      tmpDir,
+      'ipc',
+      'main_group',
+      'responses',
+      'req-no-sender.json',
+    );
+    expect(JSON.parse(fs.readFileSync(responsePath, 'utf8')).error).toMatch(
+      /senderId/,
+    );
+  });
+});
+
 // ---- processTaskIpc: update_task ----
 
 describe('processTaskIpc - update_task', () => {

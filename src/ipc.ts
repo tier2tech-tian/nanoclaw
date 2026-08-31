@@ -48,6 +48,11 @@ import { extractAndRefine } from './memory/extract-fact.js';
 import { loadFacts, storeFactRaw } from './memory/storage.js';
 import { isMemoryEnabled } from './memory/index.js';
 import { ReportStatus, RegisteredGroup } from './types.js';
+import {
+  normalizeQuestionCardDraft,
+  type QuestionCardDraft,
+  type RawQuestionCardDraft,
+} from './question-card.js';
 
 /** report_to_main 允许的 status 白名单（host 边界校验，不信任 agent schema） */
 const REPORT_ALLOWED_STATUSES = new Set<string>([
@@ -155,6 +160,15 @@ export interface IpcDeps {
       recommended?: number;
     },
   ) => Promise<void>;
+  /** 发送飞书问题表单卡片；发出即结束当前 agent 轮次，不等待用户回答。 */
+  sendQuestionCard?: (
+    jid: string,
+    input: {
+      groupFolder: string;
+      targetSenderId: string;
+      draft: QuestionCardDraft;
+    },
+  ) => Promise<string>;
 }
 
 /**
@@ -949,6 +963,8 @@ export async function processTaskIpc(
     content?: string;
     senderId?: string;
     options?: Record<string, unknown>;
+    title?: string;
+    questions?: RawQuestionCardDraft['questions'];
   },
   sourceGroup: string, // Verified identity from IPC directory
   isMain: boolean, // Verified from directory path
@@ -2168,6 +2184,59 @@ export async function processTaskIpc(
         logger.error({ err, sourceGroup, requestId }, 'ask_choice send failed');
         writeIpcResponse(sourceGroup, requestId, {
           error: `Failed to send choice card: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+      break;
+    }
+
+    case 'send_question_card': {
+      const requestId = data.requestId as string;
+      if (!requestId) {
+        logger.warn({ sourceGroup }, 'send_question_card missing requestId');
+        break;
+      }
+      if (!data.chatJid || !data.senderId) {
+        writeIpcResponse(sourceGroup, requestId, {
+          error: 'send_question_card requires chatJid and senderId',
+        });
+        break;
+      }
+      if (!deps.sendQuestionCard) {
+        writeIpcResponse(sourceGroup, requestId, {
+          error: 'send_question_card not supported on this channel',
+        });
+        break;
+      }
+      let draft: QuestionCardDraft;
+      try {
+        draft = normalizeQuestionCardDraft({
+          title: data.title ?? '',
+          questions: data.questions ?? [],
+        });
+      } catch (err) {
+        writeIpcResponse(sourceGroup, requestId, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        break;
+      }
+      try {
+        const cardId = await deps.sendQuestionCard(data.chatJid, {
+          groupFolder: sourceGroup,
+          targetSenderId: data.senderId,
+          draft,
+        });
+        writeIpcResponse(sourceGroup, requestId, { sent: true, cardId });
+        logger.info(
+          { sourceGroup, requestId, cardId },
+          '问题卡片已发送，当前 agent 轮次可结束',
+        );
+      } catch (err) {
+        logger.error(
+          { err, sourceGroup, requestId },
+          'send_question_card send failed',
+        );
+        writeIpcResponse(sourceGroup, requestId, {
+          error: `Failed to send question card: ${err instanceof Error ? err.message : String(err)}`,
         });
       }
       break;

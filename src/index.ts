@@ -2617,6 +2617,17 @@ async function main(): Promise<void> {
       }
       await feishuChannel.sendChoiceCard(jid, choice);
     },
+    sendQuestionCard: async (jid, input) => {
+      const feishuChannel = channels.find((c) => c.name === 'feishu') as
+        | FeishuChannel
+        | undefined;
+      if (!feishuChannel?.sendQuestionCard) {
+        throw new Error(
+          'Feishu channel not available or does not support question cards',
+        );
+      }
+      return feishuChannel.sendQuestionCard(jid, input);
+    },
     notifyReportRejected: (reportingGroupFolder, reason) => {
       // 反查 reporting group 的 JID
       let reportingJid: string | undefined;

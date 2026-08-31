@@ -12,6 +12,7 @@ import fs from 'fs';
 import path from 'path';
 import { CronExpressionParser } from 'cron-parser';
 import { shouldRegisterSendMessage } from './mcp-tool-policy.js';
+import { writeTerminalReplyMarker } from './terminal-reply.js';
 
 const IPC_DIR = process.env.NANOCLAW_IPC_DIR!;
 const MESSAGES_DIR = path.join(IPC_DIR, 'messages');
@@ -634,7 +635,7 @@ const RESPONSES_DIR = path.join(IPC_DIR, 'responses');
 async function waitForResponse(
   requestId: string,
   timeoutMs = 30000,
-): Promise<object> {
+): Promise<Record<string, unknown>> {
   const responsePath = path.join(RESPONSES_DIR, `${requestId}.json`);
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -1588,6 +1589,76 @@ server.tool(
 );
 
 // --- ask_choice：飞书交互卡片选择题 ---
+
+server.tool(
+  'send_question_card',
+  '向当前飞书会话发送问题表单卡片。支持 1-5 个必答问题，单选或多选；推荐项只高亮，不会预选。卡片发出后当前轮次已经完成：不要等待用户回答，也不要再发送确认文字。用户点选提交或直接发文字时会启动新一轮。',
+  {
+    title: z.string().min(1).describe('卡片标题'),
+    questions: z
+      .array(
+        z.object({
+          question: z.string().min(1).describe('问题正文'),
+          multi: z
+            .boolean()
+            .optional()
+            .default(false)
+            .describe('是否允许多选，默认 false'),
+          options: z
+            .array(z.string().min(1))
+            .min(2)
+            .max(6)
+            .describe('选项列表，2-6 项'),
+          recommended: z
+            .array(z.number().int().min(0))
+            .optional()
+            .default([])
+            .describe('推荐选项索引；仅高亮，不会自动勾选'),
+        }),
+      )
+      .min(1)
+      .max(5)
+      .describe('问题列表，1-5 题，全部必答'),
+  },
+  async (args) => {
+    const requestId = crypto.randomUUID();
+    writeIpcFile(TASKS_DIR, {
+      type: 'send_question_card',
+      requestId,
+      chatJid,
+      groupFolder,
+      senderId,
+      title: args.title,
+      questions: args.questions,
+      timestamp: new Date().toISOString(),
+    });
+    try {
+      const response = await waitForResponse(requestId);
+      if (!response.error) writeTerminalReplyMarker(IPC_DIR);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: response.error
+              ? String(response.error)
+              : '问题卡片已发送。本轮到此结束，不要再输出确认消息。',
+          },
+        ],
+        ...(response.error ? { isError: true } : {}),
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `问题卡片发送失败：${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  },
+);
 
 server.tool(
   'ask_choice',

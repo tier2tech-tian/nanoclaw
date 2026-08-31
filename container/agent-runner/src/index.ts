@@ -58,6 +58,10 @@ import {
   type StructuredProgress,
 } from './progress-types.js';
 import { buildThinkingProgress } from './sse-parser.js';
+import {
+  clearTerminalReplyMarker,
+  suppressTerminalReplyOutput,
+} from './terminal-reply.js';
 
 interface ContainerInput {
   prompt: string;
@@ -166,6 +170,13 @@ const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 
 function writeOutput(output: ContainerOutput): void {
+  const suppression = PATHS?.ipc
+    ? suppressTerminalReplyOutput(PATHS.ipc, output)
+    : { output, suppressed: false };
+  if (suppression.suppressed) {
+    log('[terminal-reply] 卡片已作为本轮回复，抑制后续重复终态文字');
+  }
+  output = suppression.output;
   console.log(OUTPUT_START_MARKER);
   console.log(JSON.stringify(output));
   console.log(OUTPUT_END_MARKER);
@@ -1553,6 +1564,7 @@ async function main(): Promise<void> {
       conversations: path.join(wp.group, 'conversations'),
       globalClaudeMd: wp.global ? path.join(wp.global, 'CLAUDE.md') : undefined,
     };
+    clearTerminalReplyMarker(PATHS.ipc);
 
     log(`Received input for group: ${containerInput.groupFolder} (cliMode=${containerInput.cliMode || 'sdk'})`);
   } catch (err) {
