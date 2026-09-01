@@ -122,6 +122,10 @@ import { withLogContext } from './log-context.js';
 import type { QuestionCardDraft } from './question-card.js';
 import { startQuestionCardIpcWatcher } from './question-card-ipc.js';
 import { messageMatchesQuestionCardTrigger } from './question-card-trigger.js';
+import {
+  createActiveQuestionCardTurn,
+  type ActiveQuestionCardTurn,
+} from './question-card-active-turn.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -135,16 +139,7 @@ let messageLoopRunning = false;
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
-const activeQuestionCardTurns = new Map<
-  string,
-  {
-    senderId: string;
-    sendQuestionCard: (
-      groupFolder: string,
-      draft: QuestionCardDraft,
-    ) => Promise<string>;
-  }
->();
+const activeQuestionCardTurns = new Map<string, ActiveQuestionCardTurn>();
 
 /**
  * 单调推进 per-JID cursor。只有 ts > 当前值才写入，防止被旧值覆盖回退。
@@ -173,7 +168,10 @@ function injectReportToActiveAgent(
     // 完整修复需 per-query 序号隔离 progress lifecycle，留作后续。
     const ch = findChannel(channels, sourceJid);
     ch?.setTyping?.(sourceJid, true).catch((err) => {
-      logger.warn({ err, sourceJid }, 'injectReport: setTyping failed (non-fatal)');
+      logger.warn(
+        { err, sourceJid },
+        'injectReport: setTyping failed (non-fatal)',
+      );
     });
     logger.info(
       { sourceJid, reportId: reportMeta.id, ts: reportMeta.timestamp },
@@ -187,7 +185,10 @@ function injectReportToActiveAgent(
 async function sendDirectNotify(jid: string, text: string): Promise<void> {
   const channel = findChannel(channels, jid);
   if (!channel) throw new Error(`sendDirectNotify: No channel for JID: ${jid}`);
-  if (typeof (channel as unknown as Record<string, unknown>).sendDirectMessage === 'function') {
+  if (
+    typeof (channel as unknown as Record<string, unknown>).sendDirectMessage ===
+    'function'
+  ) {
     await (
       channel as unknown as {
         sendDirectMessage: (jid: string, text: string) => Promise<void>;
@@ -541,16 +542,21 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   // 本轮消息全部来自跨群 IPC（delegate 投递 / report_to_main）时，
   // agent 回复的受众是 agent 自己，不推语音播报
-  const isIpcOnlyTurn = missedMessages.length > 0 && missedMessages.every((m) =>
-    m.id.startsWith('ipc_'),
-  );
+  const isIpcOnlyTurn =
+    missedMessages.length > 0 &&
+    missedMessages.every((m) => m.id.startsWith('ipc_'));
 
   /** 统一发送 agent 回复，自动 merge 跨群静音标记 */
-  const sendAgentMessage = (text: string, options?: import('./types.js').SendMessageOptions) =>
+  const sendAgentMessage = (
+    text: string,
+    options?: import('./types.js').SendMessageOptions,
+  ) =>
     channel.sendMessage(chatJid, text, {
       ...options,
       skipVoiceNotify: isIpcOnlyTurn || options?.skipVoiceNotify,
-      voiceContext: isIpcOnlyTurn ? undefined : (options?.voiceContext ?? voiceContext),
+      voiceContext: isIpcOnlyTurn
+        ? undefined
+        : (options?.voiceContext ?? voiceContext),
     });
 
   // For non-main groups, check if trigger is required and present
@@ -756,7 +762,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         });
         return;
       }
-      let carryResult = activeTask ? shouldCarryReply(missedMessages, activeTask) : false;
+      let carryResult = activeTask
+        ? shouldCarryReply(missedMessages, activeTask)
+        : false;
       // IPC pipe 模式补偿：missedMessages 是 turn 开始时的快照，后续 query 不刷新。
       if (!carryResult && activeTask && currentQueryReplies.length > 0) {
         const dbHasTrigger = hasIpcTriggerForTask(chatJid, activeTask.taskId);
@@ -781,15 +789,19 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         },
         `${opts.logPrefix} auto-finalize debug: shouldCarryReply 判断`,
       );
-      const finalReply = activeTask && carryResult
-        ? currentQueryReplies.join('\n\n')
-        : undefined;
+      const finalReply =
+        activeTask && carryResult
+          ? currentQueryReplies.join('\n\n')
+          : undefined;
       finalizeDelegationOnTurnEnd(group.folder, true, finalReply, {
         injectReportToActiveAgent,
         sendDirectNotify,
       });
     } catch (err) {
-      logger.warn({ err, group: group.folder }, `${opts.logPrefix} 自动终态汇报异常`);
+      logger.warn(
+        { err, group: group.folder },
+        `${opts.logPrefix} 自动终态汇报异常`,
+      );
     }
   };
 
@@ -1172,9 +1184,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       });
   };
 
-  const questionCardTurn = {
-    senderId: missedMessages[missedMessages.length - 1].sender,
-    sendQuestionCard: async (groupFolder: string, draft: QuestionCardDraft) => {
+  const questionCardTurn = createActiveQuestionCardTurn(
+    missedMessages[missedMessages.length - 1].sender,
+    async (groupFolder, targetSenderId, draft) => {
       if (!('sendQuestionCard' in channel)) {
         throw new Error('问题卡片当前仅支持飞书');
       }
@@ -1184,14 +1196,14 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         }
       ).sendQuestionCard(chatJid, {
         groupFolder,
-        targetSenderId: missedMessages[missedMessages.length - 1].sender,
+        targetSenderId,
         draft,
       });
       outputSentToUser = true;
       everSentToUser = true;
       return cardId;
     },
-  };
+  );
   activeQuestionCardTurns.set(chatJid, questionCardTurn);
   setTimeout(
     () => {
@@ -1461,7 +1473,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           }
           if (result.status === 'error') {
             hadError = true;
-            finalizeActiveDelegationForTurn({ ok: false, logPrefix: '[retry-error]' });
+            finalizeActiveDelegationForTurn({
+              ok: false,
+              logPrefix: '[retry-error]',
+            });
           }
         },
         latestUserMessage,
@@ -2342,6 +2357,10 @@ async function startMessageLoop(): Promise<void> {
               formatted.messageCount,
             )
           ) {
+            if (pipeLastMsg?.sender) {
+              const activeTurn = activeQuestionCardTurns.get(chatJid);
+              if (activeTurn) activeTurn.senderId = pipeLastMsg.sender;
+            }
             logger.debug(
               { chatJid, count: messagesToSend.length },
               'Piped messages to active container',
@@ -2602,7 +2621,10 @@ async function main(): Promise<void> {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
       // 优先用 sendDirectMessage（跳过进度卡片清理），fallback 到 sendMessage
-      if (typeof (channel as unknown as Record<string, unknown>).sendDirectMessage === 'function') {
+      if (
+        typeof (channel as unknown as Record<string, unknown>)
+          .sendDirectMessage === 'function'
+      ) {
         await (
           channel as unknown as {
             sendDirectMessage: (jid: string, text: string) => Promise<void>;
@@ -2667,7 +2689,9 @@ async function main(): Promise<void> {
         | FeishuChannel
         | undefined;
       if (!feishuChannel?.sendChoiceCard) {
-        throw new Error('Feishu channel not available or does not support choice cards');
+        throw new Error(
+          'Feishu channel not available or does not support choice cards',
+        );
       }
       await feishuChannel.sendChoiceCard(jid, choice);
     },
