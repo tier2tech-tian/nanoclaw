@@ -23,6 +23,8 @@ export interface StoredQuestionCard {
   operatorId?: string;
   operatorName?: string;
   answers?: QuestionCardAnswers;
+  selectionAnswers: QuestionCardAnswers;
+  selectionRevision: number;
   createdAt: string;
   resolvedAt?: string;
 }
@@ -40,6 +42,8 @@ interface QuestionCardRow {
   operator_id: string | null;
   operator_name: string | null;
   answers_json: string | null;
+  selection_json: string | null;
+  selection_revision: number;
   created_at: string;
   resolved_at: string | null;
 }
@@ -63,6 +67,10 @@ function hydrate(
     answers: row.answers_json
       ? (JSON.parse(row.answers_json) as QuestionCardAnswers)
       : undefined,
+    selectionAnswers: row.selection_json
+      ? (JSON.parse(row.selection_json) as QuestionCardAnswers)
+      : {},
+    selectionRevision: row.selection_revision ?? 0,
     createdAt: row.created_at,
     resolvedAt: row.resolved_at ?? undefined,
   };
@@ -133,7 +141,52 @@ export type SubmitQuestionCardResult =
   | { status: 'accepted'; card: StoredQuestionCard }
   | { status: 'already_resolved'; card: StoredQuestionCard }
   | { status: 'unauthorized'; card: StoredQuestionCard }
+  | { status: 'selection_changed'; card: StoredQuestionCard }
   | { status: 'not_found' };
+
+export type CommitQuestionCardSelectionResult =
+  | { status: 'accepted'; card: StoredQuestionCard }
+  | { status: 'stale'; card: StoredQuestionCard }
+  | { status: 'already_resolved'; card: StoredQuestionCard }
+  | { status: 'unauthorized'; card: StoredQuestionCard }
+  | { status: 'not_found' };
+
+export function commitQuestionCardSelection(input: {
+  cardId: string;
+  operatorId: string;
+  expectedRevision: number;
+  answers: QuestionCardAnswers;
+}): CommitQuestionCardSelectionResult {
+  return getDb().transaction((): CommitQuestionCardSelectionResult => {
+    const current = getQuestionCard(input.cardId);
+    if (!current) return { status: 'not_found' };
+    if (current.targetSenderId !== input.operatorId) {
+      return { status: 'unauthorized', card: current };
+    }
+    if (current.status !== 'pending') {
+      return { status: 'already_resolved', card: current };
+    }
+    if (current.selectionRevision !== input.expectedRevision) {
+      return { status: 'stale', card: current };
+    }
+
+    const update = getDb()
+      .prepare(
+        `UPDATE question_cards
+         SET selection_json = ?, selection_revision = selection_revision + 1
+         WHERE id = ? AND status = 'pending' AND selection_revision = ?`,
+      )
+      .run(JSON.stringify(input.answers), input.cardId, input.expectedRevision);
+    if (update.changes !== 1) {
+      const latest = getQuestionCard(input.cardId);
+      if (!latest) return { status: 'not_found' };
+      return latest.status === 'pending'
+        ? { status: 'stale', card: latest }
+        : { status: 'already_resolved', card: latest };
+    }
+    return { status: 'accepted', card: getQuestionCard(input.cardId)! };
+  })();
+}
 
 export function submitQuestionCardAnswer(input: {
   cardId: string;
@@ -143,6 +196,7 @@ export function submitQuestionCardAnswer(input: {
   answers: QuestionCardAnswers;
   syntheticContent: string;
   timestamp: string;
+  expectedSelectionRevision?: number;
 }): SubmitQuestionCardResult {
   return getDb().transaction((): SubmitQuestionCardResult => {
     const current = getQuestionCard(input.cardId);
@@ -152,6 +206,12 @@ export function submitQuestionCardAnswer(input: {
     }
     if (current.status !== 'pending') {
       return { status: 'already_resolved', card: current };
+    }
+    if (
+      input.expectedSelectionRevision !== undefined &&
+      current.selectionRevision !== input.expectedSelectionRevision
+    ) {
+      return { status: 'selection_changed', card: current };
     }
 
     const update = getDb()

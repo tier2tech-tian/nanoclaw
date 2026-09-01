@@ -43,12 +43,15 @@ import {
   buildQuestionCardJson,
   buildResolvedQuestionCardJson,
   formatQuestionCardAnswer,
+  nextQuestionCardAnswers,
+  parseQuestionCardAnswers,
   parseQuestionCardSubmission,
   type QuestionCardAnswers,
   type QuestionCardDraft,
 } from '../question-card.js';
 import {
   attachQuestionCardMessage,
+  commitQuestionCardSelection,
   createQuestionCard,
   getQuestionCard,
   getQuestionCardByMessageId,
@@ -2639,25 +2642,23 @@ export class FeishuChannel implements Channel {
     cardId: string,
     messageId: string,
     content: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
         await this.client.im.message.patch({
           path: { message_id: messageId },
           data: { content },
         });
-        return;
+        return true;
       } catch (err) {
         if (attempt === 2) {
-          logger.warn(
-            { err, cardId, messageId },
-            '问题卡片更新连续失败（业务状态已生效）',
-          );
-          return;
+          logger.warn({ err, cardId, messageId }, '问题卡片更新连续失败');
+          return false;
         }
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
     }
+    return false;
   }
 
   private async handleQuestionCardAction(
@@ -2680,7 +2681,14 @@ export class FeishuChannel implements Channel {
     const cardByMessage = messageId
       ? getQuestionCardByMessageId(messageId)
       : undefined;
-    if (value.action !== 'question_card' && !cardByMessage) return undefined;
+    const questionCardActions = new Set([
+      'question_card',
+      'question_card_select',
+      'question_card_submit',
+    ]);
+    if (!questionCardActions.has(String(value.action)) && !cardByMessage) {
+      return undefined;
+    }
 
     const cardId =
       typeof value.cardId === 'string'
@@ -2704,9 +2712,115 @@ export class FeishuChannel implements Channel {
       return { toast: { type: 'info', content: '该问题已经回答' } };
     }
 
+    if (value.action === 'question_card_select') {
+      try {
+        const revision = value.revision;
+        if (!Number.isInteger(revision) || Number(revision) < 0) {
+          throw new Error('卡片状态无效');
+        }
+        const resolvedMessageId = card.messageId ?? messageId;
+        if (!resolvedMessageId) {
+          throw new Error('卡片消息不存在');
+        }
+        if (card.selectionRevision !== revision) {
+          await this.patchQuestionCard(
+            cardId,
+            resolvedMessageId,
+            buildQuestionCardJson(
+              cardId,
+              card.draft,
+              card.selectionAnswers,
+              card.selectionRevision,
+            ),
+          );
+          return { toast: { type: 'info', content: '卡片已刷新，请重新选择' } };
+        }
+        if (
+          typeof value.questionId !== 'string' ||
+          typeof value.optionId !== 'string'
+        ) {
+          throw new Error('无效选项');
+        }
+        const answers = nextQuestionCardAnswers(
+          card.draft,
+          card.selectionAnswers,
+          value.questionId,
+          value.optionId,
+        );
+        const patched = await this.patchQuestionCard(
+          cardId,
+          resolvedMessageId,
+          buildQuestionCardJson(
+            cardId,
+            card.draft,
+            answers,
+            Number(revision) + 1,
+          ),
+        );
+        if (!patched) throw new Error('卡片更新失败，请重试');
+        const committed = commitQuestionCardSelection({
+          cardId,
+          operatorId,
+          expectedRevision: Number(revision),
+          answers,
+        });
+        if (committed.status !== 'accepted') {
+          if (committed.status === 'stale' && committed.card.messageId) {
+            const refreshed = await this.patchQuestionCard(
+              cardId,
+              committed.card.messageId,
+              buildQuestionCardJson(
+                cardId,
+                committed.card.draft,
+                committed.card.selectionAnswers,
+                committed.card.selectionRevision,
+              ),
+            );
+            if (!refreshed) {
+              commitQuestionCardSelection({
+                cardId,
+                operatorId,
+                expectedRevision: committed.card.selectionRevision,
+                answers: committed.card.selectionAnswers,
+              });
+              return {
+                toast: { type: 'warning', content: '卡片刷新失败，请重试' },
+              };
+            }
+            return {
+              toast: { type: 'info', content: '卡片已刷新，请重新选择' },
+            };
+          }
+          return { toast: { type: 'info', content: '该问题已经回答' } };
+        }
+        return { toast: { type: 'success', content: '已选择' } };
+      } catch (err) {
+        return {
+          toast: {
+            type: 'warning',
+            content: err instanceof Error ? err.message : '无效选项',
+          },
+        };
+      }
+    }
+
     let answers: QuestionCardAnswers;
     try {
-      if (
+      if (value.action === 'question_card_submit') {
+        if (!Number.isInteger(value.revision) || Number(value.revision) < 0) {
+          throw new Error('卡片状态无效');
+        }
+        if (card.selectionRevision !== value.revision) {
+          return {
+            toast: { type: 'info', content: '卡片已更新，请重新提交' },
+          };
+        }
+        answers = parseQuestionCardAnswers(
+          card.draft,
+          card.selectionAnswers,
+          true,
+        );
+      } else if (
         typeof value.questionId === 'string' &&
         typeof value.optionId === 'string'
       ) {
@@ -2756,6 +2870,10 @@ export class FeishuChannel implements Channel {
       answers,
       syntheticContent: formatQuestionCardAnswer(card.draft, answers),
       timestamp: new Date().toISOString(),
+      expectedSelectionRevision:
+        value.action === 'question_card_submit'
+          ? Number(value.revision)
+          : undefined,
     });
     if (result.status !== 'accepted') {
       return {
@@ -2764,7 +2882,9 @@ export class FeishuChannel implements Channel {
           content:
             result.status === 'unauthorized'
               ? '这张卡片需要由提问对象回答'
-              : '该问题已经回答',
+              : result.status === 'selection_changed'
+                ? '卡片已更新，请重新提交'
+                : '该问题已经回答',
         },
       };
     }

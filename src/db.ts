@@ -65,6 +65,8 @@ function createSchema(database: Database.Database): void {
       operator_id TEXT,
       operator_name TEXT,
       answers_json TEXT,
+      selection_json TEXT,
+      selection_revision INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       resolved_at TEXT,
       FOREIGN KEY (chat_jid) REFERENCES chats(jid)
@@ -286,6 +288,19 @@ function createSchema(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_task_ledger_events_task ON task_ledger_events(task_id, created_at);
   `);
+
+  try {
+    database.exec(`ALTER TABLE question_cards ADD COLUMN selection_json TEXT`);
+  } catch {
+    /* column already exists */
+  }
+  try {
+    database.exec(
+      `ALTER TABLE question_cards ADD COLUMN selection_revision INTEGER NOT NULL DEFAULT 0`,
+    );
+  } catch {
+    /* column already exists */
+  }
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)
   try {

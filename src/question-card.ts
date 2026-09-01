@@ -18,6 +18,8 @@ export interface QuestionCardDraft {
 
 export type QuestionCardAnswers = Record<string, string[]>;
 
+const MAX_CARD_JSON_BYTES = 29_000;
+
 export interface RawQuestionCardDraft {
   title: string;
   questions: Array<{
@@ -109,13 +111,23 @@ function baseCard(title: string, elements: unknown[]): Record<string, unknown> {
   };
 }
 
+function stringifyCard(card: Record<string, unknown>): string {
+  const json = JSON.stringify(card);
+  if (Buffer.byteLength(json, 'utf8') > MAX_CARD_JSON_BYTES) {
+    throw new Error('问题内容超过飞书卡片容量，请缩短后重试');
+  }
+  return json;
+}
+
 export function buildQuestionCardJson(
   cardId: string,
   draft: QuestionCardDraft,
+  currentAnswers: QuestionCardAnswers = {},
+  revision = 0,
 ): string {
   if (draft.questions.length === 1 && !draft.questions[0].multi) {
     const question = draft.questions[0];
-    return JSON.stringify(
+    return stringifyCard(
       baseCard(draft.title, [
         { tag: 'markdown', content: `**${question.question}**` },
         ...question.options.map((option) => ({
@@ -138,42 +150,59 @@ export function buildQuestionCardJson(
     );
   }
 
+  const answers = parseQuestionCardAnswers(draft, currentAnswers);
   const elements: Array<Record<string, unknown>> = [];
   for (const question of draft.questions) {
     elements.push({ tag: 'markdown', content: `**${question.question}**` });
-    if (question.multi) {
-      for (const option of question.options) {
-        elements.push({
-          tag: 'checker',
-          name: `${question.id}__${option.id}`,
-          checked: false,
-          text: { tag: 'plain_text', content: optionText(option) },
-        });
-      }
-    } else {
+    for (const option of question.options) {
+      const selected = (answers[question.id] ?? []).includes(option.id);
+      const marker = question.multi
+        ? selected
+          ? '■'
+          : '□'
+        : selected
+          ? '●'
+          : '○';
       elements.push({
-        tag: 'select_static',
-        name: question.id,
-        required: true,
-        placeholder: { tag: 'plain_text', content: '请选择' },
-        options: question.options.map((option) => ({
-          text: { tag: 'plain_text', content: optionText(option) },
-          value: option.id,
-        })),
+        tag: 'button',
+        text: {
+          tag: 'plain_text',
+          content: `${marker} ${optionText(option)}`,
+        },
+        type: 'text',
+        behaviors: [
+          {
+            type: 'callback',
+            value: {
+              action: 'question_card_select',
+              cardId,
+              questionId: question.id,
+              optionId: option.id,
+              revision,
+            },
+          },
+        ],
       });
     }
   }
   elements.push({
     tag: 'button',
-    name: 'submit_question_card',
     text: { tag: 'plain_text', content: '提交' },
     type: 'primary',
-    form_action_type: 'submit',
+    disabled: !questionCardAnswersComplete(draft, answers),
+    behaviors: [
+      {
+        type: 'callback',
+        value: {
+          action: 'question_card_submit',
+          cardId,
+          revision,
+        },
+      },
+    ],
   });
 
-  return JSON.stringify(
-    baseCard(draft.title, [{ tag: 'form', name: 'question_card', elements }]),
-  );
+  return stringifyCard(baseCard(draft.title, elements));
 }
 
 function assertOption(
@@ -184,6 +213,84 @@ function assertOption(
     throw new Error(`「${question.question}」包含无效选项`);
   }
   return optionId;
+}
+
+export function parseQuestionCardAnswers(
+  draft: QuestionCardDraft,
+  rawAnswers: unknown,
+  requireComplete = false,
+): QuestionCardAnswers {
+  if (
+    !rawAnswers ||
+    typeof rawAnswers !== 'object' ||
+    Array.isArray(rawAnswers)
+  ) {
+    if (requireComplete) throw new Error('请完成所有必答题');
+    return {};
+  }
+
+  const raw = rawAnswers as Record<string, unknown>;
+  const answers: QuestionCardAnswers = {};
+  for (const question of draft.questions) {
+    const selectedRaw = raw[question.id];
+    if (selectedRaw === undefined) {
+      if (requireComplete) throw new Error(`请回答「${question.question}」`);
+      continue;
+    }
+    if (!Array.isArray(selectedRaw)) {
+      throw new Error(`「${question.question}」包含无效选项`);
+    }
+    const selected = [...new Set(selectedRaw)].map((optionId) => {
+      if (typeof optionId !== 'string') {
+        throw new Error(`「${question.question}」包含无效选项`);
+      }
+      return assertOption(question, optionId);
+    });
+    if (!question.multi && selected.length > 1) {
+      throw new Error(`「${question.question}」只能选择一项`);
+    }
+    if (selected.length === 0) {
+      if (requireComplete) throw new Error(`请回答「${question.question}」`);
+      continue;
+    }
+    answers[question.id] = question.options
+      .filter((option) => selected.includes(option.id))
+      .map((option) => option.id);
+  }
+  return answers;
+}
+
+export function nextQuestionCardAnswers(
+  draft: QuestionCardDraft,
+  currentAnswers: QuestionCardAnswers,
+  questionId: string,
+  optionId: string,
+): QuestionCardAnswers {
+  const answers = parseQuestionCardAnswers(draft, currentAnswers);
+  const question = draft.questions.find((item) => item.id === questionId);
+  if (!question) throw new Error('无效问题');
+  assertOption(question, optionId);
+
+  if (!question.multi) return { ...answers, [questionId]: [optionId] };
+  const selected = answers[questionId] ?? [];
+  const next = selected.includes(optionId)
+    ? selected.filter((id) => id !== optionId)
+    : [...selected, optionId];
+  if (next.length === 0) {
+    const { [questionId]: _, ...rest } = answers;
+    return rest;
+  }
+  return parseQuestionCardAnswers(draft, {
+    ...answers,
+    [questionId]: next,
+  });
+}
+
+function questionCardAnswersComplete(
+  draft: QuestionCardDraft,
+  answers: QuestionCardAnswers,
+): boolean {
+  return draft.questions.every((question) => answers[question.id]?.length > 0);
 }
 
 export function parseQuestionCardSubmission(

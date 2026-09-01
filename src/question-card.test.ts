@@ -4,7 +4,9 @@ import {
   buildQuestionCardJson,
   buildResolvedQuestionCardJson,
   formatQuestionCardAnswer,
+  nextQuestionCardAnswers,
   normalizeQuestionCardDraft,
+  parseQuestionCardAnswers,
   parseQuestionCardSubmission,
 } from './question-card.js';
 
@@ -92,29 +94,113 @@ describe('问题表单卡片契约', () => {
     });
   });
 
-  it('多题或多选渲染为 form，单选下拉、多选 checker，推荐均不预选', () => {
+  it('多题或多选渲染为无边框选项，初始不预选且不能提交', () => {
     const card = JSON.parse(buildQuestionCardJson('card-2', mixedDraft));
-    const form = card.body.elements[0];
-    expect(form.tag).toBe('form');
-
-    const selector = form.elements.find(
-      (element: Record<string, unknown>) => element.tag === 'select_static',
+    const buttons = card.body.elements.filter(
+      (element: Record<string, unknown>) => element.tag === 'button',
     );
-    expect(selector.initial_option).toBeUndefined();
-    expect(selector.options[1].text.content).toContain('推荐');
+    expect(buttons).toHaveLength(7);
+    expect(
+      buttons.slice(0, -1).every((item: any) => item.type === 'text'),
+    ).toBe(true);
+    expect(buttons[0].text.content).toBe('○ 立即发布');
+    expect(buttons[1].text.content).toContain('○ ⭐ 低峰发布（推荐）');
+    expect(buttons[3].text.content).toContain('□ ⭐ 研发（推荐）');
+    expect(JSON.stringify(card)).not.toContain('select_static');
+    expect(JSON.stringify(card)).not.toContain('checker');
+    expect(JSON.stringify(card)).not.toContain('"tag":"form"');
 
-    const checkers = form.elements.filter(
-      (element: Record<string, unknown>) => element.tag === 'checker',
-    );
-    expect(checkers).toHaveLength(3);
-    expect(checkers.every((item: { checked: boolean }) => !item.checked)).toBe(
-      true,
-    );
-    expect(checkers[0].text.content).toContain('推荐');
+    const submit = buttons.at(-1);
+    expect(submit.type).toBe('primary');
+    expect(submit.disabled).toBe(true);
+    expect(submit.behaviors[0].value).toMatchObject({
+      action: 'question_card_submit',
+      cardId: 'card-2',
+      revision: 0,
+    });
+    expect(submit.behaviors[0].value.answers).toBeUndefined();
+  });
 
-    const submit = form.elements.at(-1);
-    expect(submit.form_action_type).toBe('submit');
-    expect(submit.behaviors).toBeUndefined();
+  it('选中态显示圆点和方框，答完所有题后启用统一提交', () => {
+    const answers = { q1: ['q1o2'], q2: ['q2o1', 'q2o3'] };
+    const card = JSON.parse(
+      buildQuestionCardJson('card-2', mixedDraft, answers, 3),
+    );
+    const buttons = card.body.elements.filter(
+      (element: Record<string, unknown>) => element.tag === 'button',
+    );
+
+    expect(buttons[0].text.content).toBe('○ 立即发布');
+    expect(buttons[1].text.content).toContain('● ⭐ 低峰发布（推荐）');
+    expect(buttons[3].text.content).toContain('■ ⭐ 研发（推荐）');
+    expect(buttons[4].text.content).toContain('□ ⭐ QA（推荐）');
+    expect(buttons[5].text.content).toBe('■ 产品');
+    expect(buttons.at(-1).disabled).toBe(false);
+    expect(buttons.at(-1).behaviors[0].value).toMatchObject({
+      action: 'question_card_submit',
+      revision: 3,
+    });
+    expect(buttons.at(-1).behaviors[0].value.answers).toBeUndefined();
+  });
+
+  it('单选会替换旧值，多选会逐项切换', () => {
+    expect(nextQuestionCardAnswers(mixedDraft, {}, 'q1', 'q1o2')).toEqual({
+      q1: ['q1o2'],
+    });
+    expect(
+      nextQuestionCardAnswers(
+        mixedDraft,
+        { q1: ['q1o2'], q2: ['q2o1'] },
+        'q1',
+        'q1o3',
+      ),
+    ).toEqual({ q1: ['q1o3'], q2: ['q2o1'] });
+    expect(
+      nextQuestionCardAnswers(
+        mixedDraft,
+        { q1: ['q1o2'], q2: ['q2o1'] },
+        'q2',
+        'q2o3',
+      ),
+    ).toEqual({ q1: ['q1o2'], q2: ['q2o1', 'q2o3'] });
+    expect(
+      nextQuestionCardAnswers(
+        mixedDraft,
+        { q1: ['q1o2'], q2: ['q2o1', 'q2o3'] },
+        'q2',
+        'q2o1',
+      ),
+    ).toEqual({ q1: ['q1o2'], q2: ['q2o3'] });
+  });
+
+  it('状态答案拒绝伪造选项，提交时要求所有题必答', () => {
+    expect(parseQuestionCardAnswers(mixedDraft, { q1: ['q1o2'] })).toEqual({
+      q1: ['q1o2'],
+    });
+    expect(() =>
+      parseQuestionCardAnswers(mixedDraft, { q1: ['fake'] }),
+    ).toThrow(/无效选项/);
+    expect(() =>
+      parseQuestionCardAnswers(mixedDraft, { q1: ['q1o2'] }, true),
+    ).toThrow(/需要同步谁/);
+  });
+
+  it('卡片超过飞书容量时明确拒绝，不发送残缺内容', () => {
+    const oversized = normalizeQuestionCardDraft({
+      title: '超长卡片',
+      questions: [
+        {
+          question: '请选择',
+          options: Array.from(
+            { length: 6 },
+            (_, index) => `${index}-${'长'.repeat(5_000)}`,
+          ),
+        },
+      ],
+    });
+    expect(() => buildQuestionCardJson('card-large', oversized)).toThrow(
+      /超过飞书卡片容量/,
+    );
   });
 
   it('解析完整表单答案，缺少必答题时拒绝', () => {

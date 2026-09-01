@@ -18,6 +18,7 @@ import {
   getQuestionCardByMessageId,
   isQuestionCardAnswerMessage,
   resolvePendingQuestionCardByText,
+  commitQuestionCardSelection,
   submitQuestionCardAnswer,
 } from './question-card-store.js';
 
@@ -136,6 +137,69 @@ describe('问题卡片持久状态', () => {
     expect(
       getMessagesSince('fs:oc_test', '2026-08-31T12:00:00.000Z', 'Andy'),
     ).toEqual([]);
+  });
+
+  it('按版本持久化点选状态，旧回调不能覆盖新选择', () => {
+    createPendingCard();
+    const first = commitQuestionCardSelection({
+      cardId: 'card-1',
+      operatorId: 'ou_owner',
+      expectedRevision: 0,
+      answers: { q1: ['q1o2'] },
+    });
+    const stale = commitQuestionCardSelection({
+      cardId: 'card-1',
+      operatorId: 'ou_owner',
+      expectedRevision: 0,
+      answers: { q1: ['q1o1'] },
+    });
+
+    expect(first.status).toBe('accepted');
+    expect(first.card).toMatchObject({
+      selectionAnswers: { q1: ['q1o2'] },
+      selectionRevision: 1,
+    });
+    expect(stale.status).toBe('stale');
+    expect(stale.card).toMatchObject({
+      selectionAnswers: { q1: ['q1o2'] },
+      selectionRevision: 1,
+    });
+  });
+
+  it('统一提交拒绝过期版本，当前版本才生成合成消息', () => {
+    createPendingCard();
+    commitQuestionCardSelection({
+      cardId: 'card-1',
+      operatorId: 'ou_owner',
+      expectedRevision: 0,
+      answers: { q1: ['q1o2'] },
+    });
+    const stale = submitQuestionCardAnswer({
+      cardId: 'card-1',
+      eventId: 'evt-stale',
+      operatorId: 'ou_owner',
+      operatorName: '大杰',
+      answers: { q1: ['q1o1'] },
+      expectedSelectionRevision: 0,
+      syntheticContent: '不应写入',
+      timestamp: '2026-08-31T12:01:00.000Z',
+    });
+    const accepted = submitQuestionCardAnswer({
+      cardId: 'card-1',
+      eventId: 'evt-current',
+      operatorId: 'ou_owner',
+      operatorName: '大杰',
+      answers: { q1: ['q1o2'] },
+      expectedSelectionRevision: 1,
+      syntheticContent: '已提交当前答案',
+      timestamp: '2026-08-31T12:01:01.000Z',
+    });
+
+    expect(stale.status).toBe('selection_changed');
+    expect(accepted.status).toBe('accepted');
+    expect(
+      getMessagesSince('fs:oc_test', '2026-08-31T12:00:00.000Z', 'Andy'),
+    ).toMatchObject([{ content: '已提交当前答案' }]);
   });
 
   it('普通文字先到时关闭卡片，迟到点击不再生成合成消息', () => {

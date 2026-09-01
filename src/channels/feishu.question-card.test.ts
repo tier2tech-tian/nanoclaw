@@ -199,6 +199,237 @@ describe('飞书问题表单卡片', () => {
     );
   });
 
+  it('多题卡点选只更新选中态，统一提交后才生成新消息', async () => {
+    const channel = new FeishuChannel(
+      'app-id',
+      'app-secret',
+      makeOpts() as any,
+    );
+    const formDraft = normalizeQuestionCardDraft({
+      title: '发布确认',
+      questions: [
+        { question: '发布窗口？', options: ['现在', '明天'] },
+        {
+          question: '通知谁？',
+          multi: true,
+          options: ['研发', '产品', '测试'],
+        },
+      ],
+    });
+    const cardId = await channel.sendQuestionCard(chatJid, {
+      groupFolder: 'test-agent',
+      targetSenderId: 'ou_owner',
+      draft: formDraft,
+    });
+
+    const select = await (channel as any).handleQuestionCardAction({
+      event_id: 'evt-select',
+      action: {
+        value: {
+          action: 'question_card_select',
+          cardId,
+          questionId: 'q1',
+          optionId: 'q1o2',
+          revision: 0,
+        },
+      },
+      operator: { open_id: 'ou_owner' },
+    });
+
+    expect(select.toast.type).toBe('success');
+    expect(getQuestionCard(cardId)?.status).toBe('pending');
+    expect(getNewMessages([chatJid], '', '大狗').messages).toHaveLength(0);
+    const selectedCard = JSON.parse(
+      patchMessage.mock.calls.at(-1)?.[0].data.content,
+    );
+    expect(JSON.stringify(selectedCard)).toContain('● 明天');
+
+    const clickOption = async (optionId: string) => {
+      const currentCard = JSON.parse(
+        patchMessage.mock.calls.at(-1)?.[0].data.content,
+      );
+      const button = currentCard.body.elements.find(
+        (element: any) => element.behaviors?.[0]?.value?.optionId === optionId,
+      );
+      return (channel as any).handleQuestionCardAction({
+        event_id: `evt-${optionId}`,
+        action: { value: button.behaviors[0].value },
+        operator: { open_id: 'ou_owner' },
+      });
+    };
+    await clickOption('q2o1');
+    await clickOption('q2o3');
+
+    const completedCard = JSON.parse(
+      patchMessage.mock.calls.at(-1)?.[0].data.content,
+    );
+    const submitButton = completedCard.body.elements.at(-1);
+    expect(submitButton.disabled).toBe(false);
+    const submit = await (channel as any).handleQuestionCardAction({
+      event_id: 'evt-submit',
+      action: { value: submitButton.behaviors[0].value },
+      operator: { open_id: 'ou_owner' },
+    });
+
+    expect(submit.toast.type).toBe('success');
+    expect(getQuestionCard(cardId)?.status).toBe('answered');
+    expect(getNewMessages([chatJid], '', '大狗').messages[0].content).toContain(
+      '通知谁？ → 研发、测试',
+    );
+  });
+
+  it('卡片 PATCH 失败时不落选择状态，也不假报成功', async () => {
+    const channel = new FeishuChannel(
+      'app-id',
+      'app-secret',
+      makeOpts() as any,
+    );
+    const formDraft = normalizeQuestionCardDraft({
+      title: '发布确认',
+      questions: [
+        { question: '发布窗口？', options: ['现在', '明天'] },
+        { question: '通知谁？', multi: true, options: ['研发', '产品'] },
+      ],
+    });
+    const cardId = await channel.sendQuestionCard(chatJid, {
+      groupFolder: 'test-agent',
+      targetSenderId: 'ou_owner',
+      draft: formDraft,
+    });
+    patchMessage.mockRejectedValueOnce(new Error('patch failed'));
+    patchMessage.mockRejectedValueOnce(new Error('patch failed'));
+
+    const response = await (channel as any).handleQuestionCardAction({
+      event_id: 'evt-failed-patch',
+      action: {
+        value: {
+          action: 'question_card_select',
+          cardId,
+          questionId: 'q1',
+          optionId: 'q1o2',
+          revision: 0,
+        },
+      },
+      operator: { open_id: 'ou_owner' },
+    });
+
+    expect(response.toast.type).toBe('warning');
+    expect(getQuestionCard(cardId)).toMatchObject({
+      selectionAnswers: {},
+      selectionRevision: 0,
+    });
+  });
+
+  it('同一版本快速连点时只接受一次，迟到回调不能覆盖已选项', async () => {
+    const channel = new FeishuChannel(
+      'app-id',
+      'app-secret',
+      makeOpts() as any,
+    );
+    const formDraft = normalizeQuestionCardDraft({
+      title: '发布确认',
+      questions: [
+        { question: '发布窗口？', options: ['现在', '明天'] },
+        { question: '通知谁？', multi: true, options: ['研发', '产品'] },
+      ],
+    });
+    const cardId = await channel.sendQuestionCard(chatJid, {
+      groupFolder: 'test-agent',
+      targetSenderId: 'ou_owner',
+      draft: formDraft,
+    });
+    const click = (questionId: string, optionId: string) =>
+      (channel as any).handleQuestionCardAction({
+        event_id: `evt-${optionId}`,
+        action: {
+          value: {
+            action: 'question_card_select',
+            cardId,
+            questionId,
+            optionId,
+            revision: 0,
+          },
+        },
+        operator: { open_id: 'ou_owner' },
+      });
+
+    const [first, second] = await Promise.all([
+      click('q1', 'q1o2'),
+      click('q2', 'q2o1'),
+    ]);
+
+    expect(first.toast.type).toBe('success');
+    expect(second.toast.type).toBe('info');
+    expect(getQuestionCard(cardId)).toMatchObject({
+      selectionAnswers: { q1: ['q1o2'] },
+      selectionRevision: 1,
+    });
+    const refreshed = patchMessage.mock.calls.at(-1)?.[0].data.content;
+    expect(refreshed).toContain('● 明天');
+    expect(refreshed).toContain('□ 研发');
+  });
+
+  it('并发修复 PATCH 失败时推进版本，旧界面不能提交错位答案', async () => {
+    const channel = new FeishuChannel(
+      'app-id',
+      'app-secret',
+      makeOpts() as any,
+    );
+    const formDraft = normalizeQuestionCardDraft({
+      title: '发布确认',
+      questions: [
+        { question: '发布窗口？', options: ['现在', '明天'] },
+        { question: '通知谁？', multi: true, options: ['研发', '产品'] },
+      ],
+    });
+    const cardId = await channel.sendQuestionCard(chatJid, {
+      groupFolder: 'test-agent',
+      targetSenderId: 'ou_owner',
+      draft: formDraft,
+    });
+    patchMessage
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('repair failed'))
+      .mockRejectedValueOnce(new Error('repair failed'));
+    const click = (questionId: string, optionId: string) =>
+      (channel as any).handleQuestionCardAction({
+        event_id: `evt-${optionId}`,
+        action: {
+          value: {
+            action: 'question_card_select',
+            cardId,
+            questionId,
+            optionId,
+            revision: 0,
+          },
+        },
+        operator: { open_id: 'ou_owner' },
+      });
+
+    const [first, second] = await Promise.all([
+      click('q1', 'q1o2'),
+      click('q2', 'q2o1'),
+    ]);
+
+    expect(first.toast.type).toBe('success');
+    expect(second.toast.type).toBe('warning');
+    expect(getQuestionCard(cardId)?.selectionRevision).toBe(2);
+    const staleSubmit = await (channel as any).handleQuestionCardAction({
+      event_id: 'evt-stale-submit',
+      action: {
+        value: {
+          action: 'question_card_submit',
+          cardId,
+          revision: 1,
+        },
+      },
+      operator: { open_id: 'ou_owner' },
+    });
+    expect(staleSubmit.toast.content).toContain('重新提交');
+    expect(getQuestionCard(cardId)?.status).toBe('pending');
+  });
+
   it('普通文字先关闭待答卡片，再继续正常消息链路', async () => {
     const opts = makeOpts();
     const channel = new FeishuChannel('app-id', 'app-secret', opts as any);
