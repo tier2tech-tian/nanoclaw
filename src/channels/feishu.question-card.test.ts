@@ -4,6 +4,9 @@ const createMessage = vi
   .fn()
   .mockResolvedValue({ data: { message_id: 'om_question' } });
 const patchMessage = vi.fn().mockResolvedValue({});
+const getChatMembers = vi.fn().mockResolvedValue({
+  data: { items: [{ member_id: 'ou_owner', name: '大杰' }] },
+});
 
 vi.mock('@larksuiteoapi/node-sdk', () => {
   class MockClient {
@@ -15,9 +18,7 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
       },
       messageReaction: { create: vi.fn(), delete: vi.fn() },
       chatMembers: {
-        get: vi.fn().mockResolvedValue({
-          data: { items: [{ member_id: 'ou_owner', name: '大杰' }] },
-        }),
+        get: getChatMembers,
       },
     };
   }
@@ -146,8 +147,14 @@ describe('飞书问题表单卡片', () => {
         },
         operator: { open_id: 'ou_owner' },
       });
-    expect((await submit()).toast.type).toBe('success');
-    expect((await submit()).toast.type).toBe('info');
+    const accepted = await submit();
+    expect(accepted.toast.type).toBe('success');
+    expect(accepted.card).toMatchObject({ type: 'raw' });
+    expect(JSON.stringify(accepted.card.data)).toContain('ou_owner已提交');
+    expect(getChatMembers).not.toHaveBeenCalled();
+    const repeated = await submit();
+    expect(repeated.toast.type).toBe('info');
+    expect(repeated.card).toEqual(accepted.card);
 
     const polled = getNewMessages([chatJid], '', '大狗');
     expect(polled.messages).toHaveLength(1);
@@ -239,30 +246,26 @@ describe('飞书问题表单卡片', () => {
     expect(select.toast.type).toBe('success');
     expect(getQuestionCard(cardId)?.status).toBe('pending');
     expect(getNewMessages([chatJid], '', '大狗').messages).toHaveLength(0);
-    const selectedCard = JSON.parse(
-      patchMessage.mock.calls.at(-1)?.[0].data.content,
-    );
+    const selectedCard = select.card.data;
     expect(JSON.stringify(selectedCard)).toContain('● 明天');
 
+    let currentCard = selectedCard;
     const clickOption = async (optionId: string) => {
-      const currentCard = JSON.parse(
-        patchMessage.mock.calls.at(-1)?.[0].data.content,
-      );
       const button = currentCard.body.elements.find(
         (element: any) => element.behaviors?.[0]?.value?.optionId === optionId,
       );
-      return (channel as any).handleQuestionCardAction({
+      const response = await (channel as any).handleQuestionCardAction({
         event_id: `evt-${optionId}`,
         action: { value: button.behaviors[0].value },
         operator: { open_id: 'ou_owner' },
       });
+      currentCard = response.card.data;
+      return response;
     };
     await clickOption('q2o1');
     await clickOption('q2o3');
 
-    const completedCard = JSON.parse(
-      patchMessage.mock.calls.at(-1)?.[0].data.content,
-    );
+    const completedCard = currentCard;
     const submitButton = completedCard.body.elements.at(-1);
     expect(submitButton.disabled).toBe(false);
     const submit = await (channel as any).handleQuestionCardAction({
@@ -272,6 +275,10 @@ describe('飞书问题表单卡片', () => {
     });
 
     expect(submit.toast.type).toBe('success');
+    expect(submit.card).toMatchObject({ type: 'raw' });
+    expect(JSON.stringify(submit.card.data)).toContain('ou_owner已提交');
+    expect(getChatMembers).not.toHaveBeenCalled();
+    expect(patchMessage).not.toHaveBeenCalled();
     expect(getQuestionCard(cardId)?.status).toBe('answered');
     expect(getNewMessages([chatJid], '', '大狗').messages[0].content).toContain(
       '通知谁？ → 研发、测试',
@@ -311,19 +318,24 @@ describe('飞书问题表单卡片', () => {
       operator: { open_id: 'ou_owner' },
     };
 
+    const firstResponse = await (channel as any).handleCardAction({
+      event: payload,
+    });
+    expect(firstResponse.toast).toMatchObject({
+      type: 'success',
+      content: '已选择',
+    });
+    expect(firstResponse.card).toMatchObject({ type: 'raw' });
+    expect(JSON.stringify(firstResponse.card.data)).toContain('● 明天');
+    expect(patchMessage).not.toHaveBeenCalled();
     expect(
       (await (channel as any).handleQuestionCardAction(payload)).toast,
     ).toMatchObject({ type: 'success', content: '已选择' });
-    const patchCount = patchMessage.mock.calls.length;
-    expect(
-      (await (channel as any).handleQuestionCardAction(payload)).toast,
-    ).toMatchObject({ type: 'success', content: '已选择' });
-    expect(patchMessage).toHaveBeenCalledTimes(patchCount);
+    expect(patchMessage).not.toHaveBeenCalled();
     expect(getQuestionCard(cardId)).toMatchObject({
       selectionAnswers: { q1: ['q1o2'] },
       selectionRevision: 1,
     });
-
   });
 
   it('飞书将 selected 转成字符串后重复投递仍幂等成功', async () => {
@@ -359,14 +371,17 @@ describe('飞书问题表单卡片', () => {
       operator: { open_id: 'ou_owner' },
     };
 
-    expect(
-      (await (channel as any).handleQuestionCardAction(payload)).toast,
-    ).toMatchObject({ type: 'success', content: '已选择' });
-    const patchCount = patchMessage.mock.calls.length;
-    expect(
-      (await (channel as any).handleQuestionCardAction(payload)).toast,
-    ).toMatchObject({ type: 'success', content: '已选择' });
-    expect(patchMessage).toHaveBeenCalledTimes(patchCount);
+    const first = await (channel as any).handleQuestionCardAction(payload);
+    expect(first.toast).toMatchObject({ type: 'success', content: '已选择' });
+    expect(first.card).toMatchObject({ type: 'raw' });
+    expect(JSON.stringify(first.card.data)).toContain('● 明天');
+    const repeated = await (channel as any).handleQuestionCardAction(payload);
+    expect(repeated.toast).toMatchObject({
+      type: 'success',
+      content: '已选择',
+    });
+    expect(repeated.card).toEqual(first.card);
+    expect(patchMessage).not.toHaveBeenCalled();
     expect(getQuestionCard(cardId)).toMatchObject({
       selectionAnswers: { q1: ['q1o2'] },
       selectionRevision: 1,
@@ -512,7 +527,7 @@ describe('飞书问题表单卡片', () => {
     expect(response.toast).toMatchObject({ type: 'warning', content: '无效选项' });
   });
 
-  it('卡片 PATCH 失败时不落选择状态，也不假报成功', async () => {
+  it('点选通过回调响应更新卡片，不依赖额外 PATCH', async () => {
     const channel = new FeishuChannel(
       'app-id',
       'app-secret',
@@ -530,9 +545,6 @@ describe('飞书问题表单卡片', () => {
       targetSenderId: 'ou_owner',
       draft: formDraft,
     });
-    patchMessage.mockRejectedValueOnce(new Error('patch failed'));
-    patchMessage.mockRejectedValueOnce(new Error('patch failed'));
-
     const response = await (channel as any).handleQuestionCardAction({
       event_id: 'evt-failed-patch',
       action: {
@@ -547,10 +559,13 @@ describe('飞书问题表单卡片', () => {
       operator: { open_id: 'ou_owner' },
     });
 
-    expect(response.toast.type).toBe('warning');
+    expect(response.toast.type).toBe('success');
+    expect(response.card).toMatchObject({ type: 'raw' });
+    expect(JSON.stringify(response.card.data)).toContain('● 明天');
+    expect(patchMessage).not.toHaveBeenCalled();
     expect(getQuestionCard(cardId)).toMatchObject({
-      selectionAnswers: {},
-      selectionRevision: 0,
+      selectionAnswers: { q1: ['q1o2'] },
+      selectionRevision: 1,
     });
   });
 
@@ -598,12 +613,12 @@ describe('飞书问题表单卡片', () => {
       selectionAnswers: { q1: ['q1o2'] },
       selectionRevision: 1,
     });
-    const refreshed = patchMessage.mock.calls.at(-1)?.[0].data.content;
+    const refreshed = JSON.stringify(second.card.data);
     expect(refreshed).toContain('● 明天');
     expect(refreshed).toContain('□ 研发');
   });
 
-  it('并发修复 PATCH 失败时推进版本，旧界面不能提交错位答案', async () => {
+  it('并发冲突响应同步当前版本，旧界面不能提交错位答案', async () => {
     const channel = new FeishuChannel(
       'app-id',
       'app-secret',
@@ -621,11 +636,6 @@ describe('飞书问题表单卡片', () => {
       targetSenderId: 'ou_owner',
       draft: formDraft,
     });
-    patchMessage
-      .mockResolvedValueOnce({})
-      .mockResolvedValueOnce({})
-      .mockRejectedValueOnce(new Error('repair failed'))
-      .mockRejectedValueOnce(new Error('repair failed'));
     const click = (questionId: string, optionId: string) =>
       (channel as any).handleQuestionCardAction({
         event_id: `evt-${optionId}`,
@@ -647,20 +657,23 @@ describe('飞书问题表单卡片', () => {
     ]);
 
     expect(first.toast.type).toBe('success');
-    expect(second.toast.type).toBe('warning');
-    expect(getQuestionCard(cardId)?.selectionRevision).toBe(2);
+    expect(second.toast.type).toBe('info');
+    expect(second.card).toMatchObject({ type: 'raw' });
+    expect(getQuestionCard(cardId)?.selectionRevision).toBe(1);
     const staleSubmit = await (channel as any).handleQuestionCardAction({
       event_id: 'evt-stale-submit',
       action: {
         value: {
           action: 'question_card_submit',
           cardId,
-          revision: 1,
+          revision: 0,
         },
       },
       operator: { open_id: 'ou_owner' },
     });
     expect(staleSubmit.toast.content).toContain('重新提交');
+    expect(staleSubmit.card).toMatchObject({ type: 'raw' });
+    expect(JSON.stringify(staleSubmit.card.data)).toContain('● 明天');
     expect(getQuestionCard(cardId)?.status).toBe('pending');
   });
 

@@ -2707,6 +2707,55 @@ export class FeishuChannel implements Channel {
       cardByMessage ?? (cardId ? getQuestionCard(cardId) : undefined);
     if (!card) return { toast: { type: 'info', content: '该问题已失效' } };
 
+    const rawCardResponse = (
+      content: string,
+      toast: { type: string; content: string },
+    ) => ({
+      toast,
+      card: { type: 'raw', data: JSON.parse(content) },
+    });
+    const pendingCardResponse = (
+      currentCard: typeof card,
+      toast: { type: string; content: string },
+    ) =>
+      rawCardResponse(
+        buildQuestionCardJson(
+          currentCard.id,
+          currentCard.draft,
+          currentCard.selectionAnswers,
+          currentCard.selectionRevision,
+        ),
+        toast,
+      );
+    const resolvedCardResponse = (
+      currentCard: typeof card,
+      toast: { type: string; content: string },
+    ) => {
+      if (
+        currentCard.status === 'answered' &&
+        currentCard.operatorName &&
+        currentCard.answers
+      ) {
+        return rawCardResponse(
+          buildResolvedQuestionCardJson(currentCard.draft, {
+            kind: 'answered',
+            operatorName: currentCard.operatorName,
+            answers: currentCard.answers,
+          }),
+          toast,
+        );
+      }
+      if (currentCard.status === 'text_replied') {
+        return rawCardResponse(
+          buildResolvedQuestionCardJson(currentCard.draft, {
+            kind: 'text_replied',
+          }),
+          toast,
+        );
+      }
+      return { toast };
+    };
+
     const operatorId =
       data?.operator?.open_id ?? rawData?.operator?.open_id ?? '';
     if (!operatorId || operatorId !== card.targetSenderId) {
@@ -2715,7 +2764,10 @@ export class FeishuChannel implements Channel {
       };
     }
     if (card.status !== 'pending') {
-      return { toast: { type: 'info', content: '该问题已经回答' } };
+      return resolvedCardResponse(card, {
+        type: 'info',
+        content: '该问题已经回答',
+      });
     }
 
     if (value.action === 'question_card_select') {
@@ -2741,10 +2793,6 @@ export class FeishuChannel implements Channel {
           throw new Error('无效选项');
         }
         const desiredSelected = parseCallbackBoolean(value.selected);
-        const resolvedMessageId = card.messageId ?? messageId;
-        if (!resolvedMessageId) {
-          throw new Error('卡片消息不存在');
-        }
         if (card.selectionRevision !== revision) {
           const alreadyApplied =
             desiredSelected !== undefined &&
@@ -2752,19 +2800,15 @@ export class FeishuChannel implements Channel {
               value.optionId,
             ) === desiredSelected;
           if (alreadyApplied) {
-            return { toast: { type: 'success', content: '已选择' } };
+            return pendingCardResponse(card, {
+              type: 'success',
+              content: '已选择',
+            });
           }
-          await this.patchQuestionCard(
-            cardId,
-            resolvedMessageId,
-            buildQuestionCardJson(
-              cardId,
-              card.draft,
-              card.selectionAnswers,
-              card.selectionRevision,
-            ),
-          );
-          return { toast: { type: 'info', content: '卡片已刷新，请重新选择' } };
+          return pendingCardResponse(card, {
+            type: 'info',
+            content: '卡片已刷新，请重新选择',
+          });
         }
         const answers = nextQuestionCardAnswers(
           card.draft,
@@ -2779,17 +2823,6 @@ export class FeishuChannel implements Channel {
         ) {
           throw new Error('卡片状态无效，请重试');
         }
-        const patched = await this.patchQuestionCard(
-          cardId,
-          resolvedMessageId,
-          buildQuestionCardJson(
-            cardId,
-            card.draft,
-            answers,
-            Number(revision) + 1,
-          ),
-        );
-        if (!patched) throw new Error('卡片更新失败，请重试');
         const committed = commitQuestionCardSelection({
           cardId,
           operatorId,
@@ -2797,43 +2830,29 @@ export class FeishuChannel implements Channel {
           answers,
         });
         if (committed.status !== 'accepted') {
-          if (committed.status === 'stale' && committed.card.messageId) {
+          if (committed.status === 'stale') {
             const alreadyApplied =
               desiredSelected !== undefined &&
               (
                 committed.card.selectionAnswers[value.questionId] ?? []
               ).includes(value.optionId) === desiredSelected;
             if (alreadyApplied) {
-              return { toast: { type: 'success', content: '已选择' } };
-            }
-            const refreshed = await this.patchQuestionCard(
-              cardId,
-              committed.card.messageId,
-              buildQuestionCardJson(
-                cardId,
-                committed.card.draft,
-                committed.card.selectionAnswers,
-                committed.card.selectionRevision,
-              ),
-            );
-            if (!refreshed) {
-              commitQuestionCardSelection({
-                cardId,
-                operatorId,
-                expectedRevision: committed.card.selectionRevision,
-                answers: committed.card.selectionAnswers,
+              return pendingCardResponse(committed.card, {
+                type: 'success',
+                content: '已选择',
               });
-              return {
-                toast: { type: 'warning', content: '卡片刷新失败，请重试' },
-              };
             }
-            return {
-              toast: { type: 'info', content: '卡片已刷新，请重新选择' },
-            };
+            return pendingCardResponse(committed.card, {
+              type: 'info',
+              content: '卡片已刷新，请重新选择',
+            });
           }
           return { toast: { type: 'info', content: '该问题已经回答' } };
         }
-        return { toast: { type: 'success', content: '已选择' } };
+        return pendingCardResponse(committed.card, {
+          type: 'success',
+          content: '已选择',
+        });
       } catch (err) {
         return {
           toast: {
@@ -2851,9 +2870,10 @@ export class FeishuChannel implements Channel {
           throw new Error('卡片状态无效');
         }
         if (card.selectionRevision !== value.revision) {
-          return {
-            toast: { type: 'info', content: '卡片已更新，请重新提交' },
-          };
+          return pendingCardResponse(card, {
+            type: 'info',
+            content: '卡片已更新，请重新提交',
+          });
         }
         answers = parseQuestionCardAnswers(
           card.draft,
@@ -2891,10 +2911,12 @@ export class FeishuChannel implements Channel {
       };
     }
 
-    const operatorName = await this.getUserName(
-      operatorId,
-      chatIdFromJid(card.chatJid),
-    );
+    const callbackOperatorName =
+      data?.operator?.name ?? rawData?.operator?.name;
+    const operatorName =
+      (typeof callbackOperatorName === 'string' && callbackOperatorName) ||
+      this.userNameCache.get(operatorId) ||
+      operatorId;
     const eventId =
       data?.event_id ??
       data?.header?.event_id ??
@@ -2916,33 +2938,38 @@ export class FeishuChannel implements Channel {
           : undefined,
     });
     if (result.status !== 'accepted') {
+      if (result.status === 'selection_changed') {
+        return pendingCardResponse(result.card, {
+          type: 'info',
+          content: '卡片已更新，请重新提交',
+        });
+      }
+      if (result.status === 'already_resolved') {
+        return resolvedCardResponse(result.card, {
+          type: 'info',
+          content: '该问题已经回答',
+        });
+      }
       return {
         toast: {
           type: result.status === 'unauthorized' ? 'warning' : 'info',
           content:
             result.status === 'unauthorized'
               ? '这张卡片需要由提问对象回答'
-              : result.status === 'selection_changed'
-                ? '卡片已更新，请重新提交'
-                : '该问题已经回答',
+              : '该问题已经回答',
         },
       };
     }
 
-    const resolvedMessageId = result.card.messageId ?? messageId;
-    if (resolvedMessageId) {
-      void this.patchQuestionCard(
-        cardId,
-        resolvedMessageId,
-        buildResolvedQuestionCardJson(card.draft, {
-          kind: 'answered',
-          operatorName,
-          answers,
-        }),
-      );
-    }
     logger.info({ cardId, eventId, operatorId }, '问题卡片答案已接收');
-    return { toast: { type: 'success', content: '已提交' } };
+    return rawCardResponse(
+      buildResolvedQuestionCardJson(card.draft, {
+        kind: 'answered',
+        operatorName,
+        answers,
+      }),
+      { type: 'success', content: '已提交' },
+    );
   }
 
   async sendChoiceCard(
