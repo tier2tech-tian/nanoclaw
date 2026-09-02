@@ -323,6 +323,48 @@ describe('飞书问题表单卡片', () => {
       selectionAnswers: { q1: ['q1o2'] },
       selectionRevision: 1,
     });
+
+    const multiSelect = {
+      ...payload,
+      event_id: 'evt-stringified-multi-select',
+      action: {
+        value: {
+          ...payload.action.value,
+          questionId: 'q2',
+          optionId: 'q2o1',
+          selected: 'true',
+          revision: 1,
+        },
+      },
+    };
+    expect(
+      (await (channel as any).handleQuestionCardAction(multiSelect)).toast,
+    ).toMatchObject({ type: 'success', content: '已选择' });
+    expect(
+      (await (channel as any).handleQuestionCardAction(multiSelect)).toast,
+    ).toMatchObject({ type: 'success', content: '已选择' });
+
+    const multiDeselect = {
+      ...multiSelect,
+      event_id: 'evt-stringified-multi-deselect',
+      action: {
+        value: {
+          ...multiSelect.action.value,
+          selected: 'false',
+          revision: 2,
+        },
+      },
+    };
+    expect(
+      (await (channel as any).handleQuestionCardAction(multiDeselect)).toast,
+    ).toMatchObject({ type: 'success', content: '已选择' });
+    expect(
+      (await (channel as any).handleQuestionCardAction(multiDeselect)).toast,
+    ).toMatchObject({ type: 'success', content: '已选择' });
+    expect(getQuestionCard(cardId)).toMatchObject({
+      selectionAnswers: { q1: ['q1o2'], q2: [] },
+      selectionRevision: 3,
+    });
   });
 
   it('飞书将 selected 转成字符串后重复投递仍幂等成功', async () => {

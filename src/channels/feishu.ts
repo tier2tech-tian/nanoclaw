@@ -78,6 +78,12 @@ const MD_PATTERN = /```|\*\*|^##?\s|^\|.*\||\*[^*\s]|^[-*+]\s|^>\s/m;
 const PROGRESS_JSON_PATTERN = /^\{"title":"[🔧📖✏️🔍🌐📋⚙️⏳💭💬✅❌📝⏹️]/u;
 const THINKING_PHRASES = ['思考中', '分析中', '处理中', '推理中'];
 
+function parseCallbackBoolean(value: unknown): boolean | undefined {
+  if (value === true || value === 'true') return true;
+  if (value === false || value === 'false') return false;
+  return undefined;
+}
+
 // ---- 多媒体安全限制 ----
 const MAX_MERGE_TEXT_LEN = 8000;
 const MAX_MERGE_IMAGES = 5;
@@ -2734,8 +2740,7 @@ export class FeishuChannel implements Channel {
         ) {
           throw new Error('无效选项');
         }
-        const desiredSelected =
-          typeof value.selected === 'boolean' ? value.selected : undefined;
+        const desiredSelected = parseCallbackBoolean(value.selected);
         const resolvedMessageId = card.messageId ?? messageId;
         if (!resolvedMessageId) {
           throw new Error('卡片消息不存在');
