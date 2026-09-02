@@ -178,6 +178,7 @@ export function buildQuestionCardJson(
               cardId,
               questionId: question.id,
               optionId: option.id,
+              selected: question.multi ? !selected : true,
               revision,
             },
           },

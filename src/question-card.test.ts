@@ -106,6 +106,7 @@ describe('问题表单卡片契约', () => {
     expect(buttons[0].text.content).toBe('○ 立即发布');
     expect(buttons[1].text.content).toContain('○ ⭐ 低峰发布（推荐）');
     expect(buttons[3].text.content).toContain('□ ⭐ 研发（推荐）');
+    expect(buttons[0].behaviors[0].value.selected).toBe(true);
     expect(JSON.stringify(card)).not.toContain('select_static');
     expect(JSON.stringify(card)).not.toContain('checker');
     expect(JSON.stringify(card)).not.toContain('"tag":"form"');
@@ -133,6 +134,8 @@ describe('问题表单卡片契约', () => {
     expect(buttons[0].text.content).toBe('○ 立即发布');
     expect(buttons[1].text.content).toContain('● ⭐ 低峰发布（推荐）');
     expect(buttons[3].text.content).toContain('■ ⭐ 研发（推荐）');
+    expect(buttons[1].behaviors[0].value.selected).toBe(true);
+    expect(buttons[3].behaviors[0].value.selected).toBe(false);
     expect(buttons[4].text.content).toContain('□ ⭐ QA（推荐）');
     expect(buttons[5].text.content).toBe('■ 产品');
     expect(buttons.at(-1).disabled).toBe(false);

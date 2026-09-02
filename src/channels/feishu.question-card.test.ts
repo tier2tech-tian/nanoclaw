@@ -278,6 +278,149 @@ describe('飞书问题表单卡片', () => {
     );
   });
 
+  it('同一次点选被重复投递时幂等成功，不要求用户重新选择', async () => {
+    const channel = new FeishuChannel(
+      'app-id',
+      'app-secret',
+      makeOpts() as any,
+    );
+    const formDraft = normalizeQuestionCardDraft({
+      title: '发布确认',
+      questions: [
+        { question: '发布窗口？', options: ['现在', '明天'] },
+        { question: '通知谁？', multi: true, options: ['研发', '产品'] },
+      ],
+    });
+    const cardId = await channel.sendQuestionCard(chatJid, {
+      groupFolder: 'test-agent',
+      targetSenderId: 'ou_owner',
+      draft: formDraft,
+    });
+    const payload = {
+      event_id: 'evt-duplicate-select',
+      action: {
+        value: {
+          action: 'question_card_select',
+          cardId,
+          questionId: 'q1',
+          optionId: 'q1o2',
+          selected: true,
+          revision: 0,
+        },
+      },
+      operator: { open_id: 'ou_owner' },
+    };
+
+    expect(
+      (await (channel as any).handleQuestionCardAction(payload)).toast,
+    ).toMatchObject({ type: 'success', content: '已选择' });
+    const patchCount = patchMessage.mock.calls.length;
+    expect(
+      (await (channel as any).handleQuestionCardAction(payload)).toast,
+    ).toMatchObject({ type: 'success', content: '已选择' });
+    expect(patchMessage).toHaveBeenCalledTimes(patchCount);
+    expect(getQuestionCard(cardId)).toMatchObject({
+      selectionAnswers: { q1: ['q1o2'] },
+      selectionRevision: 1,
+    });
+  });
+
+  it('同一次点选并发重复投递时只提交一次且都返回成功', async () => {
+    const channel = new FeishuChannel(
+      'app-id',
+      'app-secret',
+      makeOpts() as any,
+    );
+    const formDraft = normalizeQuestionCardDraft({
+      title: '发布确认',
+      questions: [
+        { question: '发布窗口？', options: ['现在', '明天'] },
+        { question: '通知谁？', multi: true, options: ['研发', '产品'] },
+      ],
+    });
+    const cardId = await channel.sendQuestionCard(chatJid, {
+      groupFolder: 'test-agent',
+      targetSenderId: 'ou_owner',
+      draft: formDraft,
+    });
+    const click = () =>
+      (channel as any).handleQuestionCardAction({
+        event_id: 'evt-concurrent-duplicate',
+        action: {
+          value: {
+            action: 'question_card_select',
+            cardId,
+            questionId: 'q1',
+            optionId: 'q1o2',
+            selected: true,
+            revision: 0,
+          },
+        },
+        operator: { open_id: 'ou_owner' },
+      });
+
+    const responses = await Promise.all([click(), click()]);
+    expect(responses.map((response) => response.toast.type)).toEqual([
+      'success',
+      'success',
+    ]);
+    expect(getQuestionCard(cardId)).toMatchObject({
+      selectionAnswers: { q1: ['q1o2'] },
+      selectionRevision: 1,
+    });
+  });
+
+  it('乱序回调中的未知选项仍被拒绝', async () => {
+    const channel = new FeishuChannel(
+      'app-id',
+      'app-secret',
+      makeOpts() as any,
+    );
+    const formDraft = normalizeQuestionCardDraft({
+      title: '发布确认',
+      questions: [
+        { question: '发布窗口？', options: ['现在', '明天'] },
+        { question: '通知谁？', multi: true, options: ['研发', '产品'] },
+      ],
+    });
+    const cardId = await channel.sendQuestionCard(chatJid, {
+      groupFolder: 'test-agent',
+      targetSenderId: 'ou_owner',
+      draft: formDraft,
+    });
+    await (channel as any).handleQuestionCardAction({
+      event_id: 'evt-valid-select',
+      action: {
+        value: {
+          action: 'question_card_select',
+          cardId,
+          questionId: 'q1',
+          optionId: 'q1o2',
+          selected: true,
+          revision: 0,
+        },
+      },
+      operator: { open_id: 'ou_owner' },
+    });
+
+    const response = await (channel as any).handleQuestionCardAction({
+      event_id: 'evt-invalid-stale-select',
+      action: {
+        value: {
+          action: 'question_card_select',
+          cardId,
+          questionId: 'q1',
+          optionId: 'unknown',
+          selected: false,
+          revision: 0,
+        },
+      },
+      operator: { open_id: 'ou_owner' },
+    });
+
+    expect(response.toast).toMatchObject({ type: 'warning', content: '无效选项' });
+  });
+
   it('卡片 PATCH 失败时不落选择状态，也不假报成功', async () => {
     const channel = new FeishuChannel(
       'app-id',

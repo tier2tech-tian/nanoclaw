@@ -2718,11 +2718,37 @@ export class FeishuChannel implements Channel {
         if (!Number.isInteger(revision) || Number(revision) < 0) {
           throw new Error('卡片状态无效');
         }
+        if (
+          typeof value.questionId !== 'string' ||
+          typeof value.optionId !== 'string'
+        ) {
+          throw new Error('无效选项');
+        }
+        const selectedQuestion = card.draft.questions.find(
+          (question) => question.id === value.questionId,
+        );
+        if (
+          !selectedQuestion?.options.some(
+            (option) => option.id === value.optionId,
+          )
+        ) {
+          throw new Error('无效选项');
+        }
+        const desiredSelected =
+          typeof value.selected === 'boolean' ? value.selected : undefined;
         const resolvedMessageId = card.messageId ?? messageId;
         if (!resolvedMessageId) {
           throw new Error('卡片消息不存在');
         }
         if (card.selectionRevision !== revision) {
+          const alreadyApplied =
+            desiredSelected !== undefined &&
+            (card.selectionAnswers[value.questionId] ?? []).includes(
+              value.optionId,
+            ) === desiredSelected;
+          if (alreadyApplied) {
+            return { toast: { type: 'success', content: '已选择' } };
+          }
           await this.patchQuestionCard(
             cardId,
             resolvedMessageId,
@@ -2735,18 +2761,19 @@ export class FeishuChannel implements Channel {
           );
           return { toast: { type: 'info', content: '卡片已刷新，请重新选择' } };
         }
-        if (
-          typeof value.questionId !== 'string' ||
-          typeof value.optionId !== 'string'
-        ) {
-          throw new Error('无效选项');
-        }
         const answers = nextQuestionCardAnswers(
           card.draft,
           card.selectionAnswers,
           value.questionId,
           value.optionId,
         );
+        if (
+          desiredSelected !== undefined &&
+          (answers[value.questionId] ?? []).includes(value.optionId) !==
+            desiredSelected
+        ) {
+          throw new Error('卡片状态无效，请重试');
+        }
         const patched = await this.patchQuestionCard(
           cardId,
           resolvedMessageId,
@@ -2766,6 +2793,14 @@ export class FeishuChannel implements Channel {
         });
         if (committed.status !== 'accepted') {
           if (committed.status === 'stale' && committed.card.messageId) {
+            const alreadyApplied =
+              desiredSelected !== undefined &&
+              (
+                committed.card.selectionAnswers[value.questionId] ?? []
+              ).includes(value.optionId) === desiredSelected;
+            if (alreadyApplied) {
+              return { toast: { type: 'success', content: '已选择' } };
+            }
             const refreshed = await this.patchQuestionCard(
               cardId,
               committed.card.messageId,
