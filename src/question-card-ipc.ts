@@ -77,7 +77,7 @@ export async function processQuestionCardRequest(
     });
     if (!consumeQuestionCardAuthorization(sourceGroup, data.chatJid, draft)) {
       if (waitForAuthorization) return 'pending_authorization';
-      throw new Error('问题卡片请求未经当前 Claude 进程授权');
+      throw new Error('问题卡片请求未经当前 Agent 进程授权');
     }
     const cardId = await deps.sendQuestionCard({
       chatJid: data.chatJid,

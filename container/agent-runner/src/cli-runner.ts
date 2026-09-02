@@ -63,6 +63,12 @@ export interface ContainerOutput {
   progressType?: 'tool_use' | 'tool_result' | 'thinking' | 'text';
   detail?: string;
   progress?: StructuredProgress;
+  /** 问题卡工具调用观察值，由宿主签发当前会话的一次性授权。 */
+  questionCardToolUse?: {
+    toolName: string;
+    toolCallId?: string;
+    input: Record<string, unknown>;
+  };
   /** CLI interactive 模式：终端态错误已污染当前 Claude session，需要提示用户决定是否清理。 */
   terminalSessionCorruption?: boolean;
   usage?: {

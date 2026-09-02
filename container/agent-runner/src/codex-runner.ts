@@ -465,6 +465,16 @@ export function mapCodexProgress(event: CodexEvent): ContainerOutput[] {
         result: `🔧 ${short}`,
         progressType: 'tool_use',
         detail,
+        questionCardToolUse:
+          it.type === 'mcp_tool_call' &&
+          it.server === 'nanoclaw' &&
+          it.tool === 'send_question_card'
+            ? {
+                toolName: 'mcp__nanoclaw__send_question_card',
+                toolCallId: it.id,
+                input: it.arguments ?? {},
+              }
+            : undefined,
         progress: {
           provider: 'codex', lifecycle: 'started', toolName: it.type,
           toolCallId: it.id,

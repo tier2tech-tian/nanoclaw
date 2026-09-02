@@ -261,6 +261,63 @@ describe('mapCodexProgress — 回归', () => {
     expect(JSON.stringify(out[0].progress)).not.toContain('nested-secret');
   });
 
+  it('问题卡 MCP 开始事件携带一次性授权观察数据', () => {
+    const out = mapCodexProgress(
+      started({
+        id: 'question-card-1',
+        type: 'mcp_tool_call',
+        server: 'nanoclaw',
+        tool: 'send_question_card',
+        arguments: {
+          requestId: 'request-1',
+          chatJid: 'feishu:agent:oc_test',
+          title: '确认方案',
+          questions: [],
+        },
+      }),
+    );
+
+    expect(out[0].questionCardToolUse).toEqual({
+      toolName: 'mcp__nanoclaw__send_question_card',
+      toolCallId: 'question-card-1',
+      input: {
+        requestId: 'request-1',
+        chatJid: 'feishu:agent:oc_test',
+        title: '确认方案',
+        questions: [],
+      },
+    });
+  });
+
+  it('其他 MCP 开始事件不能获得问题卡授权', () => {
+    const out = mapCodexProgress(
+      started({
+        id: 'other-mcp-1',
+        type: 'mcp_tool_call',
+        server: 'nanoclaw',
+        tool: 'search_chat',
+        arguments: { query: '问题卡' },
+      }),
+    );
+
+    expect(out[0].questionCardToolUse).toBeUndefined();
+  });
+
+  it('问题卡 MCP 完成事件不重复签发授权', () => {
+    const out = mapCodexProgress(
+      completed({
+        id: 'question-card-1',
+        type: 'mcp_tool_call',
+        status: 'completed',
+        server: 'nanoclaw',
+        tool: 'send_question_card',
+        arguments: { requestId: 'request-1' },
+      }),
+    );
+
+    expect(out[0].questionCardToolUse).toBeUndefined();
+  });
+
   it('跨层集成：codex rg 无匹配 exit 1 经映射+展示层渲染为"已搜索，无匹配"', () => {
     // 单测漏洞教训：展示层测试直接构造 completed+exit1 事件全绿，
     // 但 runner 映射层按 codex authoritative status 报 failed，
