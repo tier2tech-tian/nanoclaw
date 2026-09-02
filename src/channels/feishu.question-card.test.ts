@@ -325,6 +325,53 @@ describe('飞书问题表单卡片', () => {
     });
   });
 
+  it('飞书将 selected 转成字符串后重复投递仍幂等成功', async () => {
+    const channel = new FeishuChannel(
+      'app-id',
+      'app-secret',
+      makeOpts() as any,
+    );
+    const formDraft = normalizeQuestionCardDraft({
+      title: '发布确认',
+      questions: [
+        { question: '发布窗口？', options: ['现在', '明天'] },
+        { question: '通知谁？', multi: true, options: ['研发', '产品'] },
+      ],
+    });
+    const cardId = await channel.sendQuestionCard(chatJid, {
+      groupFolder: 'test-agent',
+      targetSenderId: 'ou_owner',
+      draft: formDraft,
+    });
+    const payload = {
+      event_id: 'evt-stringified-select',
+      action: {
+        value: {
+          action: 'question_card_select',
+          cardId,
+          questionId: 'q1',
+          optionId: 'q1o2',
+          selected: 'true',
+          revision: 0,
+        },
+      },
+      operator: { open_id: 'ou_owner' },
+    };
+
+    expect(
+      (await (channel as any).handleQuestionCardAction(payload)).toast,
+    ).toMatchObject({ type: 'success', content: '已选择' });
+    const patchCount = patchMessage.mock.calls.length;
+    expect(
+      (await (channel as any).handleQuestionCardAction(payload)).toast,
+    ).toMatchObject({ type: 'success', content: '已选择' });
+    expect(patchMessage).toHaveBeenCalledTimes(patchCount);
+    expect(getQuestionCard(cardId)).toMatchObject({
+      selectionAnswers: { q1: ['q1o2'] },
+      selectionRevision: 1,
+    });
+  });
+
   it('同一次点选并发重复投递时只提交一次且都返回成功', async () => {
     const channel = new FeishuChannel(
       'app-id',
