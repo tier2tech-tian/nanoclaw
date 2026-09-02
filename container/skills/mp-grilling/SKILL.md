@@ -5,9 +5,17 @@ description: Grill the user relentlessly about a plan, decision, or idea. Use wh
 
 Interview the user relentlessly until you reach a shared understanding. Map this as a **design tree**: every decision branches into the decisions that hang off it.
 
-Work the tree in **rounds**. The **frontier** is every decision whose prerequisites are already settled: the questions you can ask _now_ without guessing at answers you haven't heard yet. Ask the whole frontier in one round: number each question and give your recommended answer. Then wait for the user's answers before the next round.
+Work the tree in **rounds**. The **frontier** is every decision whose prerequisites are already settled: the questions you can ask _now_ without guessing at answers you haven't heard yet. Ask the whole frontier in as few interface-sized rounds as possible, giving your recommended answer for every question. Then wait for the user's answers before the next round.
 
-Format a round like so:
+## Ask with question cards
+
+When `send_question_card` is available, turn bounded frontier decisions into a single call. A card round contains 1-5 required questions; each question has 2-6 mutually distinct options, marks whether it is single-select or multi-select, and includes at least one recommended option without preselecting it. Put the recommendation's reasoning into the option label when it is needed for the decision. If the tool is unavailable, use the prose-only format instead.
+
+After `send_question_card` succeeds, end the turn immediately. The submitted card arrives as the user's next answer; use it to reshape the design tree and continue with the next frontier. Never repeat the same questions in prose beside the card.
+
+Use prose only when a frontier decision cannot be responsibly expressed as 2-6 options. Keep prose-only decisions in their own round because a question-card call is terminal for the current turn. If the frontier has more than five bounded decisions, send the first dependency-complete batch, then recompute the frontier from the answer before sending any remainder.
+
+For a prose-only round, format it like so:
 
 ```
 ❓ **Q1** - **<question title>**: <question body, might be multiple paragraphs, including multiple choices>
