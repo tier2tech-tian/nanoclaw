@@ -10,6 +10,7 @@ import { resolveCliMode } from '../cli-mode.js';
 import type { ContainerOutput } from '../container-runner.js';
 import { getAllGroupAliases, getMessageById } from '../db.js';
 import { readEnvFile } from '../env.js';
+import { escapeCardMarkdownText } from '../feishu-card-markdown.js';
 import { resolveGroupFolderPath } from '../group-folder.js';
 import { logger } from '../logger.js';
 import {
@@ -248,33 +249,6 @@ export function truncateByEscapedBytes(
   return { text, truncated: false };
 }
 
-/** 飞书 markdown 特殊字符 → HTML 实体映射（官方文档完整清单） */
-const CARD_MD_ENTITY: Record<string, string> = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '*': '&#42;',
-  '~': '&#126;',
-  _: '&#95;',
-  '`': '&#96;',
-  '[': '&#91;',
-  ']': '&#93;',
-  '(': '&#40;',
-  ')': '&#41;',
-  '#': '&#35;',
-  '-': '&#45;',
-  '!': '&#33;',
-  '/': '&#47;',
-  '\\': '&#92;',
-  ':': '&#58;',
-  '+': '&#43;',
-  '"': '&#34;',
-  "'": '&#39;',
-  $: '&#36;',
-  '.': '&#46;',
-  '|': '&#124;',
-};
-
 /**
  * 飞书 markdown 动态文本转义（review R3/R4 P1，官方文档要求特殊字符用
  * HTML 实体）：按官方完整清单把 markdown 语法字符和 HTML 标签定界符
@@ -284,12 +258,7 @@ const CARD_MD_ENTITY: Record<string, string> = {
  * plain_text header 不解析 markdown，不走这层。单遍替换：实体产物
  * （含 & # ; 字符）不会被二次命中
  */
-export function escapeCardMarkdownText(text: string): string {
-  return text.replace(
-    /[&<>*~_`[\]()#!/\\:+"'$.|-]/gu,
-    (ch) => CARD_MD_ENTITY[ch] ?? ch,
-  );
-}
+export { escapeCardMarkdownText } from '../feishu-card-markdown.js';
 
 export function truncateCp(text: string, budget: number): string {
   const cps = Array.from(text);
