@@ -124,6 +124,8 @@ import { startQuestionCardIpcWatcher } from './question-card-ipc.js';
 import { messageMatchesQuestionCardTrigger } from './question-card-trigger.js';
 import {
   createActiveQuestionCardTurn,
+  sendQuestionCardForTurn,
+  withActiveQuestionCardTurn,
   type ActiveQuestionCardTurn,
 } from './question-card-active-turn.js';
 
@@ -1185,8 +1187,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   };
 
   const questionCardTurn = createActiveQuestionCardTurn(
-    missedMessages[missedMessages.length - 1].sender,
-    async (groupFolder, targetSenderId, draft) => {
+    async (groupFolder, draft) => {
       if (!('sendQuestionCard' in channel)) {
         throw new Error('问题卡片当前仅支持飞书');
       }
@@ -1196,7 +1197,6 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         }
       ).sendQuestionCard(chatJid, {
         groupFolder,
-        targetSenderId,
         draft,
       });
       outputSentToUser = true;
@@ -1204,17 +1204,15 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       return cardId;
     },
   );
-  activeQuestionCardTurns.set(chatJid, questionCardTurn);
-  setTimeout(
-    () => {
-      if (activeQuestionCardTurns.get(chatJid) === questionCardTurn) {
-        activeQuestionCardTurns.delete(chatJid);
-      }
-    },
-    60 * 60 * 1000,
-  );
+  const runAgentWithQuestionCard = (...args: Parameters<typeof runAgent>) =>
+    withActiveQuestionCardTurn(
+      activeQuestionCardTurns,
+      chatJid,
+      questionCardTurn,
+      () => runAgent(...args),
+    );
 
-  const output = await runAgent(
+  const output = await runAgentWithQuestionCard(
     group,
     prompt,
     chatJid,
@@ -1263,7 +1261,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     streamingApiErrorDetected = false;
     streamingApiErrorText = '';
     try {
-      await runAgent(
+      await runAgentWithQuestionCard(
         group,
         prompt,
         chatJid,
@@ -1366,7 +1364,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       );
       notifyRotation(rotateResult);
       // 重试：复用原始 onOutput 回调，确保 progress/usage/reply 全链路完整
-      const retryOutput = await runAgent(
+      const retryOutput = await runAgentWithQuestionCard(
         group,
         prompt,
         chatJid,
@@ -2357,10 +2355,6 @@ async function startMessageLoop(): Promise<void> {
               formatted.messageCount,
             )
           ) {
-            if (pipeLastMsg?.sender) {
-              const activeTurn = activeQuestionCardTurns.get(chatJid);
-              if (activeTurn) activeTurn.senderId = pipeLastMsg.sender;
-            }
             logger.debug(
               { chatJid, count: messagesToSend.length },
               'Piped messages to active container',
@@ -2742,10 +2736,21 @@ async function main(): Promise<void> {
   startQuestionCardIpcWatcher({
     sendQuestionCard: async ({ chatJid, groupFolder, draft }) => {
       const activeTurn = activeQuestionCardTurns.get(chatJid);
-      if (!activeTurn) {
-        throw new Error('找不到本轮提问人，无法发送问题卡片');
-      }
-      return activeTurn.sendQuestionCard(groupFolder, draft);
+      return sendQuestionCardForTurn(
+        activeTurn,
+        groupFolder,
+        draft,
+        async (folder, cardDraft) => {
+          const channel = findChannel(channels, chatJid);
+          if (!channel || !('sendQuestionCard' in channel)) {
+            throw new Error('问题卡片当前仅支持飞书');
+          }
+          return (channel as FeishuChannel).sendQuestionCard(chatJid, {
+            groupFolder: folder,
+            draft: cardDraft,
+          });
+        },
+      );
     },
     registeredGroups: () => registeredGroups,
   });
