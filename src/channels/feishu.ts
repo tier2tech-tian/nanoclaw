@@ -2561,7 +2561,7 @@ export class FeishuChannel implements Channel {
     jid: string,
     input: {
       groupFolder: string;
-      targetSenderId: string;
+      targetSenderId?: string;
       draft: QuestionCardDraft;
       replaceMessageId?: string;
     },
@@ -2571,7 +2571,7 @@ export class FeishuChannel implements Channel {
       id: cardId,
       chatJid: jid,
       groupFolder: input.groupFolder,
-      targetSenderId: input.targetSenderId,
+      targetSenderId: input.targetSenderId ?? '',
       draft: input.draft,
       createdAt: new Date().toISOString(),
     });
@@ -2707,6 +2707,15 @@ export class FeishuChannel implements Channel {
       cardByMessage ?? (cardId ? getQuestionCard(cardId) : undefined);
     if (!card) return { toast: { type: 'info', content: '该问题已失效' } };
 
+    // 旧版回调可不带 context；带有上下文时必须属于原卡片，避免转发串群。
+    const callbackChatId = data?.context?.open_chat_id;
+    if (
+      (messageId && messageId !== card.messageId) ||
+      (callbackChatId && `fs:${callbackChatId}` !== card.chatJid)
+    ) {
+      return { toast: { type: 'warning', content: '请在原会话的卡片上回答' } };
+    }
+
     const rawCardResponse = (
       content: string,
       toast: { type: string; content: string },
@@ -2758,9 +2767,9 @@ export class FeishuChannel implements Channel {
 
     const operatorId =
       data?.operator?.open_id ?? rawData?.operator?.open_id ?? '';
-    if (!operatorId || operatorId !== card.targetSenderId) {
+    if (!operatorId) {
       return {
-        toast: { type: 'warning', content: '这张卡片需要由提问对象回答' },
+        toast: { type: 'warning', content: '回调缺少操作人信息' },
       };
     }
     if (card.status !== 'pending') {
@@ -2951,13 +2960,7 @@ export class FeishuChannel implements Channel {
         });
       }
       return {
-        toast: {
-          type: result.status === 'unauthorized' ? 'warning' : 'info',
-          content:
-            result.status === 'unauthorized'
-              ? '这张卡片需要由提问对象回答'
-              : '该问题已经回答',
-        },
+        toast: { type: 'info', content: '该问题已经回答' },
       };
     }
 
