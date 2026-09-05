@@ -729,6 +729,35 @@ export function prepareCodexHome(
     }
   }
 
+  // 群级窗口配置单独保存，避免每轮重建 MCP 配置时丢失。
+  const windowConfigPath = path.join(codexHome, 'context-window.json');
+  if (fs.existsSync(windowConfigPath)) {
+    const windowConfig: unknown = JSON.parse(
+      fs.readFileSync(windowConfigPath, 'utf-8'),
+    );
+    if (
+      !windowConfig ||
+      typeof windowConfig !== 'object' ||
+      Array.isArray(windowConfig)
+    ) {
+      throw new Error('群级上下文配置必须是 JSON 对象');
+    }
+    const lines: string[] = [];
+    for (const [key, value] of Object.entries(windowConfig)) {
+      if (
+        !['model_context_window', 'model_auto_compact_token_limit'].includes(
+          key,
+        ) ||
+        typeof value !== 'number' ||
+        !Number.isSafeInteger(value) ||
+        value <= 0
+      ) {
+        throw new Error(`群级上下文配置无效：${key}`);
+      }
+      lines.push(`${key} = ${value}`);
+    }
+    configToml = `${lines.join('\n')}\n\n${configToml}`;
+  }
   // 写 config.toml（每轮幂等覆盖，保证 MCP 配置最新）
   fs.writeFileSync(path.join(codexHome, 'config.toml'), configToml);
 }
