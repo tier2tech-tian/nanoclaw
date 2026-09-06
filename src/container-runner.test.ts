@@ -213,6 +213,74 @@ describe('agent spawn and timeout', () => {
     vi.useRealTimers();
   });
 
+  it.each(['progress', 'success', 'next-progress'] as const)(
+    'codex-as close 实际管线：%s',
+    async (scenario) => {
+      const outputs: ContainerOutput[] = [];
+      const onOutput = vi.fn(async (output: ContainerOutput) => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        outputs.push(output);
+      });
+      const promise = runContainerAgent(
+        { ...testGroup, containerConfig: { cliMode: 'codex-as' } },
+        { ...testInput, cliMode: 'codex-as' },
+        () => {},
+        onOutput,
+      );
+      await vi.advanceTimersByTimeAsync(10);
+      if (scenario !== 'progress')
+        emitOutputMarker(fakeProc, { status: 'success', result: '已完成' });
+      if (scenario !== 'success')
+        emitOutputMarker(fakeProc, { status: 'progress', result: '执行中' });
+      fakeProc.emit('close', 0);
+      await vi.advanceTimersByTimeAsync(100);
+      const result = await promise;
+      expect(result.status).toBe(scenario === 'success' ? 'success' : 'error');
+      expect(outputs.filter((o) => o.status === 'error')).toHaveLength(
+        scenario === 'success' ? 0 : 1,
+      );
+      expect(outputs.at(-1)?.status).toBe(result.status);
+    },
+  );
+
+  it('codex-as 只有进度后超时真实 close 管线返回失败', async () => {
+    const outputs: ContainerOutput[] = [];
+    const promise = runContainerAgent(
+      { ...testGroup, containerConfig: { cliMode: 'codex-as' } },
+      { ...testInput, cliMode: 'codex-as' },
+      () => {},
+      async (o) => {
+        outputs.push(o);
+      },
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    emitOutputMarker(fakeProc, { status: 'progress', result: '执行中' });
+    await vi.advanceTimersByTimeAsync(2_000_000);
+    fakeProc.emit('close', null);
+    expect((await promise).status).toBe('error');
+    expect(outputs.filter((o) => o.status === 'error')).toHaveLength(1);
+  });
+
+  it('codex-as 无 onOutput 回调也解析显式终态', async () => {
+    const promise = runContainerAgent(
+      { ...testGroup, containerConfig: { cliMode: 'codex-as' } },
+      { ...testInput, cliMode: 'codex-as' },
+      () => {},
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    emitOutputMarker(fakeProc, {
+      status: 'success',
+      result: '实际回答',
+      newSessionId: 'as-session',
+    });
+    fakeProc.emit('close', 0);
+    expect(await promise).toMatchObject({
+      status: 'success',
+      result: '实际回答',
+      newSessionId: 'as-session',
+    });
+  });
+
   it('spawns node child process and writes workspacePaths', async () => {
     // Capture stdin writes
     const chunks: Buffer[] = [];
@@ -373,10 +441,18 @@ describe('agent spawn and timeout', () => {
     await vi.advanceTimersByTimeAsync(10);
 
     expect(
-      consumeQuestionCardAuthorization(testGroup.folder, testInput.chatJid, draft),
+      consumeQuestionCardAuthorization(
+        testGroup.folder,
+        testInput.chatJid,
+        draft,
+      ),
     ).toBe(true);
     expect(
-      consumeQuestionCardAuthorization(testGroup.folder, testInput.chatJid, draft),
+      consumeQuestionCardAuthorization(
+        testGroup.folder,
+        testInput.chatJid,
+        draft,
+      ),
     ).toBe(false);
 
     fakeProc.emit('close', 0);

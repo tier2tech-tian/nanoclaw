@@ -3,6 +3,7 @@
  * Spawns agent execution as Node.js child processes and handles IPC
  */
 import { ChildProcess, execFileSync, execSync, spawn } from 'child_process';
+import { CodexAsTerminal } from './codex-as-terminal.js';
 import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -324,10 +325,15 @@ export interface ContainerInput {
   };
 }
 
-export function redactContainerInputForLog(input: ContainerInput): ContainerInput {
+export function redactContainerInputForLog(
+  input: ContainerInput,
+): ContainerInput {
   return {
     ...input,
-    prompt: input.prompt.replace(/\[图片:\s*[^\]\r\n]+\]/g, '[图片: <redacted>]'),
+    prompt: input.prompt.replace(
+      /\[图片:\s*[^\]\r\n]+\]/g,
+      '[图片: <redacted>]',
+    ),
     attachments: input.attachments?.map((attachment) => ({
       ...attachment,
       path: '<redacted>',
@@ -805,6 +811,8 @@ export async function runContainerAgent(
   onOutput?: (output: ContainerOutput) => Promise<void>,
 ): Promise<ContainerOutput> {
   const startTime = Date.now();
+  const asTerminal =
+    input.cliMode === 'codex-as' ? new CodexAsTerminal() : undefined;
   const isMain = input.isMain;
 
   // 确保群组目录存在
@@ -819,7 +827,7 @@ export async function runContainerAgent(
   const groupSessionsDir = prepareGroupSession(group.folder);
 
   // codex 模式：同步标记了 codex-shared 的 skill 到群 .codex-home/skills
-  if (resolveCliMode(group.containerConfig) === 'codex') {
+  if (['codex', 'codex-as'].includes(resolveCliMode(group.containerConfig))) {
     prepareCodexSkills(group.folder);
   }
 
@@ -902,7 +910,7 @@ export async function runContainerAgent(
         }
       }
 
-      if (onOutput) {
+      if (onOutput || asTerminal) {
         parseBuffer += chunk;
         let startIdx: number;
         while ((startIdx = parseBuffer.indexOf(OUTPUT_START_MARKER)) !== -1) {
@@ -933,6 +941,7 @@ export async function runContainerAgent(
             const gap = ((now - lastOutputTime) / 1000).toFixed(1);
             lastOutputTime = now;
             hadStreamingOutput = true;
+            asTerminal?.observe(parsed);
             logger.info(
               {
                 group: group.name,
@@ -946,7 +955,7 @@ export async function runContainerAgent(
             );
             resetTimeout();
             outputChain = outputChain
-              .then(() => onOutput(parsed))
+              .then(() => onOutput?.(parsed))
               .catch((err) => {
                 logger.error(
                   { group: group.name, error: err, status: parsed.status },
@@ -1051,6 +1060,25 @@ export async function runContainerAgent(
         },
         'Agent process exited',
       );
+
+      if (asTerminal) {
+        outputChain
+          .then(async () => {
+            const terminal = asTerminal.interrupted(
+              timedOut ? '执行超时' : `进程退出 ${code}`,
+            );
+            if (!asTerminal.settled() && onOutput) await onOutput(terminal);
+            resolve({ ...terminal, result: onOutput ? null : terminal.result });
+          })
+          .catch((error) => {
+            resolve({
+              status: 'error',
+              result: null,
+              error: `codex-as 输出交付失败：${String(error)}`,
+            });
+          });
+        return;
+      }
 
       if (timedOut) {
         const ts = new Date().toISOString().replace(/[:.]/g, '-');

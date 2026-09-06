@@ -12,6 +12,7 @@ export const ALL_CLI_MODES: CliMode[] = [
   'print',
   'interactive',
   'codex',
+  'codex-as',
   'gemini',
 ];
 
