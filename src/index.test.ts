@@ -12,6 +12,7 @@ vi.mock('./config.js', () => ({
   ASSISTANT_NAME: 'test-bot',
   MAX_MESSAGES_PER_PROMPT: 20,
   IDLE_TIMEOUT: 1800000,
+  IPC_POLL_INTERVAL: 1000,
   DEFAULT_TRIGGER: '@test-bot',
   TRIGGER_PATTERN: /@test-bot(?=[\s\p{P}]|$)/iu,
   getTriggerPattern: (trigger?: string) =>
@@ -49,7 +50,29 @@ vi.mock('./db.js', () => ({
   setRotateIndex: vi.fn(),
   setLastRotateAt: vi.fn(),
   getChatName: vi.fn(),
+  getAllTasks: vi.fn(() => []),
+  setSession: vi.fn(),
+  getLastBotMessageTimestamp: vi.fn(() => null),
+  getRecentUserMessages: vi.fn(() => []),
+  getActiveDelegationByGroup: vi.fn(() => null),
+  setRouterState: vi.fn(),
+  getRouterState: vi.fn(() => null),
 }));
+
+vi.mock('./container-runner.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./container-runner.js')>();
+  return {
+    ...actual,
+    runContainerAgent: vi.fn(),
+    writeTasksSnapshot: vi.fn(),
+    writeGroupsSnapshot: vi.fn(),
+    getSecretCount: () => 1,
+  };
+});
+vi.mock('./memory/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./memory/index.js')>();
+  return { ...actual, isMemoryEnabled: () => false };
+});
 
 vi.mock('./group-folder.js', () => ({
   resolveGroupFolderPath: (folder: string) =>
@@ -95,8 +118,137 @@ import {
   decideThinkingOnlyAction,
   shouldTriggerAutoFollowupSummary,
   buildAutoFollowupSummaryPrompt,
+  runAgent,
+  processGroupMessages,
 } from './index.js';
 import { buildTriggerPattern } from './config.js';
+import { runContainerAgent } from './container-runner.js';
+import { setSession, getMessagesSince, setRouterState } from './db.js';
+import fs from 'fs';
+import path from 'path';
+import { dispatch } from './commands/registry.js';
+
+describe('codex-as 宿主真实运行入口', () => {
+  it('真实错误回调发送失败后推进游标，下一次只补通知不重跑', async () => {
+    const realFs = await vi.importActual<typeof import('fs')>('fs');
+    const folder = `as-notice-${Date.now()}`;
+    const root = path.join('/tmp/nanoclaw-test-data/ipc', folder);
+    const keys = ['mkdirSync', 'writeFileSync', 'readFileSync', 'readdirSync', 'existsSync'] as const;
+    const saved = keys.map(key => vi.mocked(fs[key]).getMockImplementation());
+    for (const key of keys) (vi.mocked(fs[key]) as any).mockImplementation(realFs[key]);
+    try {
+      const jid = folder;
+      const group = { name: 'as', folder, trigger: '@as', added_at: '', isMain: true, containerConfig: { cliMode: 'codex-as' as const } };
+      _setRegisteredGroups({ [jid]: group });
+      const message: any = { id: 'msg', chat_jid: jid, content: '测试原任务', sender: 'sender', sender_name: '测试', timestamp: '2026-09-06T14:00:00.000Z' };
+      vi.mocked(getMessagesSince).mockReturnValueOnce([message]);
+      vi.mocked(setRouterState).mockClear();
+      vi.mocked(runContainerAgent).mockClear();
+      vi.mocked(runContainerAgent).mockImplementationOnce(async (_g, _i, _p, onOutput) => {
+        await onOutput!({ status: 'error', result: 'fetch failed', error: 'ETIMEDOUT' });
+        return { status: 'error', result: null };
+      });
+      const sendMessage = vi.fn().mockRejectedValueOnce(new Error('渠道断线')).mockResolvedValue('notice-id');
+      const channel: any = { name: 'test', ownsJid: () => true, sendMessage };
+      expect(await processGroupMessages(jid, [channel])).toBe(true);
+      expect(runContainerAgent).toHaveBeenCalledTimes(1);
+      expect(setRouterState).toHaveBeenCalledWith('last_agent_timestamp', expect.stringContaining(message.timestamp));
+      expect(realFs.readdirSync(path.join(root, 'codex-as-notices'))).toHaveLength(1);
+      vi.mocked(getMessagesSince).mockReturnValueOnce([]);
+      expect(await processGroupMessages(jid, [channel])).toBe(true);
+      expect(runContainerAgent).toHaveBeenCalledTimes(1);
+      expect(sendMessage).toHaveBeenLastCalledWith(jid, 'fetch failed', { isCommandReply: true });
+      expect(realFs.readdirSync(path.join(root, 'codex-as-notices'))).toHaveLength(0);
+    } finally {
+      realFs.rmSync(root, { recursive: true, force: true });
+      keys.forEach((key, i) => (vi.mocked(fs[key]) as any).mockImplementation(saved[i]));
+      _setRegisteredGroups({});
+    }
+  });
+  it('切走再切回后旧注册、输出与最终返回不能写回会话', async () => {
+    const group = {
+      name: 'as',
+      folder: 'as-host',
+      trigger: '@as',
+      added_at: '',
+      containerConfig: { cliMode: 'codex-as' as const },
+    };
+    let release!: (value: any) => void;
+    let register!: (...args: any[]) => void;
+    let output!: (value: any) => Promise<void>;
+    vi.mocked(setSession).mockClear();
+    vi.mocked(runContainerAgent).mockImplementationOnce(
+      async (_g, _i, onProcess, onOutput) => {
+        register = onProcess;
+        output = onOutput!;
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      },
+    );
+    const received = vi.fn(async () => {});
+    const running = runAgent(group, '旧任务', 'as-host-jid', received);
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    const deps: any = {
+      chatJid: 'as-host-jid',
+      group,
+      sessions: {},
+      queue: { killGroup: vi.fn() },
+      channels: [{ ownsJid: () => true, sendMessage: vi.fn(async () => {}) }],
+      registeredGroups: {},
+      setRegisteredGroup: vi.fn(),
+      deleteSession: vi.fn(),
+      msg: { timestamp: '' },
+    };
+    await dispatch('/mode codex', deps);
+    await dispatch('/mode codex-as', deps);
+    const process = { kill: vi.fn() };
+    register(process, 'old');
+    await output({
+      status: 'success',
+      result: '旧结果',
+      newSessionId: 'old-session',
+    });
+    release({
+      status: 'error',
+      error: 'ETIMEDOUT',
+      newSessionId: 'old-session',
+    });
+    expect((await running).status).toBe('success');
+    expect(process.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(received).not.toHaveBeenCalled();
+    expect(setSession).not.toHaveBeenCalled();
+  });
+
+  it('codex-as 瞬时错误和通知抛错均返回不可重试，不能重新 spawn', async () => {
+    const group = {
+      name: 'as',
+      folder: 'as-error',
+      trigger: '@as',
+      added_at: '',
+      containerConfig: { cliMode: 'codex-as' as const },
+    };
+    vi.mocked(runContainerAgent).mockClear();
+    vi.mocked(runContainerAgent).mockResolvedValueOnce({
+      status: 'error',
+      result: null,
+      error: 'fetch failed',
+    });
+    expect(await runAgent(group, '原任务', 'as-error')).toMatchObject({
+      status: 'error',
+      noRetry: true,
+    });
+    expect(runContainerAgent).toHaveBeenCalledTimes(1);
+    vi.mocked(runContainerAgent).mockRejectedValueOnce(
+      new Error('通知发送失败'),
+    );
+    expect(await runAgent(group, '原任务', 'as-error')).toMatchObject({
+      status: 'error',
+      noRetry: true,
+    });
+    expect(runContainerAgent).toHaveBeenCalledTimes(2);
+  });
+});
 
 // ---- parseModelPrefix ----
 

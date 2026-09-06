@@ -25,6 +25,8 @@ import {
 import { fileURLToPath } from 'url';
 import { runCliQuery } from './cli-runner.js';
 import { runCodexQuery } from './codex-runner.js';
+import { runCodexAsQuery } from './codex-as-runner.js';
+import { CodexAsInbox, type CodexAsInput } from './codex-as-inbox.js';
 import { isNoOpResult } from './noop-result.js';
 import { runGeminiQuery } from './gemini-runner.js';
 import {
@@ -77,7 +79,7 @@ interface ContainerInput {
   /** 触发用户 ID（飞书 open_id），传给 MCP server 用于记忆读写 */
   senderId?: string;
   /** CLI 执行模式：sdk（默认）| print | interactive | codex | gemini */
-  cliMode?: 'sdk' | 'print' | 'interactive' | 'codex' | 'gemini';
+  cliMode?: 'sdk' | 'print' | 'interactive' | 'codex' | 'codex-as' | 'gemini';
   modelOverride?: {
     model?: string;
     thinking?: 'adaptive' | 'disabled';
@@ -1636,7 +1638,7 @@ async function main(): Promise<void> {
       // interactive 模式按真实时间顺序处理 pending：旧消息在 initial prompt 前面。
       prompt = pending.map(m => prependContext(m.text, m.context)).join('\n') + '\n' + prompt;
     }
-  } else {
+  } else if (cliMode !== 'codex-as') {
     const pending = drainIpcInput();
     if (pending.length > 0) {
       log(`Draining ${pending.length} pending IPC messages into initial prompt`);
@@ -1796,8 +1798,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (cliMode === 'codex') {
-    log('[mode] codex mode — spawning codex exec per turn');
+  if (cliMode === 'codex' || cliMode === 'codex-as') {
+    log(`[mode] ${cliMode} mode`);
 
     // 加载全局上下文（SOUL.md + TOOLS.md + CLAUDE.md）拼进首轮 prompt 前缀。
     // codex 没有 --append-system-prompt，且读 AGENTS.md 不读 CLAUDE.md，
@@ -1839,12 +1841,17 @@ async function main(): Promise<void> {
 
     const cxTranscript: ParsedMessage[] = [];
     let cxFirstTurn = true;
+    const asInbox = cliMode === 'codex-as' ? new CodexAsInbox(PATHS.ipcInput) : undefined;
+    asInbox?.recoverUnsent();
+    let asInitialInput: CodexAsInput | undefined;
+    const runCodexTurn = cliMode === 'codex-as' ? runCodexAsQuery : runCodexQuery;
 
     try {
       while (true) {
         log(`[codex-mode] Starting codex query (session: ${sessionId || 'new'})...`);
 
         const turnPrompt = cxFirstTurn ? cxSystemPrefix + prompt : prompt;
+        const asAttachments = cxFirstTurn ? containerInput.attachments : asInitialInput?.attachments;
         cxFirstTurn = false;
         cxTranscript.push({ role: 'user', content: prompt });
 
@@ -1853,7 +1860,7 @@ async function main(): Promise<void> {
           groupPath: PATHS.group,
           groupFolder: containerInput.groupFolder,
         });
-        const cxResult = await runCodexQuery(
+        const cxResult = await runCodexTurn(
           {
             prompt: turnPrompt,
             sessionId,
@@ -1872,6 +1879,14 @@ async function main(): Promise<void> {
             env: sdkEnv,
             codexHome,
             isScheduledTask: containerInput.isScheduledTask,
+            ...(cliMode === 'codex-as' ? {
+              initialInput: asInitialInput,
+              attachments: asAttachments,
+              modelOverride: override,
+              attachmentRoot: PATHS.group,
+              formatInput: (message: CodexAsInput) => prependContext(message.text, message.context as MessageContext | null),
+              shouldClose,
+            } : {}),
           },
           writeOutput,
           log,
@@ -1883,6 +1898,7 @@ async function main(): Promise<void> {
         if (cxResult.result) {
           cxTranscript.push({ role: 'assistant', content: cxResult.result });
         }
+        if ('failed' in cxResult && cxResult.failed) break;
 
         if (shouldClose()) {
           log('[codex-mode] Close sentinel detected, exiting');
@@ -1890,7 +1906,18 @@ async function main(): Promise<void> {
         }
 
         log('[codex-mode] Query ended, waiting for next IPC message...');
-        const nextMessage = await waitForIpcMessage();
+        let nextMessage: IpcMessage | null;
+        if (asInbox) {
+          let claimed: CodexAsInput | null = null;
+          while (!shouldClose() && !claimed) {
+            claimed = asInbox.claim(true);
+            if (!claimed) await new Promise(resolve => setTimeout(resolve, IPC_POLL_MS));
+          }
+          asInitialInput = claimed ?? undefined;
+          nextMessage = claimed as IpcMessage | null;
+        } else {
+          nextMessage = await waitForIpcMessage();
+        }
         if (nextMessage === null) {
           log('[codex-mode] Close sentinel received, exiting');
           break;

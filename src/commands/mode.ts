@@ -2,12 +2,14 @@ import { logger } from '../logger.js';
 import { resolveCliMode } from '../cli-mode.js';
 import type { CliMode } from '../types.js';
 import { registerCommand } from './registry.js';
+import { invalidateModeRun } from '../mode-run-guard.js';
 
 const VALID_MODES: CliMode[] = [
   'sdk',
   'print',
   'interactive',
   'codex',
+  'codex-as',
   'gemini',
 ];
 
@@ -15,7 +17,7 @@ const VALID_MODES: CliMode[] = [
 registerCommand({
   name: '/mode',
   description:
-    '切换 CLI 运行模式（sdk / print / interactive / codex / gemini）',
+    '切换 CLI 运行模式（sdk / print / interactive / codex / codex-as / gemini）',
   hasArgs: true,
   order: 21,
   handler: async (ctx) => {
@@ -43,6 +45,7 @@ registerCommand({
 
     const config = ctx.group.containerConfig ?? {};
     const previousMode = resolveCliMode(config);
+    invalidateModeRun(ctx.chatJid);
     config.cliMode = mode as CliMode;
     ctx.group.containerConfig = config;
     ctx.setRegisteredGroup(ctx.chatJid, ctx.group);

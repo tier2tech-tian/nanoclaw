@@ -71,6 +71,7 @@ const TYPING_EMOJI_BY_MODE: Record<CliMode, string> = {
   print: 'PROUD', // 得意
   interactive: 'HAUGHTY', // 白眼
   codex: 'OneSecond', // 稍等
+  'codex-as': 'OneSecond',
   gemini: 'INNOCENTSMILE', // 无辜笑
 };
 const CARD_THRESHOLD = 500;
@@ -1088,7 +1089,7 @@ export class FeishuChannel implements Channel {
         const quiet =
           typeof quietProgress === 'boolean'
             ? quietProgress
-            : cliMode === 'codex';
+            : cliMode === 'codex' || cliMode === 'codex-as';
 
         const currentEntry = this.progressCards.get(jid);
         if (currentEntry) {
