@@ -13,9 +13,55 @@ import {
   formatCodexDiagnosticSnapshot,
   redactProxyEndpoint,
   runCodexQuery,
+  prepareCodexHome,
   type CodexModelInfo,
   type CodexEvent,
 } from './codex-runner.js';
+
+describe('群级上下文持久配置', () => {
+  it('每次重建 MCP 配置都保留窗口设置，未配置的群不变', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-window-'));
+    try {
+      const home = path.join(root, 'codex');
+      prepareCodexHome(
+        home,
+        root,
+        '[mcp_servers.example]\ncommand = "node"\n',
+        () => {},
+      );
+      expect(fs.readFileSync(path.join(home, 'config.toml'), 'utf-8')).toBe(
+        '[mcp_servers.example]\ncommand = "node"\n',
+      );
+      fs.writeFileSync(
+        path.join(home, 'context-window.json'),
+        JSON.stringify({
+          model_context_window: 872000,
+          model_auto_compact_token_limit: 780000,
+        }),
+      );
+      for (const command of ['node', 'bash']) {
+        prepareCodexHome(
+          home,
+          root,
+          `[mcp_servers.example]\ncommand = "${command}"\n`,
+          () => {},
+        );
+        expect(fs.readFileSync(path.join(home, 'config.toml'), 'utf-8')).toBe(
+          `model_context_window = 872000\nmodel_auto_compact_token_limit = 780000\n\n[mcp_servers.example]\ncommand = "${command}"\n`,
+        );
+      }
+      fs.writeFileSync(
+        path.join(home, 'context-window.json'),
+        JSON.stringify({ model_context_window: '872000\nmodel = "other"' }),
+      );
+      expect(() => prepareCodexHome(home, root, '', () => {})).toThrow(
+        '群级上下文配置无效',
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('Codex 卡死诊断', () => {
   it('快照包含最后事件、静默时长和流量计数', () => {

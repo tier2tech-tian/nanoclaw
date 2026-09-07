@@ -30,6 +30,8 @@ import {
   TIMEZONE,
 } from './config.js';
 import { getChatIndex } from './chat-index.js';
+import { captureModeRun } from './mode-run-guard.js';
+import { saveCodexAsNotice, flushCodexAsNotices } from './codex-as-notice.js';
 import {
   shouldFilterProgress,
   isModelRefusal,
@@ -124,6 +126,8 @@ import { startQuestionCardIpcWatcher } from './question-card-ipc.js';
 import { messageMatchesQuestionCardTrigger } from './question-card-trigger.js';
 import {
   createActiveQuestionCardTurn,
+  sendQuestionCardForTurn,
+  withActiveQuestionCardTurn,
   type ActiveQuestionCardTurn,
 } from './question-card-active-turn.js';
 
@@ -454,7 +458,8 @@ export function shouldTriggerAutoFollowupSummary(input: {
   if (!input.enabled) return false;
   if (input.isAutoFollowupTurn) return false;
   if (input.hadError) return false;
-  if (!['sdk', 'interactive', 'codex'].includes(input.cliMode)) return false;
+  if (!['sdk', 'interactive', 'codex', 'codex-as'].includes(input.cliMode))
+    return false;
   return input.text.trim().length >= AUTO_FOLLOWUP_SUMMARY_MIN_CHARS;
 }
 
@@ -505,17 +510,26 @@ export function decideThinkingOnlyAction(input: {
  * Process all pending messages for a group.
  * Called by the GroupQueue when it's this group's turn.
  */
-async function processGroupMessages(chatJid: string): Promise<boolean> {
+export async function processGroupMessages(chatJid: string, availableChannels: Channel[] = channels): Promise<boolean> {
+  const isCurrentGroupModeRun = captureModeRun(chatJid);
   const group = registeredGroups[chatJid];
   if (!group) return true;
 
-  const channel = findChannel(channels, chatJid);
+  const channel = findChannel(availableChannels, chatJid);
   if (!channel) {
     logger.warn({ chatJid }, 'No channel owns JID, skipping messages');
     return true;
   }
 
   const isMainGroup = group.isMain === true;
+  try {
+    await flushCodexAsNotices(
+      path.join(DATA_DIR, 'ipc', group.folder),
+      (text) => channel.sendMessage(chatJid, text, { isCommandReply: true }),
+    );
+  } catch (error) {
+    logger.warn({ error, chatJid }, 'codex-as 通知补发失败，保留待下次补发');
+  }
 
   const missedMessages = getMessagesSince(
     chatJid,
@@ -953,7 +967,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         );
         return;
       }
-      if (text && /^(?:fetch failed|API Error:\s*\d{3}\b)/i.test(text)) {
+      if (
+        inputCliMode !== 'codex-as' &&
+        text &&
+        /^(?:fetch failed|API Error:\s*\d{3}\b)/i.test(text)
+      ) {
         // SDK 把上游 API 瞬时错误（fetch failed / 5xx）包成 status:success + result 文本
         // 这条文本不能发给用户，且必须触发外层重试（不是简单 silent return）
         streamingApiErrorDetected = true;
@@ -1185,8 +1203,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   };
 
   const questionCardTurn = createActiveQuestionCardTurn(
-    missedMessages[missedMessages.length - 1].sender,
-    async (groupFolder, targetSenderId, draft) => {
+    async (groupFolder, draft) => {
       if (!('sendQuestionCard' in channel)) {
         throw new Error('问题卡片当前仅支持飞书');
       }
@@ -1196,7 +1213,6 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         }
       ).sendQuestionCard(chatJid, {
         groupFolder,
-        targetSenderId,
         draft,
       });
       outputSentToUser = true;
@@ -1204,17 +1220,16 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       return cardId;
     },
   );
-  activeQuestionCardTurns.set(chatJid, questionCardTurn);
-  setTimeout(
-    () => {
-      if (activeQuestionCardTurns.get(chatJid) === questionCardTurn) {
-        activeQuestionCardTurns.delete(chatJid);
-      }
-    },
-    60 * 60 * 1000,
-  );
+  const runAgentWithQuestionCard = (...args: Parameters<typeof runAgent>) =>
+    withActiveQuestionCardTurn(
+      activeQuestionCardTurns,
+      chatJid,
+      questionCardTurn,
+      () => runAgent(...args),
+    );
 
-  const output = await runAgent(
+  if (!isCurrentGroupModeRun()) return true;
+  const output = await runAgentWithQuestionCard(
     group,
     prompt,
     chatJid,
@@ -1245,7 +1260,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // 此处带延迟重试（3s/6s），不轮换账号（API 瞬时错误不是账号问题）
   const API_ERROR_MAX_RETRIES = 2;
   let apiErrorAttempt = 0;
-  while (streamingApiErrorDetected && apiErrorAttempt < API_ERROR_MAX_RETRIES) {
+  while (
+    inputCliMode !== 'codex-as' &&
+    streamingApiErrorDetected &&
+    apiErrorAttempt < API_ERROR_MAX_RETRIES
+  ) {
     apiErrorAttempt++;
     const delayMs = apiErrorAttempt * 3000; // 3s, 6s
     logger.warn(
@@ -1259,11 +1278,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       '[api-error] SDK 假成功（fetch failed/5xx），延迟后重试',
     );
     await new Promise((r) => setTimeout(r, delayMs));
+    if (!isCurrentGroupModeRun()) return true;
     // 重置 flag 准备重试（重试时若再次拦截会重新 set）
     streamingApiErrorDetected = false;
     streamingApiErrorText = '';
     try {
-      await runAgent(
+      await runAgentWithQuestionCard(
         group,
         prompt,
         chatJid,
@@ -1366,7 +1386,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       );
       notifyRotation(rotateResult);
       // 重试：复用原始 onOutput 回调，确保 progress/usage/reply 全链路完整
-      const retryOutput = await runAgent(
+      const retryOutput = await runAgentWithQuestionCard(
         group,
         prompt,
         chatJid,
@@ -1564,6 +1584,14 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     } catch (err) {
       logger.warn({ err, group: group.folder }, '自动终态汇报(failed)异常');
     }
+    if (output.noRetry || inputCliMode === 'codex-as') {
+      advanceAgentCursor(chatJid, newCursor);
+      logger.warn(
+        { chatJid, everSentToUser },
+        'codex-as 失败不重跑任务；发送失败的通知独立保留',
+      );
+      return true;
+    }
     // If we already sent output to the user, don't roll back the cursor —
     // the user got their response and re-processing would send duplicates.
     if (everSentToUser) {
@@ -1657,6 +1685,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
 interface RunAgentResult {
   status: 'success' | 'error';
+  noRetry?: boolean;
   rotatedTo?: string; // 轮换到的新 secret 名称（用于通知用户）
   rotatedFrom?: string; // 轮换前的旧 secret 名称
   allExhausted?: boolean; // 所有账号配额耗尽
@@ -1667,7 +1696,7 @@ interface RunAgentResult {
   };
 }
 
-async function runAgent(
+export async function runAgent(
   group: RegisteredGroup,
   prompt: string,
   chatJid: string,
@@ -1683,6 +1712,7 @@ async function runAgent(
   promptAttachments?: PromptImageAttachment[],
   promptMessageCount = 1,
 ): Promise<RunAgentResult> {
+  const isCurrentModeRun = captureModeRun(chatJid);
   const cliMode = resolveCliMode(group.containerConfig);
   const canAutoRotateAnthropic = shouldAutoRotateAnthropicAccount(cliMode);
   const maxRetries = canAutoRotateAnthropic ? getSecretCount() - 1 : 0; // 最多试完所有账号
@@ -1733,6 +1763,20 @@ async function runAgent(
   // Wrap onOutput to track session ID from streamed results
   const wrappedOnOutput = onOutput
     ? async (output: ContainerOutput) => {
+        if (!isCurrentModeRun()) return;
+        if (
+          cliMode === 'codex-as' &&
+          output.status === 'error' &&
+          output.result
+        ) {
+          const notice = saveCodexAsNotice(
+            path.join(DATA_DIR, 'ipc', group.folder),
+            output.result,
+          );
+          await onOutput(output);
+          fs.unlinkSync(notice);
+          return;
+        }
         if (output.terminalSessionCorruption) {
           logger.warn(
             {
@@ -1771,17 +1815,24 @@ async function runAgent(
         attachments: promptAttachments,
         promptMessageCount,
       },
-      (proc, containerName) =>
-        queue.registerProcess(chatJid, proc, containerName, group.folder),
+      (proc, containerName) => {
+        if (!isCurrentModeRun()) {
+          proc.kill('SIGTERM');
+          return;
+        }
+        queue.registerProcess(chatJid, proc, containerName, group.folder);
+      },
       wrappedOnOutput,
     );
 
+    if (!isCurrentModeRun()) return { status: 'success' };
     if (output.newSessionId) {
       sessions[group.folder] = output.newSessionId;
       setSession(group.folder, output.newSessionId);
     }
 
     if (output.status === 'error') {
+      if (cliMode === 'codex-as') return { status: 'error', noRetry: true };
       if (output.terminalSessionCorruption) {
         logger.warn(
           {
@@ -1862,6 +1913,7 @@ async function runAgent(
           '[api-error] 上游 API 瞬时错误（output.error 路径），延迟后重试',
         );
         await new Promise((r) => setTimeout(r, delayMs));
+        if (!isCurrentModeRun()) return { status: 'success' };
         return runAgent(
           group,
           prompt,
@@ -2074,7 +2126,7 @@ async function runAgent(
       },
       '[runAgent] runContainerAgent 抛错',
     );
-    return { status: 'error' };
+    return { status: 'error', noRetry: cliMode === 'codex-as' };
   }
 }
 
@@ -2357,10 +2409,6 @@ async function startMessageLoop(): Promise<void> {
               formatted.messageCount,
             )
           ) {
-            if (pipeLastMsg?.sender) {
-              const activeTurn = activeQuestionCardTurns.get(chatJid);
-              if (activeTurn) activeTurn.senderId = pipeLastMsg.sender;
-            }
             logger.debug(
               { chatJid, count: messagesToSend.length },
               'Piped messages to active container',
@@ -2742,10 +2790,21 @@ async function main(): Promise<void> {
   startQuestionCardIpcWatcher({
     sendQuestionCard: async ({ chatJid, groupFolder, draft }) => {
       const activeTurn = activeQuestionCardTurns.get(chatJid);
-      if (!activeTurn) {
-        throw new Error('找不到本轮提问人，无法发送问题卡片');
-      }
-      return activeTurn.sendQuestionCard(groupFolder, draft);
+      return sendQuestionCardForTurn(
+        activeTurn,
+        groupFolder,
+        draft,
+        async (folder, cardDraft) => {
+          const channel = findChannel(channels, chatJid);
+          if (!channel || !('sendQuestionCard' in channel)) {
+            throw new Error('问题卡片当前仅支持飞书');
+          }
+          return (channel as FeishuChannel).sendQuestionCard(chatJid, {
+            groupFolder: folder,
+            draft: cardDraft,
+          });
+        },
+      );
     },
     registeredGroups: () => registeredGroups,
   });

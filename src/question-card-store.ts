@@ -140,7 +140,6 @@ export function getQuestionCardByMessageId(
 export type SubmitQuestionCardResult =
   | { status: 'accepted'; card: StoredQuestionCard }
   | { status: 'already_resolved'; card: StoredQuestionCard }
-  | { status: 'unauthorized'; card: StoredQuestionCard }
   | { status: 'selection_changed'; card: StoredQuestionCard }
   | { status: 'not_found' };
 
@@ -148,7 +147,6 @@ export type CommitQuestionCardSelectionResult =
   | { status: 'accepted'; card: StoredQuestionCard }
   | { status: 'stale'; card: StoredQuestionCard }
   | { status: 'already_resolved'; card: StoredQuestionCard }
-  | { status: 'unauthorized'; card: StoredQuestionCard }
   | { status: 'not_found' };
 
 export function commitQuestionCardSelection(input: {
@@ -160,9 +158,6 @@ export function commitQuestionCardSelection(input: {
   return getDb().transaction((): CommitQuestionCardSelectionResult => {
     const current = getQuestionCard(input.cardId);
     if (!current) return { status: 'not_found' };
-    if (current.targetSenderId !== input.operatorId) {
-      return { status: 'unauthorized', card: current };
-    }
     if (current.status !== 'pending') {
       return { status: 'already_resolved', card: current };
     }
@@ -201,9 +196,6 @@ export function submitQuestionCardAnswer(input: {
   return getDb().transaction((): SubmitQuestionCardResult => {
     const current = getQuestionCard(input.cardId);
     if (!current) return { status: 'not_found' };
-    if (current.targetSenderId !== input.operatorId) {
-      return { status: 'unauthorized', card: current };
-    }
     if (current.status !== 'pending') {
       return { status: 'already_resolved', card: current };
     }
@@ -263,10 +255,10 @@ export function resolvePendingQuestionCardByText(input: {
     const rows = getDb()
       .prepare(
         `SELECT * FROM question_cards
-         WHERE chat_jid = ? AND target_sender_id = ? AND status = 'pending'
+         WHERE chat_jid = ? AND status = 'pending'
          ORDER BY created_at`,
       )
-      .all(input.chatJid, input.senderId) as QuestionCardRow[];
+      .all(input.chatJid) as QuestionCardRow[];
     if (rows.length === 0) return [];
     const update = getDb().prepare(
       `UPDATE question_cards

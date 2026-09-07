@@ -78,4 +78,19 @@ describe('/mode', () => {
       { isCommandReply: true },
     );
   });
+
+  it('codex-as 与 codex 使用同一切换规则，并使旧运行失效', async () => {
+    await import('./mode.js');
+    const { dispatch } = await import('./registry.js');
+    const { captureModeRun } = await import('../mode-run-guard.js');
+    const deps = makeDeps();
+    const oldRun = captureModeRun(deps.chatJid);
+    await dispatch('/mode codex-as', deps);
+    expect(deps.group.containerConfig.cliMode).toBe('codex-as');
+    expect(oldRun()).toBe(false);
+    expect(deps.sessions.test_folder).toBeUndefined();
+    await dispatch('/mode codex', deps);
+    expect(deps.group.containerConfig.cliMode).toBe('codex');
+    expect(deps.queue.killGroup).toHaveBeenCalledTimes(2);
+  });
 });

@@ -120,7 +120,7 @@ describe('问题卡片持久状态', () => {
     expect(isQuestionCardAnswerMessage('question-card:forged')).toBe(false);
   });
 
-  it('非目标用户不能提交', () => {
+  it('其他用户可以回答旧卡片，并按实际操作人记账', () => {
     createPendingCard();
     const result = submitQuestionCardAnswer({
       cardId: 'card-1',
@@ -128,15 +128,18 @@ describe('问题卡片持久状态', () => {
       operatorId: 'ou_other',
       operatorName: '路人',
       answers: { q1: ['q1o1'] },
-      syntheticContent: '不应写入',
+      syntheticContent: '其他用户的回答',
       timestamp: '2026-08-31T12:01:00.000Z',
     });
 
-    expect(result.status).toBe('unauthorized');
-    expect(getQuestionCard('card-1')?.status).toBe('pending');
+    expect(result.status).toBe('accepted');
+    expect(getQuestionCard('card-1')).toMatchObject({
+      status: 'answered',
+      operatorId: 'ou_other',
+    });
     expect(
       getMessagesSince('fs:oc_test', '2026-08-31T12:00:00.000Z', 'Andy'),
-    ).toEqual([]);
+    ).toMatchObject([{ sender: 'ou_other', content: '其他用户的回答' }]);
   });
 
   it('按版本持久化点选状态，旧回调不能覆盖新选择', () => {
@@ -202,11 +205,26 @@ describe('问题卡片持久状态', () => {
     ).toMatchObject([{ content: '已提交当前答案' }]);
   });
 
-  it('普通文字先到时关闭卡片，迟到点击不再生成合成消息', () => {
+  it('其他用户文字先到时关闭本群卡片，迟到点击不再生成合成消息', () => {
     createPendingCard();
+    storeChatMetadata(
+      'fs:oc_other',
+      '2026-08-31T11:59:00.000Z',
+      '另一个群',
+      'feishu',
+      true,
+    );
+    createQuestionCard({
+      id: 'other-group-card',
+      chatJid: 'fs:oc_other',
+      groupFolder: 'other',
+      targetSenderId: 'ou_other',
+      draft,
+      createdAt: '2026-08-31T12:00:00.000Z',
+    });
     const closed = resolvePendingQuestionCardByText({
       chatJid: 'fs:oc_test',
-      senderId: 'ou_owner',
+      senderId: 'ou_other',
       messageId: 'om_text_reply',
       timestamp: '2026-08-31T12:01:00.000Z',
     });
@@ -221,6 +239,7 @@ describe('问题卡片持久状态', () => {
     });
 
     expect(closed.map((item) => item.id)).toEqual(['card-1']);
+    expect(getQuestionCard('other-group-card')?.status).toBe('pending');
     expect(getQuestionCard('card-1')?.status).toBe('text_replied');
     expect(isQuestionCardAnswerMessage('om_text_reply')).toBe(true);
     expect(click.status).toBe('already_resolved');

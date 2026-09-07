@@ -47,6 +47,7 @@ vi.mock('../voice-notify.js', () => ({ notifyVoice: vi.fn() }));
 
 import { _initTestDatabase, getNewMessages, storeChatMetadata } from '../db.js';
 import { normalizeQuestionCardDraft } from '../question-card.js';
+import { sendQuestionCardForTurn } from '../question-card-active-turn.js';
 import {
   getQuestionCard,
   getQuestionCardByMessageId,
@@ -90,25 +91,28 @@ describe('飞书问题表单卡片', () => {
     createMessage.mockResolvedValue({ data: { message_id: 'om_question' } });
   });
 
-  it('发送前持久化，成功后绑定 message_id，推荐项不预选', async () => {
+  it('无活跃提问人记录也能发卡并持久化，推荐项不预选', async () => {
     const channel = new FeishuChannel(
       'app-id',
       'app-secret',
       makeOpts() as any,
     );
-    const cardId = await channel.sendQuestionCard(chatJid, {
-      groupFolder: 'test-agent',
-      targetSenderId: 'ou_owner',
+    const cardId = await sendQuestionCardForTurn(
+      undefined,
+      'test-agent',
       draft,
-    });
+      (groupFolder, cardDraft) =>
+        channel.sendQuestionCard(chatJid, { groupFolder, draft: cardDraft }),
+    );
 
     expect(getQuestionCard(cardId)?.messageId).toBe('om_question');
+    expect(getQuestionCard(cardId)?.targetSenderId).toBe('');
     const card = JSON.parse(createMessage.mock.calls[0][0].data.content);
     expect(JSON.stringify(card)).toContain('（推荐）');
     expect(JSON.stringify(card)).not.toContain('checked');
   });
 
-  it('目标用户首次提交写入完整新消息，重复点击不重复入库', async () => {
+  it('任意用户首次提交写入完整新消息，重复点击不重复入库', async () => {
     const channel = new FeishuChannel(
       'app-id',
       'app-secret',
@@ -130,7 +134,7 @@ describe('飞书问题表单卡片', () => {
           optionId: 'q1o2',
         },
       },
-      operator: { open_id: 'ou_other' },
+      operator: {},
     });
     expect(denied.toast.type).toBe('warning');
 
@@ -145,12 +149,12 @@ describe('飞书问题表单卡片', () => {
             optionId: 'q1o2',
           },
         },
-        operator: { open_id: 'ou_owner' },
+        operator: { open_id: 'ou_other' },
       });
     const accepted = await submit();
     expect(accepted.toast.type).toBe('success');
     expect(accepted.card).toMatchObject({ type: 'raw' });
-    expect(JSON.stringify(accepted.card.data)).toContain('ou_owner已提交');
+    expect(JSON.stringify(accepted.card.data)).toContain('ou_other已提交');
     expect(getChatMembers).not.toHaveBeenCalled();
     const repeated = await submit();
     expect(repeated.toast.type).toBe('info');
@@ -158,7 +162,46 @@ describe('飞书问题表单卡片', () => {
 
     const polled = getNewMessages([chatJid], '', '大狗');
     expect(polled.messages).toHaveLength(1);
+    expect(polled.messages[0].sender).toBe('ou_other');
     expect(polled.messages[0].content).toContain('发布窗口？ → 明天');
+  });
+
+  it('拒绝其他群或转发消息的回调，原群其他人仍可提交', async () => {
+    const opts = makeOpts();
+    const channel = new FeishuChannel('app-id', 'app-secret', opts as any);
+    const cardId = await channel.sendQuestionCard(chatJid, {
+      groupFolder: 'test-agent',
+      draft,
+    });
+    const submit = (open_chat_id: string, open_message_id: string) =>
+      (channel as any).handleQuestionCardAction({
+        event: {
+          context: { open_chat_id, open_message_id },
+          operator: { open_id: 'ou_other' },
+          action: {
+            value: {
+              action: 'question_card',
+              cardId,
+              questionId: 'q1',
+              optionId: 'q1o2',
+            },
+          },
+        },
+      });
+    for (const [chat, message] of [
+      ['oc_other', 'om_question'],
+      ['oc_test', 'om_forwarded'],
+      ['oc_other', 'om_forwarded'],
+    ]) {
+      expect((await submit(chat, message)).toast.type).toBe('warning');
+      expect(getQuestionCard(cardId)?.status).toBe('pending');
+      expect(getNewMessages([chatJid], '', '大狗').messages).toHaveLength(0);
+      expect(opts.onMessage).not.toHaveBeenCalled();
+    }
+    expect((await submit('oc_test', 'om_question')).toast.type).toBe('success');
+    expect(getNewMessages([chatJid], '', '大狗').messages[0].sender).toBe(
+      'ou_other',
+    );
   });
 
   it('Card 2.0 表单回调解析单选和多选完整答案', async () => {
@@ -240,7 +283,7 @@ describe('飞书问题表单卡片', () => {
           revision: 0,
         },
       },
-      operator: { open_id: 'ou_owner' },
+      operator: { open_id: 'ou_other' },
     });
 
     expect(select.toast.type).toBe('success');
@@ -524,7 +567,10 @@ describe('飞书问题表单卡片', () => {
       operator: { open_id: 'ou_owner' },
     });
 
-    expect(response.toast).toMatchObject({ type: 'warning', content: '无效选项' });
+    expect(response.toast).toMatchObject({
+      type: 'warning',
+      content: '无效选项',
+    });
   });
 
   it('点选通过回调响应更新卡片，不依赖额外 PATCH', async () => {
@@ -677,7 +723,7 @@ describe('飞书问题表单卡片', () => {
     expect(getQuestionCard(cardId)?.status).toBe('pending');
   });
 
-  it('普通文字先关闭待答卡片，再继续正常消息链路', async () => {
+  it('其他群成员文字先关闭待答卡片，再继续正常消息链路', async () => {
     const opts = makeOpts();
     const channel = new FeishuChannel('app-id', 'app-secret', opts as any);
     const cardId = await channel.sendQuestionCard(chatJid, {
@@ -688,7 +734,7 @@ describe('飞书问题表单卡片', () => {
 
     await (channel as any).handleMessage({
       sender: {
-        sender_id: { open_id: 'ou_owner' },
+        sender_id: { open_id: 'ou_other' },
         sender_type: 'user',
       },
       message: {

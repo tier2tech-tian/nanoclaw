@@ -219,7 +219,7 @@ registerCommand({
   hasArgs: true,
   order: 31,
   // gemini 模式暂不支持配额查询，先隐藏；codex 走 codex 配额，Claude 走 Anthropic OAuth
-  modes: [...CLAUDE_MODES, 'codex'],
+  modes: [...CLAUDE_MODES, 'codex', 'codex-as'],
   subcommands: [
     { usage: '/usage', description: '查当前账号配额' },
     // all / <name> / delete 是 Anthropic OAuth 专属，codex 模式不显示
@@ -250,7 +250,9 @@ registerCommand({
     // 带参数(all / <name> / delete)仍走 Claude OAuth 路径,保持原行为。
     if (!args && group) {
       const { resolveCliMode } = await import('../cli-mode.js');
-      if (resolveCliMode(group.containerConfig) === 'codex') {
+      if (
+        ['codex', 'codex-as'].includes(resolveCliMode(group.containerConfig))
+      ) {
         const { getCodexUsage, formatCodexUsage } =
           await import('../codex-usage.js');
         await channel.sendMessage(
