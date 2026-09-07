@@ -241,4 +241,50 @@ describe('问题表单卡片契约', () => {
     expect(JSON.stringify(card)).not.toContain('checker');
     expect(JSON.stringify(card)).not.toContain('select_static');
   });
+
+  it('文字回复终态卡保留原问题和纯文字选项', () => {
+    const card = JSON.parse(
+      buildResolvedQuestionCardJson(mixedDraft, { kind: 'text_replied' }),
+    );
+    const serialized = JSON.stringify(card);
+    const content = card.body.elements[0].content;
+
+    expect(content).toContain('1. 发布时间怎么选？');
+    expect(content).toContain('A. 立即发布');
+    expect(content).toContain('B. ⭐ 低峰发布（推荐）');
+    expect(content).toContain('2. 需要同步谁？');
+    expect(content).toContain('A. ⭐ 研发（推荐）');
+    expect(content).toContain('B. ⭐ QA（推荐）');
+    expect(content).toContain('C. 产品');
+    expect(content.endsWith('✓ 已通过文字回复')).toBe(true);
+    for (const tag of ['button', 'checker', 'select_static', 'form', 'action']) {
+      expect(serialized).not.toContain(`"tag":"${tag}"`);
+    }
+    expect(serialized).not.toContain('behaviors');
+  });
+
+  it('文字回复终态把问题和选项按纯文字转义并压平换行', () => {
+    const draft = normalizeQuestionCardDraft({
+      title: '特殊字符',
+      questions: [
+        {
+          question:
+            '是否采用 [方案](https://example.com) **重点**？<at id=all> ~删除~ &',
+          options: ['第一行\nB. 伪选项', '`代码` 与 *强调*'],
+        },
+      ],
+    });
+    const card = JSON.parse(
+      buildResolvedQuestionCardJson(draft, { kind: 'text_replied' }),
+    );
+    const content = card.body.elements[0].content;
+
+    expect(content).toContain(
+      '是否采用 &#91;方案&#93;&#40;https&#58;&#47;&#47;example&#46;com&#41; ' +
+        '&#42;&#42;重点&#42;&#42;？&lt;at id=all&gt; &#126;删除&#126; &amp;',
+    );
+    expect(content).toContain('A. 第一行 B&#46; 伪选项');
+    expect(content).toContain('B. &#96;代码&#96; 与 &#42;强调&#42;');
+    expect(content.endsWith('✓ 已通过文字回复')).toBe(true);
+  });
 });

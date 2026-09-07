@@ -1,3 +1,5 @@
+import { escapeCardMarkdownText } from './feishu-card-markdown.js';
+
 export interface QuestionCardOption {
   id: string;
   label: string;
@@ -97,6 +99,10 @@ export function normalizeQuestionCardDraft(
 
 function optionText(option: QuestionCardOption): string {
   return option.recommended ? `⭐ ${option.label}（推荐）` : option.label;
+}
+
+function plainTextInMarkdown(value: string): string {
+  return escapeCardMarkdownText(value.replace(/\s+/g, ' ').trim());
 }
 
 function baseCard(title: string, elements: unknown[]): Record<string, unknown> {
@@ -351,7 +357,17 @@ export function buildResolvedQuestionCardJson(
         .split('\n')
         .slice(1)
         .join('\n')}`
-    : '已通过文字回复';
+    : `${draft.questions
+        .map(
+          (question, questionIndex) =>
+            `**${questionIndex + 1}. ${plainTextInMarkdown(question.question)}**\n${question.options
+              .map(
+                (option, optionIndex) =>
+                  `${String.fromCharCode(65 + optionIndex)}. ${plainTextInMarkdown(optionText(option))}`,
+              )
+              .join('\n')}`,
+        )
+        .join('\n\n')}\n\n✓ 已通过文字回复`;
   return JSON.stringify({
     schema: '2.0',
     header: {
