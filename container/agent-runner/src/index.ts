@@ -1183,7 +1183,8 @@ async function runQuery(
       log(`[rate_limit] ${JSON.stringify(rl).slice(0, 200)}`);
     }
 
-    if (message.type === 'assistant' && 'uuid' in message) {
+    // 子代理UUID属于侧分支历史，不能传作主对话的resumeSessionAt。
+    if (message.type === 'assistant' && message.parent_tool_use_id == null && 'uuid' in message) {
       lastAssistantUuid = (message as { uuid: string }).uuid;
     }
 
@@ -2265,9 +2266,9 @@ async function main(): Promise<void> {
       if (queryResult.newSessionId) {
         sessionId = queryResult.newSessionId;
       }
-      if (queryResult.lastAssistantUuid) {
-        resumeAt = queryResult.lastAssistantUuid;
-      }
+      // 本轮没有主assistant时清掉旧锚点，下一条新输入沿同一session最新历史继续。
+      // 不清session，也不自动重放这次输入。
+      resumeAt = queryResult.lastAssistantUuid;
 
       // If _close was consumed during the query, exit immediately.
       // Don't emit a session-update marker (it would reset the host's
