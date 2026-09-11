@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { isCodexAccountSwitch } from './cli-mode.js';
 import path from 'path';
 
 import { OneCLI } from '@onecli-sh/sdk';
@@ -1583,6 +1584,26 @@ export async function processGroupMessages(chatJid: string, availableChannels: C
       });
     } catch (err) {
       logger.warn({ err, group: group.folder }, '自动终态汇报(failed)异常');
+    }
+    if (
+      isCodexAccountSwitch(
+        inputCliMode,
+        group.containerConfig?.codexAccount,
+        registeredGroups[chatJid]?.containerConfig?.codexAccount,
+      )
+    ) {
+      advanceAgentCursor(chatJid, newCursor);
+      logger.warn({ chatJid }, '切号期间原任务失败，不交给新账号自动重跑');
+      await sendAgentMessage(
+        '当前任务执行失败；账号切换仍会在下一轮生效，本任务未交给新账号自动重跑。',
+        { isCommandReply: true },
+      ).catch((error) => {
+        logger.warn(
+          { chatJid, errorType: (error as Error).name },
+          '切号失败提示投递失败，不重放任务',
+        );
+      });
+      return true;
     }
     if (output.noRetry || inputCliMode === 'codex-as') {
       advanceAgentCursor(chatJid, newCursor);

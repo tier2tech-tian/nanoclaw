@@ -23,7 +23,8 @@ function groupHome(group: RegisteredGroup): string {
 }
 
 export async function handleCodexAccount(ctx: CommandContext): Promise<void> {
-  const { args, group, chatJid, channel } = ctx;
+  const { args, chatJid, channel } = ctx;
+  const group = ctx.registeredGroups[chatJid] ?? ctx.group;
   let target: CodexAccount;
   try {
     const accounts =
@@ -82,7 +83,7 @@ export async function handleCodexAccount(ctx: CommandContext): Promise<void> {
     await channel.sendMessage(chatJid, '账号绑定保存失败，原绑定未更改。');
     return;
   }
-  group.containerConfig = updated.containerConfig;
+  // 不修改在途任务持有的group对象：同轮错误重试仍必须使用原账号。
   ctx.registeredGroups[chatJid] = updated;
   const waiting = ctx.queue.retireAfterTurn(chatJid);
   logger.info({ chatJid, account: target.name, waiting }, 'Codex账号已选择');
@@ -144,16 +145,17 @@ export async function handleCodexUsage(ctx: CommandContext): Promise<void> {
       return;
     }
     const accounts = loadCodexAccounts();
+    const currentGroup = ctx.registeredGroups[ctx.chatJid] ?? ctx.group;
     const actual =
-      readCodexAccountBinding(groupHome(ctx.group))?.name ?? 'system';
-    const selected = ctx.group.containerConfig?.codexAccount ?? 'system';
+      readCodexAccountBinding(groupHome(currentGroup))?.name ?? 'system';
+    const selected = currentGroup.containerConfig?.codexAccount ?? 'system';
     const targets =
       ctx.args === 'all'
         ? accounts
         : [findCodexAccount(ctx.args.trim() || actual, accounts)];
     const groups = [
       ...new Map(
-        [...Object.values(ctx.registeredGroups), ctx.group].map((group) => [
+        [...Object.values(ctx.registeredGroups), currentGroup].map((group) => [
           group.folder,
           group,
         ]),
@@ -163,7 +165,7 @@ export async function handleCodexUsage(ctx: CommandContext): Promise<void> {
       try {
         const result = getAccountUsage(
           account,
-          ctx.args ? groups : [ctx.group],
+          ctx.args ? groups : [currentGroup],
         );
         return `${account.name}${account.name === 'system' ? '（系统账号）' : ''}\n${result.rateLimits ? formatCodexUsage(result) : '暂无可归属的配额数据'}${result.observedAt ? `\n快照时间：${result.observedAt}` : ''}`;
       } catch {

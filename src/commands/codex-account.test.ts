@@ -71,6 +71,7 @@ afterEach(() => {
 });
 
 it('手动切号只保存群选择并排水，不写凭据、不删除历史、不终止任务', async () => {
+  const inFlightGroup = ctx.group;
   await handleCodexAccount(ctx);
   expect(ctx.setRegisteredGroup).toHaveBeenCalledWith(
     'fs:test',
@@ -82,6 +83,10 @@ it('手动切号只保存群选择并排水，不写凭据、不删除历史、�
   expect(ctx.queue.killGroup).not.toHaveBeenCalled();
   expect(ctx.deleteSession).not.toHaveBeenCalled();
   expect(ctx.sessions.group).toBe('existing-thread');
+  expect(inFlightGroup.containerConfig?.codexAccount).toBeUndefined();
+  expect(ctx.registeredGroups[ctx.chatJid].containerConfig?.codexAccount).toBe(
+    'backup',
+  );
   expect(fs.existsSync(path.join(fixture.root, 'group/.codex-home'))).toBe(
     false,
   );
