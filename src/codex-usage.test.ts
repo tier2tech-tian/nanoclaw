@@ -185,6 +185,18 @@ describe('extractCodexRateLimits', () => {
 });
 
 describe('codexToRateLimits', () => {
+  it('缺失或非法百分比不伪装为零使用率', () => {
+    expect(codexToRateLimits({ primary: {} })).toBeNull();
+    expect(codexToRateLimits({ primary: { used_percent: NaN } })).toBeNull();
+    expect(codexToRateLimits({ secondary: { used_percent: 20 } })).toBeNull();
+    expect(
+      codexToRateLimits({ primary: { used_percent: 0 }, secondary: {} })
+        ?.weeklyPercent,
+    ).toBeUndefined();
+    expect(
+      codexToRateLimits({ primary: { used_percent: 0 } })?.fiveHourPercent,
+    ).toBe(0);
+  });
   it('primary→5h, secondary→7d, 百分比取整并 clamp', () => {
     const rl = codexToRateLimits({
       primary: { used_percent: 100, resets_at: 1780588999 },

@@ -82,8 +82,7 @@ function unixToIso(sec: number | undefined): string | null {
   return new Date(sec * 1000).toISOString();
 }
 
-function toPercent(v: number | undefined): number {
-  if (v == null || !isFinite(v)) return 0;
+function toPercent(v: number): number {
   return Math.max(0, Math.min(100, Math.round(v)));
 }
 
@@ -139,11 +138,19 @@ export function extractCodexRateLimits(
 export function codexToRateLimits(raw: CodexRateLimits): RateLimits | null {
   const p = raw.primary;
   const s = raw.secondary;
-  if (!p && !s) return null;
+  if (
+    !p ||
+    typeof p.used_percent !== 'number' ||
+    !Number.isFinite(p.used_percent)
+  )
+    return null;
   return {
-    fiveHourPercent: toPercent(p?.used_percent),
+    fiveHourPercent: toPercent(p.used_percent),
     fiveHourResetsAt: unixToIso(p?.resets_at),
-    weeklyPercent: s ? toPercent(s.used_percent) : undefined,
+    weeklyPercent:
+      typeof s?.used_percent === 'number' && Number.isFinite(s.used_percent)
+        ? toPercent(s.used_percent)
+        : undefined,
     weeklyResetsAt: unixToIso(s?.resets_at),
   };
 }

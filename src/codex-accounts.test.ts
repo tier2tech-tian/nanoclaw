@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  codexAccountIdentity,
   loadCodexAccounts,
   prepareCodexAccount,
   findCodexAccount,
@@ -31,6 +32,40 @@ afterEach(() =>
 );
 
 describe('Codex账号文件', () => {
+  it('授权源本身是软链时重复启动不重置生效边界', () => {
+    const f=fixture();
+    const alias=path.join(f.root,'alias.json');
+    fs.symlinkSync(f.authFile,alias);
+    const account={name:'alias',authFile:alias};
+    const first=prepareCodexAccount(f.groupHome,account,true)!;
+    const file=path.join(f.groupHome,'account-binding.json');
+    fs.writeFileSync(file,JSON.stringify({...first,activatedAt:123}));
+    expect(prepareCodexAccount(f.groupHome,account,true)?.activatedAt).toBe(123);
+  });
+  it('身份摘要遵循显式auth_mode，不把ChatGPT中的旧API key当实际身份', () => {
+    const f = fixture();
+    const account = { name: 'chat', authFile: f.authFile };
+    const auth = {
+      auth_mode: 'chatgpt',
+      tokens: {
+        account_id: 'fake-account',
+        access_token: 'fake-access',
+        refresh_token: 'fake-refresh',
+      },
+    };
+    fs.writeFileSync(f.authFile, JSON.stringify(auth));
+    const expected = codexAccountIdentity(account);
+    fs.writeFileSync(
+      f.authFile,
+      JSON.stringify({ ...auth, OPENAI_API_KEY: 'stale-key' }),
+    );
+    expect(codexAccountIdentity(account)).toBe(expected);
+    fs.writeFileSync(
+      f.authFile,
+      JSON.stringify({ auth_mode: 'unknown', OPENAI_API_KEY: 'stale-key' }),
+    );
+    expect(() => codexAccountIdentity(account)).toThrow('授权文件不可用');
+  });
   it('无配置保留系统账号，自定义账号读取指定文件而非复制凭据', () => {
     const f = fixture();
     expect(

@@ -125,6 +125,52 @@ it('自定义配置损坏后仍可选择system回退', async () => {
   );
 });
 
+it('无参数usage只取本群快照，all可汇集同账号其他群；无时间戳不可信', async () => {
+  const accounts = loadCodexAccounts();
+  for (const [folder, pct, time] of [
+    ['group', 4, '2026-01-01T00:00:00Z'],
+    ['another', 88, '2026-01-02T00:00:00Z'],
+  ] as const) {
+    const home = path.join(fixture.root, folder, '.codex-home');
+    fs.mkdirSync(path.join(home, 'sessions'), { recursive: true });
+    fs.symlinkSync(accounts[0].authFile, path.join(home, 'auth.json'));
+    fs.writeFileSync(
+      path.join(home, 'sessions/rollout-test.jsonl'),
+      JSON.stringify({
+        timestamp: time,
+        payload: {
+          type: 'token_count',
+          rate_limits: { primary: { used_percent: pct } },
+        },
+      }) + '\n',
+    );
+  }
+  ctx.registeredGroups.other = { ...ctx.group, folder: 'another' };
+  ctx.args = '';
+  await handleCodexUsage(ctx);
+  expect(vi.mocked(ctx.channel.sendMessage).mock.calls.at(-1)?.[1]).toContain(
+    '4%',
+  );
+  expect(
+    vi.mocked(ctx.channel.sendMessage).mock.calls.at(-1)?.[1],
+  ).not.toContain('88%');
+  ctx.args = 'all';
+  await handleCodexUsage(ctx);
+  expect(vi.mocked(ctx.channel.sendMessage).mock.calls.at(-1)?.[1]).toContain(
+    '88%',
+  );
+  fs.writeFileSync(
+    path.join(fixture.root, 'group/.codex-home/sessions/rollout-test.jsonl'),
+    JSON.stringify({
+      payload: {
+        type: 'token_count',
+        rate_limits: { primary: { used_percent: 4 } },
+      },
+    }) + '\n',
+  );
+  expect(getAccountUsage(accounts[0], [ctx.group]).rateLimits).toBeNull();
+});
+
 it('实际生效前usage仍标记系统账号，生效后旧rollout不能作为备用账号配额', async () => {
   const accounts = loadCodexAccounts();
   const home = path.join(fixture.root, 'group/.codex-home');

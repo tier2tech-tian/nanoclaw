@@ -18,6 +18,7 @@ export const ALL_CLI_MODES: CliMode[] = [
 
 /** Anthropic(Claude Code)系模式:这几种共用 Claude 专属命令与思考修饰符 */
 export const CLAUDE_MODES: CliMode[] = ['sdk', 'print', 'interactive'];
+export const CODEX_MODES: CliMode[] = ['codex', 'codex-as'];
 
 export function shouldAutoRotateAnthropicAccount(cliMode: CliMode): boolean {
   return CLAUDE_MODES.includes(cliMode);

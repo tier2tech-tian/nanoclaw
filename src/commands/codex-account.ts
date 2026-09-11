@@ -1,6 +1,6 @@
 import path from 'path';
 import fs from 'fs';
-import { resolveCliMode } from '../cli-mode.js';
+import { CODEX_MODES, resolveCliMode } from '../cli-mode.js';
 import { resolveGroupFolderPath } from '../group-folder.js';
 import { logger } from '../logger.js';
 import {
@@ -100,8 +100,7 @@ export function getAccountUsage(
   let latest: CodexUsageResult | undefined;
   const identity = codexAccountIdentity(account);
   for (const group of groups) {
-    if (!['codex', 'codex-as'].includes(resolveCliMode(group.containerConfig)))
-      continue;
+    if (!CODEX_MODES.includes(resolveCliMode(group.containerConfig))) continue;
     const home = groupHome(group);
     try {
       const binding = readCodexAccountBinding(home);
@@ -112,24 +111,19 @@ export function getAccountUsage(
           binding.authFile !== account.authFile
         )
           continue;
-        if (
-          fs.realpathSync(path.join(home, 'auth.json')) !==
-          fs.realpathSync(account.authFile)
-        )
-          continue;
       } else if (account.name !== 'system') {
         continue;
-      } else {
-        // 无迁移记录的旧群只能在软链确实仍指向系统账号时使用旧数据。
-        if (
-          fs.realpathSync(path.join(home, 'auth.json')) !==
-          fs.realpathSync(account.authFile)
-        )
-          continue;
       }
+      // 受管与旧系统群都必须核对实际授权源。
+      if (
+        fs.realpathSync(path.join(home, 'auth.json')) !==
+        fs.realpathSync(account.authFile)
+      )
+        continue;
       const result = getCodexUsage(group, binding?.activatedAt);
       if (
         result.rateLimits &&
+        result.observedAt &&
         (!latest || (result.observedAt ?? '') > (latest.observedAt ?? ''))
       )
         latest = result;
@@ -142,6 +136,13 @@ export function getAccountUsage(
 
 export async function handleCodexUsage(ctx: CommandContext): Promise<void> {
   try {
+    if (/^delete(\s|$)/i.test(ctx.args)) {
+      await ctx.channel.sendMessage(
+        ctx.chatJid,
+        'Codex不支持从群里删除授权文件。',
+      );
+      return;
+    }
     const accounts = loadCodexAccounts();
     const actual =
       readCodexAccountBinding(groupHome(ctx.group))?.name ?? 'system';
@@ -160,7 +161,10 @@ export async function handleCodexUsage(ctx: CommandContext): Promise<void> {
     ];
     const lines = targets.map((account) => {
       try {
-        const result = getAccountUsage(account, groups);
+        const result = getAccountUsage(
+          account,
+          ctx.args ? groups : [ctx.group],
+        );
         return `${account.name}${account.name === 'system' ? '（系统账号）' : ''}\n${result.rateLimits ? formatCodexUsage(result) : '暂无可归属的配额数据'}${result.observedAt ? `\n快照时间：${result.observedAt}` : ''}`;
       } catch {
         return `${account.name}：授权文件不可用，无法确认配额归属`;

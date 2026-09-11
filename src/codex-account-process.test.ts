@@ -2,9 +2,9 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { expect, it } from 'vitest';
-import { prepareCodexAccount } from '../../../src/codex-accounts.js';
-import { runCodexQuery } from './codex-runner.js';
-import { runCodexAsQuery } from './codex-as-runner.js';
+import { prepareCodexAccount } from './codex-accounts.js';
+import { runCodexQuery } from '../container/agent-runner/src/codex-runner.js';
+import { runCodexAsQuery } from '../container/agent-runner/src/codex-as-runner.js';
 
 // 真实子进程与文件链路；假Codex协议服务，不冒充OpenAI跨账号验收。
 it.each(['codex', 'codex-as'] as const)(

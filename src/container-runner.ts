@@ -29,6 +29,7 @@ import { observeQuestionCardToolUse } from './question-card-auth.js';
 // resolveCliMode 已抽到无副作用的 cli-mode.ts；import 供本模块使用 + re-export 保持既有 import 路径兼容。
 import {
   resolveCliMode,
+  CODEX_MODES,
   shouldAutoRotateAnthropicAccount,
 } from './cli-mode.js';
 export { resolveCliMode, shouldAutoRotateAnthropicAccount };
@@ -812,7 +813,7 @@ export async function runContainerAgent(
   onOutput?: (output: ContainerOutput) => Promise<void>,
 ): Promise<ContainerOutput> {
   const startTime = Date.now();
-  const codexMode = ['codex', 'codex-as'].includes(
+  const codexMode = CODEX_MODES.includes(
     input.cliMode ?? resolveCliMode(group.containerConfig),
   );
   // 固定本次启动所选账号，后续命令不能改变正在启动中的身份。
@@ -836,7 +837,7 @@ export async function runContainerAgent(
   const groupSessionsDir = prepareGroupSession(group.folder);
 
   // codex 模式：同步标记了 codex-shared 的 skill 到群 .codex-home/skills
-  if (['codex', 'codex-as'].includes(resolveCliMode(group.containerConfig))) {
+  if (CODEX_MODES.includes(resolveCliMode(group.containerConfig))) {
     prepareCodexSkills(group.folder);
   }
 

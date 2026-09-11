@@ -13,6 +13,10 @@ export interface CodexAccountBinding extends CodexAccount {
 }
 export const CODEX_BINDING_FILE = 'account-binding.json';
 
+function systemCodexAccount(home = os.homedir()): CodexAccount {
+  return { name: 'system', authFile: path.join(home, '.codex/auth.json') };
+}
+
 export function codexAccountsPath(): string {
   return (
     process.env.NANOCLAW_CODEX_ACCOUNTS_FILE ||
@@ -24,10 +28,7 @@ export function loadCodexAccounts(
   configFile = codexAccountsPath(),
   home = os.homedir(),
 ): CodexAccount[] {
-  const system = {
-    name: 'system',
-    authFile: path.join(home, '.codex/auth.json'),
-  };
+  const system = systemCodexAccount(home);
   if (!fs.existsSync(configFile)) return [system];
   let value: unknown;
   try {
@@ -73,10 +74,7 @@ export function findCodexAccount(
   accounts?: CodexAccount[],
 ): CodexAccount {
   if (!accounts && name.toLowerCase() === 'system') {
-    return {
-      name: 'system',
-      authFile: path.join(os.homedir(), '.codex/auth.json'),
-    };
+    return systemCodexAccount();
   }
   const account = (accounts ?? loadCodexAccounts()).find(
     (a) => a.name.toLowerCase() === name.toLowerCase(),
@@ -90,10 +88,15 @@ export function codexAccountIdentity(account: CodexAccount): string {
     const stat = fs.statSync(account.authFile);
     if (!stat.isFile() || stat.size > 1024 * 1024) throw new Error();
     const auth = JSON.parse(fs.readFileSync(account.authFile, 'utf8'));
+    const mode =
+      auth.auth_mode ?? (auth.OPENAI_API_KEY != null ? 'apikey' : 'chatgpt');
     const id =
-      typeof auth.OPENAI_API_KEY === 'string' && auth.OPENAI_API_KEY.trim()
+      mode === 'apikey' &&
+      typeof auth.OPENAI_API_KEY === 'string' &&
+      auth.OPENAI_API_KEY.trim()
         ? `key:${auth.OPENAI_API_KEY}`
-        : typeof auth.tokens?.account_id === 'string' &&
+        : mode === 'chatgpt' &&
+            typeof auth.tokens?.account_id === 'string' &&
             auth.tokens.account_id &&
             auth.tokens.access_token &&
             auth.tokens.refresh_token
