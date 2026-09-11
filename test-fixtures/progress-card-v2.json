@@ -1,0 +1,5454 @@
+{
+  "schema": "nanoclaw-progress-card-fixture/v2",
+  "behaviorCommit": "426b64dda3635995f1cc47ec330fa20392c17944",
+  "exporterCommit": "2d9cf4b9cdd387bfce4bcec6c3181e1127d7d31d",
+  "fixedNow": 1784865600000,
+  "normalization": {
+    "deletedJsonPointers": [],
+    "rule": "完整卡片 JSON；仅允许显式 Pointer 删除不稳定叶子，本版本无需删除"
+  },
+  "casesSha256": "0a779a6cc4348313f2d166ca68b6125aaf46c04aaac3332b684e068e2f7dfbf1",
+  "cases": [
+    {
+      "name": "consecutive_narration_merges",
+      "events": [
+        {
+          "kind": "narration",
+          "text": "先检查配置。"
+        },
+        {
+          "kind": "narration",
+          "text": "再确认调用链。"
+        }
+      ],
+      "initialState": {
+        "steps": [],
+        "phases": []
+      },
+      "snapshots": [
+        {
+          "state": {
+            "steps": [],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "先检查配置。",
+                "source": "narration",
+                "status": "running",
+                "narrationText": "先检查配置。",
+                "hasToolActivity": false,
+                "categories": [],
+                "toolCallIds": []
+              }
+            ],
+            "activePhaseGoal": "先检查配置。",
+            "activePhaseId": "phase-1"
+          },
+          "visibleSteps": [
+            {
+              "title": "先检查配置。",
+              "narrationFull": "先检查配置。",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "先检查配置。"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "先检查配置。"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "先检查配置。",
+                "source": "narration",
+                "status": "running",
+                "narrationText": "先检查配置。\n\n再确认调用链。",
+                "hasToolActivity": false,
+                "categories": [],
+                "toolCallIds": []
+              }
+            ],
+            "activePhaseGoal": "先检查配置。",
+            "activePhaseId": "phase-1"
+          },
+          "visibleSteps": [
+            {
+              "title": "先检查配置。",
+              "narrationFull": "先检查配置。\n\n再确认调用链。",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "先检查配置。"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "先检查配置。\n\n再确认调用链。"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "classifications": []
+    },
+    {
+      "name": "fallback_upgrades_latest_to_narration",
+      "events": [
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Read",
+            "toolCallId": "read-1",
+            "input": {
+              "file_path": "src/a.ts"
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "completed",
+            "toolName": "Read",
+            "toolCallId": "read-1"
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Grep",
+            "toolCallId": "grep-1",
+            "input": {
+              "pattern": "needle"
+            }
+          }
+        },
+        {
+          "kind": "narration",
+          "text": "核对搜索结果。"
+        }
+      ],
+      "initialState": {
+        "steps": [],
+        "phases": []
+      },
+      "snapshots": [
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "正在读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在读取 src/a.ts",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在读取 src/a.ts",
+                "categories": [
+                  "read"
+                ],
+                "actionSummaries": [
+                  "读取 src/a.ts"
+                ],
+                "toolCallIds": [
+                  "read-1"
+                ]
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "正在读取 src/a.ts",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在读取 src&#47;a&#46;ts</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "已读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-1",
+                "source": "tool",
+                "status": "completed"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在读取 src/a.ts",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已读取 src/a.ts",
+                "categories": [
+                  "read"
+                ],
+                "actionSummaries": [
+                  "读取 src/a.ts"
+                ],
+                "toolCallIds": [
+                  "read-1"
+                ],
+                "outcome": "已读取 src/a.ts"
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "已读取 src/a.ts",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已读取 src&#47;a&#46;ts</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "已读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-1",
+                "source": "tool",
+                "status": "completed"
+              },
+              {
+                "title": "正在搜索“needle”",
+                "completedTitle": "已搜索“needle”",
+                "actionSummary": "搜索“needle”",
+                "category": "search",
+                "confidence": "exact",
+                "nonZeroExitMeaning": "no-match",
+                "phaseId": "phase-2",
+                "toolCallId": "grep-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在读取 src/a.ts",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已读取 src/a.ts",
+                "categories": [
+                  "read"
+                ],
+                "actionSummaries": [
+                  "读取 src/a.ts"
+                ],
+                "toolCallIds": [
+                  "read-1"
+                ],
+                "outcome": "已读取 src/a.ts"
+              },
+              {
+                "id": "phase-2",
+                "goal": "正在搜索“needle”",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在搜索“needle”",
+                "categories": [
+                  "search"
+                ],
+                "actionSummaries": [
+                  "搜索“needle”"
+                ],
+                "toolCallIds": [
+                  "grep-1"
+                ]
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "已读取 src/a.ts",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            },
+            {
+              "title": "",
+              "grayTail": "正在搜索“needle”",
+              "presentationId": "phase-2",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已读取 src&#47;a&#46;ts</font>"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在搜索“needle”</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "已读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-1",
+                "source": "tool",
+                "status": "completed"
+              },
+              {
+                "title": "正在搜索“needle”",
+                "completedTitle": "已搜索“needle”",
+                "actionSummary": "搜索“needle”",
+                "category": "search",
+                "confidence": "exact",
+                "nonZeroExitMeaning": "no-match",
+                "phaseId": "phase-2",
+                "toolCallId": "grep-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在读取 src/a.ts",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已读取 src/a.ts",
+                "categories": [
+                  "read"
+                ],
+                "actionSummaries": [
+                  "读取 src/a.ts"
+                ],
+                "toolCallIds": [
+                  "read-1"
+                ],
+                "outcome": "已读取 src/a.ts"
+              },
+              {
+                "id": "phase-2",
+                "goal": "核对搜索结果。",
+                "source": "narration",
+                "status": "running",
+                "currentAction": "正在搜索“needle”",
+                "categories": [
+                  "search"
+                ],
+                "actionSummaries": [
+                  "搜索“needle”"
+                ],
+                "toolCallIds": [
+                  "grep-1"
+                ],
+                "narrationText": "核对搜索结果。",
+                "hasToolActivity": false
+              }
+            ],
+            "activePhaseId": "phase-2",
+            "activePhaseGoal": "核对搜索结果。"
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "已读取 src/a.ts",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            },
+            {
+              "title": "核对搜索结果。",
+              "grayTail": "正在搜索“needle”",
+              "narrationFull": "核对搜索结果。",
+              "presentationId": "phase-2",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已读取 src&#47;a&#46;ts</font>"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "核对搜索结果。\n<font color=\"grey\">正在搜索“needle”</font>"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "核对搜索结果。\n<font color=\"grey\">正在搜索“needle”</font>"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "classifications": [
+        {
+          "eventIndex": 0,
+          "action": {
+            "title": "正在读取 src/a.ts",
+            "completedTitle": "已读取 src/a.ts",
+            "actionSummary": "读取 src/a.ts",
+            "category": "read",
+            "confidence": "exact"
+          }
+        },
+        {
+          "eventIndex": 1,
+          "action": {
+            "title": "正在读取文件",
+            "completedTitle": "已读取文件",
+            "actionSummary": "读取文件",
+            "category": "read",
+            "confidence": "exact"
+          }
+        },
+        {
+          "eventIndex": 2,
+          "action": {
+            "title": "正在搜索“needle”",
+            "completedTitle": "已搜索“needle”",
+            "actionSummary": "搜索“needle”",
+            "category": "search",
+            "confidence": "exact",
+            "nonZeroExitMeaning": "no-match"
+          }
+        }
+      ]
+    },
+    {
+      "name": "four_fallback_actions_roll_to_latest_three",
+      "events": [
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Read",
+            "toolCallId": "read-1",
+            "input": {
+              "file_path": "src/a.ts"
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "completed",
+            "toolName": "Read",
+            "toolCallId": "read-1"
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Grep",
+            "toolCallId": "grep-1",
+            "input": {
+              "pattern": "needle"
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "completed",
+            "toolName": "Grep",
+            "toolCallId": "grep-1"
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Write",
+            "toolCallId": "write-1",
+            "input": {
+              "file_path": "src/b.ts"
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "completed",
+            "toolName": "Write",
+            "toolCallId": "write-1"
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Bash",
+            "toolCallId": "test-1",
+            "input": {
+              "command": "npm test"
+            }
+          }
+        }
+      ],
+      "initialState": {
+        "steps": [],
+        "phases": []
+      },
+      "snapshots": [
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "正在读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在读取 src/a.ts",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在读取 src/a.ts",
+                "categories": [
+                  "read"
+                ],
+                "actionSummaries": [
+                  "读取 src/a.ts"
+                ],
+                "toolCallIds": [
+                  "read-1"
+                ]
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "正在读取 src/a.ts",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在读取 src&#47;a&#46;ts</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "已读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-1",
+                "source": "tool",
+                "status": "completed"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在读取 src/a.ts",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已读取 src/a.ts",
+                "categories": [
+                  "read"
+                ],
+                "actionSummaries": [
+                  "读取 src/a.ts"
+                ],
+                "toolCallIds": [
+                  "read-1"
+                ],
+                "outcome": "已读取 src/a.ts"
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "已读取 src/a.ts",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已读取 src&#47;a&#46;ts</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "已读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-1",
+                "source": "tool",
+                "status": "completed"
+              },
+              {
+                "title": "正在搜索“needle”",
+                "completedTitle": "已搜索“needle”",
+                "actionSummary": "搜索“needle”",
+                "category": "search",
+                "confidence": "exact",
+                "nonZeroExitMeaning": "no-match",
+                "phaseId": "phase-2",
+                "toolCallId": "grep-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在读取 src/a.ts",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已读取 src/a.ts",
+                "categories": [
+                  "read"
+                ],
+                "actionSummaries": [
+                  "读取 src/a.ts"
+                ],
+                "toolCallIds": [
+                  "read-1"
+                ],
+                "outcome": "已读取 src/a.ts"
+              },
+              {
+                "id": "phase-2",
+                "goal": "正在搜索“needle”",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在搜索“needle”",
+                "categories": [
+                  "search"
+                ],
+                "actionSummaries": [
+                  "搜索“needle”"
+                ],
+                "toolCallIds": [
+                  "grep-1"
+                ]
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "已读取 src/a.ts",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            },
+            {
+              "title": "",
+              "grayTail": "正在搜索“needle”",
+              "presentationId": "phase-2",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已读取 src&#47;a&#46;ts</font>"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在搜索“needle”</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "已读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-1",
+                "source": "tool",
+                "status": "completed"
+              },
+              {
+                "title": "已搜索“needle”",
+                "completedTitle": "已搜索“needle”",
+                "actionSummary": "搜索“needle”",
+                "category": "search",
+                "confidence": "exact",
+                "nonZeroExitMeaning": "no-match",
+                "phaseId": "phase-2",
+                "toolCallId": "grep-1",
+                "source": "tool",
+                "status": "completed"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在读取 src/a.ts",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已读取 src/a.ts",
+                "categories": [
+                  "read"
+                ],
+                "actionSummaries": [
+                  "读取 src/a.ts"
+                ],
+                "toolCallIds": [
+                  "read-1"
+                ],
+                "outcome": "已读取 src/a.ts"
+              },
+              {
+                "id": "phase-2",
+                "goal": "正在搜索“needle”",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已搜索“needle”",
+                "categories": [
+                  "search"
+                ],
+                "actionSummaries": [
+                  "搜索“needle”"
+                ],
+                "toolCallIds": [
+                  "grep-1"
+                ],
+                "outcome": "已搜索“needle”"
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "已读取 src/a.ts",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            },
+            {
+              "title": "",
+              "grayTail": "已搜索“needle”",
+              "presentationId": "phase-2",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已读取 src&#47;a&#46;ts</font>"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已搜索“needle”</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "已读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-1",
+                "source": "tool",
+                "status": "completed"
+              },
+              {
+                "title": "已搜索“needle”",
+                "completedTitle": "已搜索“needle”",
+                "actionSummary": "搜索“needle”",
+                "category": "search",
+                "confidence": "exact",
+                "nonZeroExitMeaning": "no-match",
+                "phaseId": "phase-2",
+                "toolCallId": "grep-1",
+                "source": "tool",
+                "status": "completed"
+              },
+              {
+                "title": "正在修改 src/b.ts",
+                "completedTitle": "已修改 src/b.ts",
+                "actionSummary": "修改 src/b.ts",
+                "category": "change",
+                "confidence": "exact",
+                "phaseId": "phase-3",
+                "toolCallId": "write-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在读取 src/a.ts",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已读取 src/a.ts",
+                "categories": [
+                  "read"
+                ],
+                "actionSummaries": [
+                  "读取 src/a.ts"
+                ],
+                "toolCallIds": [
+                  "read-1"
+                ],
+                "outcome": "已读取 src/a.ts"
+              },
+              {
+                "id": "phase-2",
+                "goal": "正在搜索“needle”",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已搜索“needle”",
+                "categories": [
+                  "search"
+                ],
+                "actionSummaries": [
+                  "搜索“needle”"
+                ],
+                "toolCallIds": [
+                  "grep-1"
+                ],
+                "outcome": "已搜索“needle”"
+              },
+              {
+                "id": "phase-3",
+                "goal": "正在修改 src/b.ts",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在修改 src/b.ts",
+                "categories": [
+                  "change"
+                ],
+                "actionSummaries": [
+                  "修改 src/b.ts"
+                ],
+                "toolCallIds": [
+                  "write-1"
+                ]
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "已读取 src/a.ts",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            },
+            {
+              "title": "",
+              "grayTail": "已搜索“needle”",
+              "presentationId": "phase-2",
+              "ts": 1784865600000
+            },
+            {
+              "title": "",
+              "grayTail": "正在修改 src/b.ts",
+              "presentationId": "phase-3",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已读取 src&#47;a&#46;ts</font>"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已搜索“needle”</font>"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在修改 src&#47;b&#46;ts</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "已读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-1",
+                "source": "tool",
+                "status": "completed"
+              },
+              {
+                "title": "已搜索“needle”",
+                "completedTitle": "已搜索“needle”",
+                "actionSummary": "搜索“needle”",
+                "category": "search",
+                "confidence": "exact",
+                "nonZeroExitMeaning": "no-match",
+                "phaseId": "phase-2",
+                "toolCallId": "grep-1",
+                "source": "tool",
+                "status": "completed"
+              },
+              {
+                "title": "已修改 src/b.ts",
+                "completedTitle": "已修改 src/b.ts",
+                "actionSummary": "修改 src/b.ts",
+                "category": "change",
+                "confidence": "exact",
+                "phaseId": "phase-3",
+                "toolCallId": "write-1",
+                "source": "tool",
+                "status": "completed"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在读取 src/a.ts",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已读取 src/a.ts",
+                "categories": [
+                  "read"
+                ],
+                "actionSummaries": [
+                  "读取 src/a.ts"
+                ],
+                "toolCallIds": [
+                  "read-1"
+                ],
+                "outcome": "已读取 src/a.ts"
+              },
+              {
+                "id": "phase-2",
+                "goal": "正在搜索“needle”",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已搜索“needle”",
+                "categories": [
+                  "search"
+                ],
+                "actionSummaries": [
+                  "搜索“needle”"
+                ],
+                "toolCallIds": [
+                  "grep-1"
+                ],
+                "outcome": "已搜索“needle”"
+              },
+              {
+                "id": "phase-3",
+                "goal": "正在修改 src/b.ts",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已修改 src/b.ts",
+                "categories": [
+                  "change"
+                ],
+                "actionSummaries": [
+                  "修改 src/b.ts"
+                ],
+                "toolCallIds": [
+                  "write-1"
+                ],
+                "outcome": "已修改 src/b.ts"
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "已读取 src/a.ts",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            },
+            {
+              "title": "",
+              "grayTail": "已搜索“needle”",
+              "presentationId": "phase-2",
+              "ts": 1784865600000
+            },
+            {
+              "title": "",
+              "grayTail": "已修改 src/b.ts",
+              "presentationId": "phase-3",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已读取 src&#47;a&#46;ts</font>"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已搜索“needle”</font>"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已修改 src&#47;b&#46;ts</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "已读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-1",
+                "source": "tool",
+                "status": "completed"
+              },
+              {
+                "title": "已搜索“needle”",
+                "completedTitle": "已搜索“needle”",
+                "actionSummary": "搜索“needle”",
+                "category": "search",
+                "confidence": "exact",
+                "nonZeroExitMeaning": "no-match",
+                "phaseId": "phase-2",
+                "toolCallId": "grep-1",
+                "source": "tool",
+                "status": "completed"
+              },
+              {
+                "title": "已修改 src/b.ts",
+                "completedTitle": "已修改 src/b.ts",
+                "actionSummary": "修改 src/b.ts",
+                "category": "change",
+                "confidence": "exact",
+                "phaseId": "phase-3",
+                "toolCallId": "write-1",
+                "source": "tool",
+                "status": "completed"
+              },
+              {
+                "title": "正在运行测试",
+                "completedTitle": "已运行测试",
+                "actionSummary": "运行测试",
+                "category": "test",
+                "confidence": "exact",
+                "phaseId": "phase-4",
+                "toolCallId": "test-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在读取 src/a.ts",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已读取 src/a.ts",
+                "categories": [
+                  "read"
+                ],
+                "actionSummaries": [
+                  "读取 src/a.ts"
+                ],
+                "toolCallIds": [
+                  "read-1"
+                ],
+                "outcome": "已读取 src/a.ts"
+              },
+              {
+                "id": "phase-2",
+                "goal": "正在搜索“needle”",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已搜索“needle”",
+                "categories": [
+                  "search"
+                ],
+                "actionSummaries": [
+                  "搜索“needle”"
+                ],
+                "toolCallIds": [
+                  "grep-1"
+                ],
+                "outcome": "已搜索“needle”"
+              },
+              {
+                "id": "phase-3",
+                "goal": "正在修改 src/b.ts",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已修改 src/b.ts",
+                "categories": [
+                  "change"
+                ],
+                "actionSummaries": [
+                  "修改 src/b.ts"
+                ],
+                "toolCallIds": [
+                  "write-1"
+                ],
+                "outcome": "已修改 src/b.ts"
+              },
+              {
+                "id": "phase-4",
+                "goal": "正在运行测试",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在运行测试",
+                "categories": [
+                  "test"
+                ],
+                "actionSummaries": [
+                  "运行测试"
+                ],
+                "toolCallIds": [
+                  "test-1"
+                ]
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "已搜索“needle”",
+              "presentationId": "phase-2",
+              "ts": 1784865600000
+            },
+            {
+              "title": "",
+              "grayTail": "已修改 src/b.ts",
+              "presentationId": "phase-3",
+              "ts": 1784865600000
+            },
+            {
+              "title": "",
+              "grayTail": "正在运行测试",
+              "presentationId": "phase-4",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已搜索“needle”</font>"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已修改 src&#47;b&#46;ts</font>"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在运行测试</font>"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "classifications": [
+        {
+          "eventIndex": 0,
+          "action": {
+            "title": "正在读取 src/a.ts",
+            "completedTitle": "已读取 src/a.ts",
+            "actionSummary": "读取 src/a.ts",
+            "category": "read",
+            "confidence": "exact"
+          }
+        },
+        {
+          "eventIndex": 1,
+          "action": {
+            "title": "正在读取文件",
+            "completedTitle": "已读取文件",
+            "actionSummary": "读取文件",
+            "category": "read",
+            "confidence": "exact"
+          }
+        },
+        {
+          "eventIndex": 2,
+          "action": {
+            "title": "正在搜索“needle”",
+            "completedTitle": "已搜索“needle”",
+            "actionSummary": "搜索“needle”",
+            "category": "search",
+            "confidence": "exact",
+            "nonZeroExitMeaning": "no-match"
+          }
+        },
+        {
+          "eventIndex": 3,
+          "action": {
+            "title": "正在搜索相关内容",
+            "completedTitle": "已搜索相关内容",
+            "actionSummary": "搜索相关内容",
+            "category": "search",
+            "confidence": "exact",
+            "nonZeroExitMeaning": "no-match"
+          }
+        },
+        {
+          "eventIndex": 4,
+          "action": {
+            "title": "正在修改 src/b.ts",
+            "completedTitle": "已修改 src/b.ts",
+            "actionSummary": "修改 src/b.ts",
+            "category": "change",
+            "confidence": "exact"
+          }
+        },
+        {
+          "eventIndex": 5,
+          "action": {
+            "title": "正在修改文件",
+            "completedTitle": "已修改文件",
+            "actionSummary": "修改文件",
+            "category": "change",
+            "confidence": "exact"
+          }
+        },
+        {
+          "eventIndex": 6,
+          "action": {
+            "title": "正在运行测试",
+            "completedTitle": "已运行测试",
+            "actionSummary": "运行测试",
+            "category": "test",
+            "confidence": "exact"
+          }
+        }
+      ]
+    },
+    {
+      "name": "narration_tool_narration_creates_two_phases",
+      "events": [
+        {
+          "kind": "narration",
+          "text": "检查实现。"
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Grep",
+            "toolCallId": "grep-1",
+            "input": {
+              "pattern": "FrameTranslator"
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "completed",
+            "toolName": "Grep",
+            "toolCallId": "grep-1"
+          }
+        },
+        {
+          "kind": "narration",
+          "text": "补齐测试。"
+        }
+      ],
+      "initialState": {
+        "steps": [],
+        "phases": []
+      },
+      "snapshots": [
+        {
+          "state": {
+            "steps": [],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "检查实现。",
+                "source": "narration",
+                "status": "running",
+                "narrationText": "检查实现。",
+                "hasToolActivity": false,
+                "categories": [],
+                "toolCallIds": []
+              }
+            ],
+            "activePhaseGoal": "检查实现。",
+            "activePhaseId": "phase-1"
+          },
+          "visibleSteps": [
+            {
+              "title": "检查实现。",
+              "narrationFull": "检查实现。",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "检查实现。"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "检查实现。"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "phase": "检查实现。",
+                "title": "正在搜索“FrameTranslator”",
+                "completedTitle": "已搜索“FrameTranslator”",
+                "actionSummary": "搜索“FrameTranslator”",
+                "category": "search",
+                "confidence": "exact",
+                "nonZeroExitMeaning": "no-match",
+                "phaseId": "phase-1",
+                "toolCallId": "grep-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "检查实现。",
+                "source": "narration",
+                "status": "running",
+                "narrationText": "检查实现。",
+                "hasToolActivity": true,
+                "categories": [
+                  "search"
+                ],
+                "toolCallIds": [
+                  "grep-1"
+                ],
+                "currentAction": "正在搜索“FrameTranslator”",
+                "actionSummaries": [
+                  "搜索“FrameTranslator”"
+                ]
+              }
+            ],
+            "activePhaseGoal": "检查实现。",
+            "activePhaseId": "phase-1"
+          },
+          "visibleSteps": [
+            {
+              "title": "检查实现。",
+              "grayTail": "正在搜索“FrameTranslator”",
+              "narrationFull": "检查实现。",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "检查实现。\n<font color=\"grey\">正在搜索“FrameTranslator”</font>"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "检查实现。\n<font color=\"grey\">正在搜索“FrameTranslator”</font>"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "phase": "检查实现。",
+                "title": "已搜索“FrameTranslator”",
+                "completedTitle": "已搜索“FrameTranslator”",
+                "actionSummary": "搜索“FrameTranslator”",
+                "category": "search",
+                "confidence": "exact",
+                "nonZeroExitMeaning": "no-match",
+                "phaseId": "phase-1",
+                "toolCallId": "grep-1",
+                "source": "tool",
+                "status": "completed"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "检查实现。",
+                "source": "narration",
+                "status": "completed",
+                "narrationText": "检查实现。",
+                "hasToolActivity": true,
+                "categories": [
+                  "search"
+                ],
+                "toolCallIds": [
+                  "grep-1"
+                ],
+                "currentAction": "已搜索“FrameTranslator”",
+                "actionSummaries": [
+                  "搜索“FrameTranslator”"
+                ],
+                "outcome": "已搜索“FrameTranslator”"
+              }
+            ],
+            "activePhaseGoal": "检查实现。",
+            "activePhaseId": "phase-1"
+          },
+          "visibleSteps": [
+            {
+              "title": "检查实现。",
+              "grayTail": "已搜索“FrameTranslator”",
+              "narrationFull": "检查实现。",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "检查实现。\n<font color=\"grey\">已搜索“FrameTranslator”</font>"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "检查实现。\n<font color=\"grey\">已搜索“FrameTranslator”</font>"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "phase": "检查实现。",
+                "title": "已搜索“FrameTranslator”",
+                "completedTitle": "已搜索“FrameTranslator”",
+                "actionSummary": "搜索“FrameTranslator”",
+                "category": "search",
+                "confidence": "exact",
+                "nonZeroExitMeaning": "no-match",
+                "phaseId": "phase-1",
+                "toolCallId": "grep-1",
+                "source": "tool",
+                "status": "completed"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "检查实现。",
+                "source": "narration",
+                "status": "completed",
+                "narrationText": "检查实现。",
+                "hasToolActivity": true,
+                "categories": [
+                  "search"
+                ],
+                "toolCallIds": [
+                  "grep-1"
+                ],
+                "currentAction": "已搜索“FrameTranslator”",
+                "actionSummaries": [
+                  "搜索“FrameTranslator”"
+                ],
+                "outcome": "已搜索“FrameTranslator”"
+              },
+              {
+                "id": "phase-2",
+                "goal": "补齐测试。",
+                "source": "narration",
+                "status": "running",
+                "narrationText": "补齐测试。",
+                "hasToolActivity": false,
+                "categories": [],
+                "toolCallIds": []
+              }
+            ],
+            "activePhaseGoal": "补齐测试。",
+            "activePhaseId": "phase-2"
+          },
+          "visibleSteps": [
+            {
+              "title": "检查实现。",
+              "narrationFull": "检查实现。",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            },
+            {
+              "title": "补齐测试。",
+              "narrationFull": "补齐测试。",
+              "presentationId": "phase-2",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "检查实现。"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "检查实现。"
+                    }
+                  ]
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "补齐测试。"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "补齐测试。"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "classifications": [
+        {
+          "eventIndex": 1,
+          "action": {
+            "title": "正在搜索“FrameTranslator”",
+            "completedTitle": "已搜索“FrameTranslator”",
+            "actionSummary": "搜索“FrameTranslator”",
+            "category": "search",
+            "confidence": "exact",
+            "nonZeroExitMeaning": "no-match"
+          }
+        },
+        {
+          "eventIndex": 2,
+          "action": {
+            "title": "正在搜索相关内容",
+            "completedTitle": "已搜索相关内容",
+            "actionSummary": "搜索相关内容",
+            "category": "search",
+            "confidence": "exact",
+            "nonZeroExitMeaning": "no-match"
+          }
+        }
+      ]
+    },
+    {
+      "name": "parallel_same_tool_completes_in_reverse_order",
+      "events": [
+        {
+          "kind": "narration",
+          "text": "并行核查两个文件。"
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Read",
+            "toolCallId": "read-a",
+            "input": {
+              "file_path": "src/a.ts"
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Read",
+            "toolCallId": "read-b",
+            "input": {
+              "file_path": "src/b.ts"
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "completed",
+            "toolName": "Read",
+            "toolCallId": "read-b"
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "completed",
+            "toolName": "Read",
+            "toolCallId": "read-a"
+          }
+        }
+      ],
+      "initialState": {
+        "steps": [],
+        "phases": []
+      },
+      "snapshots": [
+        {
+          "state": {
+            "steps": [],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "并行核查两个文件。",
+                "source": "narration",
+                "status": "running",
+                "narrationText": "并行核查两个文件。",
+                "hasToolActivity": false,
+                "categories": [],
+                "toolCallIds": []
+              }
+            ],
+            "activePhaseGoal": "并行核查两个文件。",
+            "activePhaseId": "phase-1"
+          },
+          "visibleSteps": [
+            {
+              "title": "并行核查两个文件。",
+              "narrationFull": "并行核查两个文件。",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "并行核查两个文件。"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "并行核查两个文件。"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "phase": "并行核查两个文件。",
+                "title": "正在读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-a",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "并行核查两个文件。",
+                "source": "narration",
+                "status": "running",
+                "narrationText": "并行核查两个文件。",
+                "hasToolActivity": true,
+                "categories": [
+                  "read"
+                ],
+                "toolCallIds": [
+                  "read-a"
+                ],
+                "currentAction": "正在读取 src/a.ts",
+                "actionSummaries": [
+                  "读取 src/a.ts"
+                ]
+              }
+            ],
+            "activePhaseGoal": "并行核查两个文件。",
+            "activePhaseId": "phase-1"
+          },
+          "visibleSteps": [
+            {
+              "title": "并行核查两个文件。",
+              "grayTail": "正在读取 src/a.ts",
+              "narrationFull": "并行核查两个文件。",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "并行核查两个文件。\n<font color=\"grey\">正在读取 src&#47;a&#46;ts</font>"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "并行核查两个文件。\n<font color=\"grey\">正在读取 src&#47;a&#46;ts</font>"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "phase": "并行核查两个文件。",
+                "title": "正在读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-a",
+                "source": "tool",
+                "status": "running"
+              },
+              {
+                "phase": "并行核查两个文件。",
+                "title": "正在读取 src/b.ts",
+                "completedTitle": "已读取 src/b.ts",
+                "actionSummary": "读取 src/b.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-b",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "并行核查两个文件。",
+                "source": "narration",
+                "status": "running",
+                "narrationText": "并行核查两个文件。",
+                "hasToolActivity": true,
+                "categories": [
+                  "read"
+                ],
+                "toolCallIds": [
+                  "read-a",
+                  "read-b"
+                ],
+                "currentAction": "正在读取 src/b.ts",
+                "actionSummaries": [
+                  "读取 src/b.ts"
+                ]
+              }
+            ],
+            "activePhaseGoal": "并行核查两个文件。",
+            "activePhaseId": "phase-1"
+          },
+          "visibleSteps": [
+            {
+              "title": "并行核查两个文件。",
+              "grayTail": "正在读取 src/b.ts",
+              "narrationFull": "并行核查两个文件。",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "并行核查两个文件。\n<font color=\"grey\">正在读取 src&#47;b&#46;ts</font>"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "并行核查两个文件。\n<font color=\"grey\">正在读取 src&#47;b&#46;ts</font>"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "phase": "并行核查两个文件。",
+                "title": "正在读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-a",
+                "source": "tool",
+                "status": "running"
+              },
+              {
+                "phase": "并行核查两个文件。",
+                "title": "已读取 src/b.ts",
+                "completedTitle": "已读取 src/b.ts",
+                "actionSummary": "读取 src/b.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-b",
+                "source": "tool",
+                "status": "completed"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "并行核查两个文件。",
+                "source": "narration",
+                "status": "running",
+                "narrationText": "并行核查两个文件。",
+                "hasToolActivity": true,
+                "categories": [
+                  "read"
+                ],
+                "toolCallIds": [
+                  "read-a",
+                  "read-b"
+                ],
+                "currentAction": "正在读取 src/a.ts",
+                "actionSummaries": [
+                  "读取 src/b.ts"
+                ]
+              }
+            ],
+            "activePhaseGoal": "并行核查两个文件。",
+            "activePhaseId": "phase-1"
+          },
+          "visibleSteps": [
+            {
+              "title": "并行核查两个文件。",
+              "grayTail": "正在读取 src/a.ts",
+              "narrationFull": "并行核查两个文件。",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "并行核查两个文件。\n<font color=\"grey\">正在读取 src&#47;a&#46;ts</font>"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "并行核查两个文件。\n<font color=\"grey\">正在读取 src&#47;a&#46;ts</font>"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "phase": "并行核查两个文件。",
+                "title": "已读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-a",
+                "source": "tool",
+                "status": "completed"
+              },
+              {
+                "phase": "并行核查两个文件。",
+                "title": "已读取 src/b.ts",
+                "completedTitle": "已读取 src/b.ts",
+                "actionSummary": "读取 src/b.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-b",
+                "source": "tool",
+                "status": "completed"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "并行核查两个文件。",
+                "source": "narration",
+                "status": "completed",
+                "narrationText": "并行核查两个文件。",
+                "hasToolActivity": true,
+                "categories": [
+                  "read"
+                ],
+                "toolCallIds": [
+                  "read-a",
+                  "read-b"
+                ],
+                "currentAction": "已读取 src/a.ts",
+                "actionSummaries": [
+                  "读取 src/b.ts"
+                ],
+                "outcome": "已读取 src/b.ts"
+              }
+            ],
+            "activePhaseGoal": "并行核查两个文件。",
+            "activePhaseId": "phase-1"
+          },
+          "visibleSteps": [
+            {
+              "title": "并行核查两个文件。",
+              "grayTail": "已读取 src/b.ts",
+              "narrationFull": "并行核查两个文件。",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "并行核查两个文件。\n<font color=\"grey\">已读取 src&#47;b&#46;ts</font>"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "并行核查两个文件。\n<font color=\"grey\">已读取 src&#47;b&#46;ts</font>"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "classifications": [
+        {
+          "eventIndex": 1,
+          "action": {
+            "title": "正在读取 src/a.ts",
+            "completedTitle": "已读取 src/a.ts",
+            "actionSummary": "读取 src/a.ts",
+            "category": "read",
+            "confidence": "exact"
+          }
+        },
+        {
+          "eventIndex": 2,
+          "action": {
+            "title": "正在读取 src/b.ts",
+            "completedTitle": "已读取 src/b.ts",
+            "actionSummary": "读取 src/b.ts",
+            "category": "read",
+            "confidence": "exact"
+          }
+        },
+        {
+          "eventIndex": 3,
+          "action": {
+            "title": "正在读取文件",
+            "completedTitle": "已读取文件",
+            "actionSummary": "读取文件",
+            "category": "read",
+            "confidence": "exact"
+          }
+        },
+        {
+          "eventIndex": 4,
+          "action": {
+            "title": "正在读取文件",
+            "completedTitle": "已读取文件",
+            "actionSummary": "读取文件",
+            "category": "read",
+            "confidence": "exact"
+          }
+        }
+      ]
+    },
+    {
+      "name": "duplicate_started_enriches_in_place",
+      "events": [
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Bash",
+            "toolCallId": "bash-1",
+            "input": {
+              "command": "rg"
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Bash",
+            "toolCallId": "bash-1",
+            "input": {
+              "command": "rg target src"
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "completed",
+            "toolName": "Bash",
+            "toolCallId": "bash-1"
+          }
+        }
+      ],
+      "initialState": {
+        "steps": [],
+        "phases": []
+      },
+      "snapshots": [
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "正在搜索相关内容",
+                "completedTitle": "已搜索相关内容",
+                "actionSummary": "搜索相关内容",
+                "category": "search",
+                "confidence": "inferred",
+                "nonZeroExitMeaning": "no-match",
+                "phaseId": "phase-1",
+                "toolCallId": "bash-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在搜索相关内容",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在搜索相关内容",
+                "categories": [
+                  "search"
+                ],
+                "actionSummaries": [
+                  "搜索相关内容"
+                ],
+                "toolCallIds": [
+                  "bash-1"
+                ]
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "正在搜索相关内容",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在搜索相关内容</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "正在 src 中搜索“target”",
+                "completedTitle": "已在 src 中搜索“target”",
+                "actionSummary": "在 src 中搜索“target”",
+                "category": "search",
+                "confidence": "inferred",
+                "nonZeroExitMeaning": "no-match",
+                "phaseId": "phase-1",
+                "toolCallId": "bash-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在 src 中搜索“target”",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在 src 中搜索“target”",
+                "categories": [
+                  "search"
+                ],
+                "actionSummaries": [
+                  "在 src 中搜索“target”"
+                ],
+                "toolCallIds": [
+                  "bash-1"
+                ]
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "正在 src 中搜索“target”",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在 src 中搜索“target”</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "已在 src 中搜索“target”",
+                "completedTitle": "已在 src 中搜索“target”",
+                "actionSummary": "在 src 中搜索“target”",
+                "category": "search",
+                "confidence": "inferred",
+                "nonZeroExitMeaning": "no-match",
+                "phaseId": "phase-1",
+                "toolCallId": "bash-1",
+                "source": "tool",
+                "status": "completed"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在 src 中搜索“target”",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已在 src 中搜索“target”",
+                "categories": [
+                  "search"
+                ],
+                "actionSummaries": [
+                  "在 src 中搜索“target”"
+                ],
+                "toolCallIds": [
+                  "bash-1"
+                ],
+                "outcome": "已在 src 中搜索“target”"
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "已在 src 中搜索“target”",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已在 src 中搜索“target”</font>"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "classifications": [
+        {
+          "eventIndex": 0,
+          "action": {
+            "title": "正在搜索相关内容",
+            "completedTitle": "已搜索相关内容",
+            "actionSummary": "搜索相关内容",
+            "category": "search",
+            "confidence": "inferred",
+            "nonZeroExitMeaning": "no-match"
+          }
+        },
+        {
+          "eventIndex": 1,
+          "action": {
+            "title": "正在 src 中搜索“target”",
+            "completedTitle": "已在 src 中搜索“target”",
+            "actionSummary": "在 src 中搜索“target”",
+            "category": "search",
+            "confidence": "inferred",
+            "nonZeroExitMeaning": "no-match"
+          }
+        },
+        {
+          "eventIndex": 2,
+          "action": {
+            "title": "正在执行系统检查",
+            "category": "system",
+            "confidence": "fallback"
+          }
+        }
+      ]
+    },
+    {
+      "name": "apply_patch_single_multi_and_sensitive_targets",
+      "events": [
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Bash",
+            "toolCallId": "patch-1",
+            "input": {
+              "command": "apply_patch <<'PATCH'\n*** Begin Patch\n*** Update File: src/a.ts\n*** Add File: src/b.ts\n*** Update File: .env.production\n*** End Patch\nPATCH"
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "completed",
+            "toolName": "Bash",
+            "toolCallId": "patch-1"
+          }
+        }
+      ],
+      "initialState": {
+        "steps": [],
+        "phases": []
+      },
+      "snapshots": [
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "正在修改 a.ts、b.ts 等 3 个文件",
+                "completedTitle": "已修改 a.ts、b.ts 等 3 个文件",
+                "actionSummary": "修改 a.ts、b.ts 等 3 个文件",
+                "category": "change",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "patch-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在修改 a.ts、b.ts 等 3 个文件",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在修改 a.ts、b.ts 等 3 个文件",
+                "categories": [
+                  "change"
+                ],
+                "actionSummaries": [
+                  "修改 a.ts、b.ts 等 3 个文件"
+                ],
+                "toolCallIds": [
+                  "patch-1"
+                ]
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "正在修改 a.ts、b.ts 等 3 个文件",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在修改 a&#46;ts、b&#46;ts 等 3 个文件</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "已修改 a.ts、b.ts 等 3 个文件",
+                "completedTitle": "已修改 a.ts、b.ts 等 3 个文件",
+                "actionSummary": "修改 a.ts、b.ts 等 3 个文件",
+                "category": "change",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "patch-1",
+                "source": "tool",
+                "status": "completed"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在修改 a.ts、b.ts 等 3 个文件",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已修改 a.ts、b.ts 等 3 个文件",
+                "categories": [
+                  "change"
+                ],
+                "actionSummaries": [
+                  "修改 a.ts、b.ts 等 3 个文件"
+                ],
+                "toolCallIds": [
+                  "patch-1"
+                ],
+                "outcome": "已修改 a.ts、b.ts 等 3 个文件"
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "已修改 a.ts、b.ts 等 3 个文件",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已修改 a&#46;ts、b&#46;ts 等 3 个文件</font>"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "classifications": [
+        {
+          "eventIndex": 0,
+          "action": {
+            "title": "正在修改 a.ts、b.ts 等 3 个文件",
+            "completedTitle": "已修改 a.ts、b.ts 等 3 个文件",
+            "actionSummary": "修改 a.ts、b.ts 等 3 个文件",
+            "category": "change",
+            "confidence": "exact"
+          }
+        },
+        {
+          "eventIndex": 1,
+          "action": {
+            "title": "正在执行系统检查",
+            "category": "system",
+            "confidence": "fallback"
+          }
+        }
+      ]
+    },
+    {
+      "name": "codex_file_change_reports_changed_files",
+      "events": [
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "file_change",
+            "toolCallId": "change-1",
+            "input": {
+              "changes": [
+                {
+                  "path": "src/index.ts",
+                  "kind": "update"
+                },
+                {
+                  "path": "src/new.ts",
+                  "kind": "add"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "completed",
+            "toolName": "file_change",
+            "toolCallId": "change-1"
+          }
+        }
+      ],
+      "initialState": {
+        "steps": [],
+        "phases": []
+      },
+      "snapshots": [
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "正在修改 index.ts、new.ts",
+                "completedTitle": "已修改 index.ts、new.ts",
+                "actionSummary": "修改 index.ts、new.ts",
+                "category": "change",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "change-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在修改 index.ts、new.ts",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在修改 index.ts、new.ts",
+                "categories": [
+                  "change"
+                ],
+                "actionSummaries": [
+                  "修改 index.ts、new.ts"
+                ],
+                "toolCallIds": [
+                  "change-1"
+                ]
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "正在修改 index.ts、new.ts",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在修改 index&#46;ts、new&#46;ts</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "已修改 index.ts、new.ts",
+                "completedTitle": "已修改 index.ts、new.ts",
+                "actionSummary": "修改 index.ts、new.ts",
+                "category": "change",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "change-1",
+                "source": "tool",
+                "status": "completed"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在修改 index.ts、new.ts",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已修改 index.ts、new.ts",
+                "categories": [
+                  "change"
+                ],
+                "actionSummaries": [
+                  "修改 index.ts、new.ts"
+                ],
+                "toolCallIds": [
+                  "change-1"
+                ],
+                "outcome": "已修改 index.ts、new.ts"
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "已修改 index.ts、new.ts",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已修改 index&#46;ts、new&#46;ts</font>"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "classifications": [
+        {
+          "eventIndex": 0,
+          "action": {
+            "title": "正在修改 index.ts、new.ts",
+            "completedTitle": "已修改 index.ts、new.ts",
+            "actionSummary": "修改 index.ts、new.ts",
+            "category": "change",
+            "confidence": "exact"
+          }
+        },
+        {
+          "eventIndex": 1,
+          "action": {
+            "title": "正在修改文件",
+            "completedTitle": "已修改文件",
+            "actionSummary": "修改文件",
+            "category": "change",
+            "confidence": "exact"
+          }
+        }
+      ]
+    },
+    {
+      "name": "credentials_markdown_and_long_path_are_closed",
+      "events": [
+        {
+          "kind": "narration",
+          "text": "检查 *链接* [点我](https://bad.example)，并验证 OPENAI_API_KEY=plainsecretvalue。"
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Read",
+            "toolCallId": "secret-1",
+            "input": {
+              "file_path": "https://user:password@example.com/very/long/private/path/to/.env.production?token=sk-secret12345678"
+            }
+          }
+        }
+      ],
+      "initialState": {
+        "steps": [],
+        "phases": []
+      },
+      "snapshots": [
+        {
+          "state": {
+            "steps": [],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "检查 *链接* [点我](https://bad.example)，并验证 OPENAI_API_KEY=[REDACTED]",
+                "source": "narration",
+                "status": "running",
+                "narrationText": "检查 *链接* [点我](https://bad.example)，并验证 OPENAI_API_KEY=[REDACTED]",
+                "hasToolActivity": false,
+                "categories": [],
+                "toolCallIds": []
+              }
+            ],
+            "activePhaseGoal": "检查 *链接* [点我](https://bad.example)，并验证 OPENAI_API_KEY=[REDACTED]",
+            "activePhaseId": "phase-1"
+          },
+          "visibleSteps": [
+            {
+              "title": "检查 *链接* [点我](https://bad.examp…",
+              "narrationFull": "检查 *链接* [点我](https://bad.example)，并验证 OPENAI_API_KEY=[REDACTED]",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "检查 &#42;链接&#42; &#91;点我&#93;&#40;https&#58;&#47;&#47;bad&#46;examp…"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "检查 &#42;链接&#42; &#91;点我&#93;&#40;https&#58;&#47;&#47;bad&#46;example&#41;，并验证 OPENAI&#95;API&#95;KEY=&#91;REDACTED&#93;"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "phase": "检查 *链接* [点我](https://bad.example)，并验证 OPENAI_API_KEY=[REDACTED]",
+                "title": "正在读取 敏感配置文件",
+                "completedTitle": "已读取 敏感配置文件",
+                "actionSummary": "读取 敏感配置文件",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "secret-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "检查 *链接* [点我](https://bad.example)，并验证 OPENAI_API_KEY=[REDACTED]",
+                "source": "narration",
+                "status": "running",
+                "narrationText": "检查 *链接* [点我](https://bad.example)，并验证 OPENAI_API_KEY=[REDACTED]",
+                "hasToolActivity": true,
+                "categories": [
+                  "read"
+                ],
+                "toolCallIds": [
+                  "secret-1"
+                ],
+                "currentAction": "正在读取 敏感配置文件",
+                "actionSummaries": [
+                  "读取 敏感配置文件"
+                ]
+              }
+            ],
+            "activePhaseGoal": "检查 *链接* [点我](https://bad.example)，并验证 OPENAI_API_KEY=[REDACTED]",
+            "activePhaseId": "phase-1"
+          },
+          "visibleSteps": [
+            {
+              "title": "检查 *链接* [点我](https://bad.examp…",
+              "grayTail": "正在读取 敏感配置文件",
+              "narrationFull": "检查 *链接* [点我](https://bad.example)，并验证 OPENAI_API_KEY=[REDACTED]",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "检查 &#42;链接&#42; &#91;点我&#93;&#40;https&#58;&#47;&#47;bad&#46;examp…\n<font color=\"grey\">正在读取 敏感配置文件</font>"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "检查 &#42;链接&#42; &#91;点我&#93;&#40;https&#58;&#47;&#47;bad&#46;example&#41;，并验证 OPENAI&#95;API&#95;KEY=&#91;REDACTED&#93;\n<font color=\"grey\">正在读取 敏感配置文件</font>"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "classifications": [
+        {
+          "eventIndex": 1,
+          "action": {
+            "title": "正在读取 敏感配置文件",
+            "completedTitle": "已读取 敏感配置文件",
+            "actionSummary": "读取 敏感配置文件",
+            "category": "read",
+            "confidence": "exact"
+          }
+        }
+      ]
+    },
+    {
+      "name": "todo_plan_switches_to_narration_window",
+      "events": [
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "TodoWrite",
+            "toolCallId": "todo-1",
+            "input": {
+              "todos": [
+                {
+                  "content": "读取实现",
+                  "status": "completed"
+                },
+                {
+                  "content": "补齐测试",
+                  "status": "in_progress"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "kind": "narration",
+          "text": "先修复回调重试。"
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Read",
+            "toolCallId": "read-1",
+            "input": {
+              "file_path": "src/retry.ts"
+            }
+          }
+        }
+      ],
+      "initialState": {
+        "steps": [],
+        "phases": []
+      },
+      "snapshots": [
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "读取实现",
+                "category": "system",
+                "confidence": "exact",
+                "toolCallId": "todo-1:plan:0",
+                "source": "plan",
+                "status": "completed"
+              },
+              {
+                "title": "补齐测试",
+                "category": "system",
+                "confidence": "exact",
+                "toolCallId": "todo-1:plan:1",
+                "source": "plan",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "plan-1",
+                "goal": "读取实现",
+                "source": "plan",
+                "status": "completed",
+                "categories": [],
+                "toolCallIds": []
+              },
+              {
+                "id": "plan-2",
+                "goal": "补齐测试",
+                "source": "plan",
+                "status": "running",
+                "categories": [],
+                "toolCallIds": []
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "已完成：读取实现",
+              "presentationId": "plan-1",
+              "isPlan": true,
+              "ts": 1784865600000
+            },
+            {
+              "title": "进行中：补齐测试",
+              "presentationId": "plan-2",
+              "isPlan": true,
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "已完成：读取实现"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "进行中：补齐测试"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "activePhaseGoal": "先修复回调重试。",
+            "activePhaseId": "phase-3",
+            "steps": [
+              {
+                "title": "读取实现",
+                "category": "system",
+                "confidence": "exact",
+                "toolCallId": "todo-1:plan:0",
+                "source": "plan",
+                "status": "completed"
+              },
+              {
+                "title": "补齐测试",
+                "category": "system",
+                "confidence": "exact",
+                "toolCallId": "todo-1:plan:1",
+                "source": "plan",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "plan-1",
+                "goal": "读取实现",
+                "source": "plan",
+                "status": "completed",
+                "categories": [],
+                "toolCallIds": []
+              },
+              {
+                "id": "plan-2",
+                "goal": "补齐测试",
+                "source": "plan",
+                "status": "running",
+                "categories": [],
+                "toolCallIds": []
+              },
+              {
+                "id": "phase-3",
+                "goal": "先修复回调重试。",
+                "source": "narration",
+                "status": "running",
+                "narrationText": "先修复回调重试。",
+                "hasToolActivity": false,
+                "categories": [],
+                "toolCallIds": []
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "先修复回调重试。",
+              "narrationFull": "先修复回调重试。",
+              "presentationId": "phase-3",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "先修复回调重试。"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "先修复回调重试。"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "activePhaseGoal": "先修复回调重试。",
+            "activePhaseId": "phase-3",
+            "steps": [
+              {
+                "title": "读取实现",
+                "category": "system",
+                "confidence": "exact",
+                "toolCallId": "todo-1:plan:0",
+                "source": "plan",
+                "status": "completed"
+              },
+              {
+                "title": "补齐测试",
+                "category": "system",
+                "confidence": "exact",
+                "toolCallId": "todo-1:plan:1",
+                "source": "plan",
+                "status": "running"
+              },
+              {
+                "phase": "先修复回调重试。",
+                "title": "正在读取 src/retry.ts",
+                "completedTitle": "已读取 src/retry.ts",
+                "actionSummary": "读取 src/retry.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-3",
+                "toolCallId": "read-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "plan-1",
+                "goal": "读取实现",
+                "source": "plan",
+                "status": "completed",
+                "categories": [],
+                "toolCallIds": []
+              },
+              {
+                "id": "plan-2",
+                "goal": "补齐测试",
+                "source": "plan",
+                "status": "running",
+                "categories": [],
+                "toolCallIds": []
+              },
+              {
+                "id": "phase-3",
+                "goal": "先修复回调重试。",
+                "source": "narration",
+                "status": "running",
+                "narrationText": "先修复回调重试。",
+                "hasToolActivity": true,
+                "categories": [
+                  "read"
+                ],
+                "toolCallIds": [
+                  "read-1"
+                ],
+                "currentAction": "正在读取 src/retry.ts",
+                "actionSummaries": [
+                  "读取 src/retry.ts"
+                ]
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "先修复回调重试。",
+              "grayTail": "正在读取 src/retry.ts",
+              "narrationFull": "先修复回调重试。",
+              "presentationId": "phase-3",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "先修复回调重试。\n<font color=\"grey\">正在读取 src&#47;retry&#46;ts</font>"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "先修复回调重试。\n<font color=\"grey\">正在读取 src&#47;retry&#46;ts</font>"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "classifications": [
+        {
+          "eventIndex": 0,
+          "action": {
+            "title": "正在执行系统检查",
+            "category": "system",
+            "confidence": "fallback"
+          }
+        },
+        {
+          "eventIndex": 2,
+          "action": {
+            "title": "正在读取 src/retry.ts",
+            "completedTitle": "已读取 src/retry.ts",
+            "actionSummary": "读取 src/retry.ts",
+            "category": "read",
+            "confidence": "exact"
+          }
+        }
+      ]
+    },
+    {
+      "name": "orphan_completion_is_ignored",
+      "events": [
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "completed",
+            "toolName": "Read",
+            "toolCallId": "missing"
+          }
+        }
+      ],
+      "initialState": {
+        "steps": [],
+        "phases": []
+      },
+      "snapshots": [
+        {
+          "state": {
+            "steps": [],
+            "phases": []
+          },
+          "visibleSteps": [],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "classifications": [
+        {
+          "eventIndex": 0,
+          "action": {
+            "title": "正在读取文件",
+            "completedTitle": "已读取文件",
+            "actionSummary": "读取文件",
+            "category": "read",
+            "confidence": "exact"
+          }
+        }
+      ]
+    },
+    {
+      "name": "codex_probe_exit_one_is_no_match",
+      "events": [
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Bash",
+            "toolCallId": "probe-1",
+            "input": {
+              "command": "rg missing_symbol src"
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "failed",
+            "toolName": "Bash",
+            "toolCallId": "probe-1",
+            "exitCode": 1
+          }
+        }
+      ],
+      "initialState": {
+        "steps": [],
+        "phases": []
+      },
+      "snapshots": [
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "正在 src 中搜索“missing_symbol”",
+                "completedTitle": "已在 src 中搜索“missing_symbol”",
+                "actionSummary": "在 src 中搜索“missing_symbol”",
+                "category": "search",
+                "confidence": "inferred",
+                "nonZeroExitMeaning": "no-match",
+                "phaseId": "phase-1",
+                "toolCallId": "probe-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在 src 中搜索“missing_symbol”",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在 src 中搜索“missing_symbol”",
+                "categories": [
+                  "search"
+                ],
+                "actionSummaries": [
+                  "在 src 中搜索“missing_symbol”"
+                ],
+                "toolCallIds": [
+                  "probe-1"
+                ]
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "正在 src 中搜索“missing_symbol”",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在 src 中搜索“missing&#95;symbol”</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "已搜索，无匹配",
+                "completedTitle": "已在 src 中搜索“missing_symbol”",
+                "actionSummary": "在 src 中搜索“missing_symbol”",
+                "category": "search",
+                "confidence": "inferred",
+                "nonZeroExitMeaning": "no-match",
+                "phaseId": "phase-1",
+                "toolCallId": "probe-1",
+                "source": "tool",
+                "status": "completed"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在 src 中搜索“missing_symbol”",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已搜索，无匹配",
+                "categories": [
+                  "search"
+                ],
+                "actionSummaries": [
+                  "在 src 中搜索“missing_symbol”"
+                ],
+                "toolCallIds": [
+                  "probe-1"
+                ],
+                "probeFacts": [
+                  "在 src 中搜索“missing_symbol”（无匹配）"
+                ],
+                "outcome": "已搜索，无匹配"
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "已搜索，无匹配",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已搜索，无匹配</font>"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "classifications": [
+        {
+          "eventIndex": 0,
+          "action": {
+            "title": "正在 src 中搜索“missing_symbol”",
+            "completedTitle": "已在 src 中搜索“missing_symbol”",
+            "actionSummary": "在 src 中搜索“missing_symbol”",
+            "category": "search",
+            "confidence": "inferred",
+            "nonZeroExitMeaning": "no-match"
+          }
+        },
+        {
+          "eventIndex": 1,
+          "action": {
+            "title": "正在执行系统检查",
+            "category": "system",
+            "confidence": "fallback"
+          }
+        }
+      ]
+    },
+    {
+      "name": "turn_end_marks_running_work_unknown",
+      "events": [
+        {
+          "kind": "narration",
+          "text": "读取配置。"
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Read",
+            "toolCallId": "read-1",
+            "input": {
+              "file_path": "src/config.ts"
+            }
+          }
+        },
+        {
+          "kind": "turn_end"
+        }
+      ],
+      "initialState": {
+        "steps": [],
+        "phases": []
+      },
+      "snapshots": [
+        {
+          "state": {
+            "steps": [],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "读取配置。",
+                "source": "narration",
+                "status": "running",
+                "narrationText": "读取配置。",
+                "hasToolActivity": false,
+                "categories": [],
+                "toolCallIds": []
+              }
+            ],
+            "activePhaseGoal": "读取配置。",
+            "activePhaseId": "phase-1"
+          },
+          "visibleSteps": [
+            {
+              "title": "读取配置。",
+              "narrationFull": "读取配置。",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "读取配置。"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "读取配置。"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "phase": "读取配置。",
+                "title": "正在读取 src/config.ts",
+                "completedTitle": "已读取 src/config.ts",
+                "actionSummary": "读取 src/config.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "读取配置。",
+                "source": "narration",
+                "status": "running",
+                "narrationText": "读取配置。",
+                "hasToolActivity": true,
+                "categories": [
+                  "read"
+                ],
+                "toolCallIds": [
+                  "read-1"
+                ],
+                "currentAction": "正在读取 src/config.ts",
+                "actionSummaries": [
+                  "读取 src/config.ts"
+                ]
+              }
+            ],
+            "activePhaseGoal": "读取配置。",
+            "activePhaseId": "phase-1"
+          },
+          "visibleSteps": [
+            {
+              "title": "读取配置。",
+              "grayTail": "正在读取 src/config.ts",
+              "narrationFull": "读取配置。",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "读取配置。\n<font color=\"grey\">正在读取 src&#47;config&#46;ts</font>"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "读取配置。\n<font color=\"grey\">正在读取 src&#47;config&#46;ts</font>"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "phase": "读取配置。",
+                "title": "已执行读取，结果未知",
+                "completedTitle": "已读取 src/config.ts",
+                "actionSummary": "读取 src/config.ts",
+                "category": "read",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "read-1",
+                "source": "tool",
+                "status": "unknown"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "读取配置。",
+                "source": "narration",
+                "status": "unknown",
+                "narrationText": "读取配置。",
+                "hasToolActivity": true,
+                "categories": [
+                  "read"
+                ],
+                "toolCallIds": [
+                  "read-1"
+                ],
+                "currentAction": "正在读取 src/config.ts",
+                "actionSummaries": [
+                  "读取 src/config.ts"
+                ],
+                "outcome": "已执行读取，结果未知"
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "读取配置。",
+              "grayTail": "已执行读取，结果未知",
+              "narrationFull": "读取配置。",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "collapsible_panel",
+                  "expanded": false,
+                  "background_color": "grey",
+                  "header": {
+                    "title": {
+                      "tag": "markdown",
+                      "content": "读取配置。\n<font color=\"grey\">已执行读取，结果未知</font>"
+                    },
+                    "vertical_align": "center"
+                  },
+                  "vertical_spacing": "2px",
+                  "padding": "4px 8px 4px 8px",
+                  "elements": [
+                    {
+                      "tag": "markdown",
+                      "content": "读取配置。\n<font color=\"grey\">已执行读取，结果未知</font>"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "classifications": [
+        {
+          "eventIndex": 1,
+          "action": {
+            "title": "正在读取 src/config.ts",
+            "completedTitle": "已读取 src/config.ts",
+            "actionSummary": "读取 src/config.ts",
+            "category": "read",
+            "confidence": "exact"
+          }
+        }
+      ]
+    },
+    {
+      "name": "native_tool_wording_matrix",
+      "events": [
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Agent",
+            "toolCallId": "agent-1",
+            "input": {
+              "description": "独立复审"
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "ToolSearch",
+            "toolCallId": "tool-search-1",
+            "input": {
+              "query": "delegate"
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "EnterWorktree",
+            "toolCallId": "worktree-1",
+            "input": {
+              "name": "phase-card"
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Skill",
+            "toolCallId": "skill-1",
+            "input": {
+              "skill": "verification-before-completion"
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "mcp__nanoclaw__memory_recall",
+            "toolCallId": "memory-1",
+            "input": {
+              "query": "过程卡片"
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "mcp__nanoclaw__search_chat",
+            "toolCallId": "chat-1",
+            "input": {
+              "query": "phase"
+            }
+          }
+        }
+      ],
+      "initialState": {
+        "steps": [],
+        "phases": []
+      },
+      "snapshots": [
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "正在派发协作任务",
+                "completedTitle": "已派发协作任务",
+                "actionSummary": "派发协作任务",
+                "category": "communicate",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "agent-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在派发协作任务",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在派发协作任务",
+                "categories": [
+                  "communicate"
+                ],
+                "actionSummaries": [
+                  "派发协作任务"
+                ],
+                "toolCallIds": [
+                  "agent-1"
+                ],
+                "matchQuery": ""
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "正在派发协作任务",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在派发协作任务</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "正在派发协作任务",
+                "completedTitle": "已派发协作任务",
+                "actionSummary": "派发协作任务",
+                "category": "communicate",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "agent-1",
+                "source": "tool",
+                "status": "running"
+              },
+              {
+                "title": "正在查找可用工具",
+                "completedTitle": "已查找可用工具",
+                "actionSummary": "查找可用工具",
+                "category": "system",
+                "confidence": "exact",
+                "toolCallId": "tool-search-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在派发协作任务",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在派发协作任务",
+                "categories": [
+                  "communicate"
+                ],
+                "actionSummaries": [
+                  "派发协作任务"
+                ],
+                "toolCallIds": [
+                  "agent-1"
+                ],
+                "matchQuery": ""
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "正在派发协作任务",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在派发协作任务</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "正在派发协作任务",
+                "completedTitle": "已派发协作任务",
+                "actionSummary": "派发协作任务",
+                "category": "communicate",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "agent-1",
+                "source": "tool",
+                "status": "running"
+              },
+              {
+                "title": "正在查找可用工具",
+                "completedTitle": "已查找可用工具",
+                "actionSummary": "查找可用工具",
+                "category": "system",
+                "confidence": "exact",
+                "toolCallId": "tool-search-1",
+                "source": "tool",
+                "status": "running"
+              },
+              {
+                "title": "正在准备任务工作区",
+                "completedTitle": "已准备任务工作区",
+                "actionSummary": "准备任务工作区",
+                "category": "system",
+                "confidence": "exact",
+                "phaseId": "phase-2",
+                "toolCallId": "worktree-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在派发协作任务",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在派发协作任务",
+                "categories": [
+                  "communicate"
+                ],
+                "actionSummaries": [
+                  "派发协作任务"
+                ],
+                "toolCallIds": [
+                  "agent-1"
+                ],
+                "matchQuery": ""
+              },
+              {
+                "id": "phase-2",
+                "goal": "正在准备任务工作区",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在准备任务工作区",
+                "categories": [
+                  "system"
+                ],
+                "actionSummaries": [
+                  "准备任务工作区"
+                ],
+                "toolCallIds": [
+                  "worktree-1"
+                ]
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "正在派发协作任务",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            },
+            {
+              "title": "",
+              "grayTail": "正在准备任务工作区",
+              "presentationId": "phase-2",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在派发协作任务</font>"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在准备任务工作区</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "正在派发协作任务",
+                "completedTitle": "已派发协作任务",
+                "actionSummary": "派发协作任务",
+                "category": "communicate",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "agent-1",
+                "source": "tool",
+                "status": "running"
+              },
+              {
+                "title": "正在查找可用工具",
+                "completedTitle": "已查找可用工具",
+                "actionSummary": "查找可用工具",
+                "category": "system",
+                "confidence": "exact",
+                "toolCallId": "tool-search-1",
+                "source": "tool",
+                "status": "running"
+              },
+              {
+                "title": "正在准备任务工作区",
+                "completedTitle": "已准备任务工作区",
+                "actionSummary": "准备任务工作区",
+                "category": "system",
+                "confidence": "exact",
+                "phaseId": "phase-2",
+                "toolCallId": "worktree-1",
+                "source": "tool",
+                "status": "running"
+              },
+              {
+                "title": "正在加载任务能力",
+                "completedTitle": "已加载任务能力",
+                "actionSummary": "加载任务能力",
+                "category": "system",
+                "confidence": "exact",
+                "phaseId": "phase-3",
+                "toolCallId": "skill-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在派发协作任务",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在派发协作任务",
+                "categories": [
+                  "communicate"
+                ],
+                "actionSummaries": [
+                  "派发协作任务"
+                ],
+                "toolCallIds": [
+                  "agent-1"
+                ],
+                "matchQuery": ""
+              },
+              {
+                "id": "phase-2",
+                "goal": "正在准备任务工作区",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在准备任务工作区",
+                "categories": [
+                  "system"
+                ],
+                "actionSummaries": [
+                  "准备任务工作区"
+                ],
+                "toolCallIds": [
+                  "worktree-1"
+                ]
+              },
+              {
+                "id": "phase-3",
+                "goal": "正在加载任务能力",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在加载任务能力",
+                "categories": [
+                  "system"
+                ],
+                "actionSummaries": [
+                  "加载任务能力"
+                ],
+                "toolCallIds": [
+                  "skill-1"
+                ]
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "正在派发协作任务",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            },
+            {
+              "title": "",
+              "grayTail": "正在准备任务工作区",
+              "presentationId": "phase-2",
+              "ts": 1784865600000
+            },
+            {
+              "title": "",
+              "grayTail": "正在加载任务能力",
+              "presentationId": "phase-3",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在派发协作任务</font>"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在准备任务工作区</font>"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在加载任务能力</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "正在派发协作任务",
+                "completedTitle": "已派发协作任务",
+                "actionSummary": "派发协作任务",
+                "category": "communicate",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "agent-1",
+                "source": "tool",
+                "status": "running"
+              },
+              {
+                "title": "正在查找可用工具",
+                "completedTitle": "已查找可用工具",
+                "actionSummary": "查找可用工具",
+                "category": "system",
+                "confidence": "exact",
+                "toolCallId": "tool-search-1",
+                "source": "tool",
+                "status": "running"
+              },
+              {
+                "title": "正在准备任务工作区",
+                "completedTitle": "已准备任务工作区",
+                "actionSummary": "准备任务工作区",
+                "category": "system",
+                "confidence": "exact",
+                "phaseId": "phase-2",
+                "toolCallId": "worktree-1",
+                "source": "tool",
+                "status": "running"
+              },
+              {
+                "title": "正在加载任务能力",
+                "completedTitle": "已加载任务能力",
+                "actionSummary": "加载任务能力",
+                "category": "system",
+                "confidence": "exact",
+                "phaseId": "phase-3",
+                "toolCallId": "skill-1",
+                "source": "tool",
+                "status": "running"
+              },
+              {
+                "title": "正在执行系统检查",
+                "category": "system",
+                "confidence": "fallback",
+                "phaseId": "phase-4",
+                "toolCallId": "memory-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在派发协作任务",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在派发协作任务",
+                "categories": [
+                  "communicate"
+                ],
+                "actionSummaries": [
+                  "派发协作任务"
+                ],
+                "toolCallIds": [
+                  "agent-1"
+                ],
+                "matchQuery": ""
+              },
+              {
+                "id": "phase-2",
+                "goal": "正在准备任务工作区",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在准备任务工作区",
+                "categories": [
+                  "system"
+                ],
+                "actionSummaries": [
+                  "准备任务工作区"
+                ],
+                "toolCallIds": [
+                  "worktree-1"
+                ]
+              },
+              {
+                "id": "phase-3",
+                "goal": "正在加载任务能力",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在加载任务能力",
+                "categories": [
+                  "system"
+                ],
+                "actionSummaries": [
+                  "加载任务能力"
+                ],
+                "toolCallIds": [
+                  "skill-1"
+                ]
+              },
+              {
+                "id": "phase-4",
+                "goal": "正在执行系统检查",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在执行系统检查",
+                "categories": [
+                  "system"
+                ],
+                "actionSummaries": [],
+                "toolCallIds": [
+                  "memory-1"
+                ]
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "正在准备任务工作区",
+              "presentationId": "phase-2",
+              "ts": 1784865600000
+            },
+            {
+              "title": "",
+              "grayTail": "正在加载任务能力",
+              "presentationId": "phase-3",
+              "ts": 1784865600000
+            },
+            {
+              "title": "",
+              "grayTail": "正在执行系统检查",
+              "presentationId": "phase-4",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在准备任务工作区</font>"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在加载任务能力</font>"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在执行系统检查</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "正在派发协作任务",
+                "completedTitle": "已派发协作任务",
+                "actionSummary": "派发协作任务",
+                "category": "communicate",
+                "confidence": "exact",
+                "phaseId": "phase-1",
+                "toolCallId": "agent-1",
+                "source": "tool",
+                "status": "running"
+              },
+              {
+                "title": "正在查找可用工具",
+                "completedTitle": "已查找可用工具",
+                "actionSummary": "查找可用工具",
+                "category": "system",
+                "confidence": "exact",
+                "toolCallId": "tool-search-1",
+                "source": "tool",
+                "status": "running"
+              },
+              {
+                "title": "正在准备任务工作区",
+                "completedTitle": "已准备任务工作区",
+                "actionSummary": "准备任务工作区",
+                "category": "system",
+                "confidence": "exact",
+                "phaseId": "phase-2",
+                "toolCallId": "worktree-1",
+                "source": "tool",
+                "status": "running"
+              },
+              {
+                "title": "正在加载任务能力",
+                "completedTitle": "已加载任务能力",
+                "actionSummary": "加载任务能力",
+                "category": "system",
+                "confidence": "exact",
+                "phaseId": "phase-3",
+                "toolCallId": "skill-1",
+                "source": "tool",
+                "status": "running"
+              },
+              {
+                "title": "正在执行系统检查",
+                "category": "system",
+                "confidence": "fallback",
+                "phaseId": "phase-4",
+                "toolCallId": "memory-1",
+                "source": "tool",
+                "status": "running"
+              },
+              {
+                "title": "正在搜索包含“phase”的聊天记录",
+                "completedTitle": "已搜索包含“phase”的聊天记录",
+                "actionSummary": "搜索包含“phase”的聊天记录",
+                "category": "communicate",
+                "confidence": "exact",
+                "phaseId": "phase-5",
+                "toolCallId": "chat-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在派发协作任务",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在派发协作任务",
+                "categories": [
+                  "communicate"
+                ],
+                "actionSummaries": [
+                  "派发协作任务"
+                ],
+                "toolCallIds": [
+                  "agent-1"
+                ],
+                "matchQuery": ""
+              },
+              {
+                "id": "phase-2",
+                "goal": "正在准备任务工作区",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在准备任务工作区",
+                "categories": [
+                  "system"
+                ],
+                "actionSummaries": [
+                  "准备任务工作区"
+                ],
+                "toolCallIds": [
+                  "worktree-1"
+                ]
+              },
+              {
+                "id": "phase-3",
+                "goal": "正在加载任务能力",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在加载任务能力",
+                "categories": [
+                  "system"
+                ],
+                "actionSummaries": [
+                  "加载任务能力"
+                ],
+                "toolCallIds": [
+                  "skill-1"
+                ]
+              },
+              {
+                "id": "phase-4",
+                "goal": "正在执行系统检查",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在执行系统检查",
+                "categories": [
+                  "system"
+                ],
+                "actionSummaries": [],
+                "toolCallIds": [
+                  "memory-1"
+                ]
+              },
+              {
+                "id": "phase-5",
+                "goal": "正在搜索包含“phase”的聊天记录",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在搜索包含“phase”的聊天记录",
+                "categories": [
+                  "communicate"
+                ],
+                "actionSummaries": [
+                  "搜索包含“phase”的聊天记录"
+                ],
+                "toolCallIds": [
+                  "chat-1"
+                ],
+                "matchQuery": "phase"
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "正在加载任务能力",
+              "presentationId": "phase-3",
+              "ts": 1784865600000
+            },
+            {
+              "title": "",
+              "grayTail": "正在执行系统检查",
+              "presentationId": "phase-4",
+              "ts": 1784865600000
+            },
+            {
+              "title": "",
+              "grayTail": "正在搜索包含“phase”的聊天记录",
+              "presentationId": "phase-5",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在加载任务能力</font>"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在执行系统检查</font>"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在搜索包含“phase”的聊天记录</font>"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "classifications": [
+        {
+          "eventIndex": 0,
+          "action": {
+            "title": "正在派发协作任务",
+            "completedTitle": "已派发协作任务",
+            "actionSummary": "派发协作任务",
+            "category": "communicate",
+            "confidence": "exact"
+          }
+        },
+        {
+          "eventIndex": 1,
+          "action": {
+            "title": "正在查找可用工具",
+            "completedTitle": "已查找可用工具",
+            "actionSummary": "查找可用工具",
+            "category": "system",
+            "confidence": "exact"
+          }
+        },
+        {
+          "eventIndex": 2,
+          "action": {
+            "title": "正在准备任务工作区",
+            "completedTitle": "已准备任务工作区",
+            "actionSummary": "准备任务工作区",
+            "category": "system",
+            "confidence": "exact"
+          }
+        },
+        {
+          "eventIndex": 3,
+          "action": {
+            "title": "正在加载任务能力",
+            "completedTitle": "已加载任务能力",
+            "actionSummary": "加载任务能力",
+            "category": "system",
+            "confidence": "exact"
+          }
+        },
+        {
+          "eventIndex": 4,
+          "action": {
+            "title": "正在执行系统检查",
+            "category": "system",
+            "confidence": "fallback"
+          }
+        },
+        {
+          "eventIndex": 5,
+          "action": {
+            "title": "正在搜索包含“phase”的聊天记录",
+            "completedTitle": "已搜索包含“phase”的聊天记录",
+            "actionSummary": "搜索包含“phase”的聊天记录",
+            "category": "communicate",
+            "confidence": "exact"
+          }
+        }
+      ]
+    },
+    {
+      "name": "shell_redirection_and_pipe_do_not_pollute_file_target",
+      "events": [
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Bash",
+            "toolCallId": "cat-1",
+            "input": {
+              "command": "cat src/a.ts 2>/dev/null | sed -n 1,20p"
+            }
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "completed",
+            "toolName": "Bash",
+            "toolCallId": "cat-1"
+          }
+        },
+        {
+          "kind": "tool",
+          "progress": {
+            "provider": "codex",
+            "lifecycle": "started",
+            "toolName": "Bash",
+            "toolCallId": "sed-1",
+            "input": {
+              "command": "sed -n '1,20p' src/b.ts 2> /dev/null"
+            }
+          }
+        }
+      ],
+      "initialState": {
+        "steps": [],
+        "phases": []
+      },
+      "snapshots": [
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "正在读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "inferred",
+                "phaseId": "phase-1",
+                "toolCallId": "cat-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在读取 src/a.ts",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在读取 src/a.ts",
+                "categories": [
+                  "read"
+                ],
+                "actionSummaries": [
+                  "读取 src/a.ts"
+                ],
+                "toolCallIds": [
+                  "cat-1"
+                ]
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "正在读取 src/a.ts",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在读取 src&#47;a&#46;ts</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "已读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "inferred",
+                "phaseId": "phase-1",
+                "toolCallId": "cat-1",
+                "source": "tool",
+                "status": "completed"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在读取 src/a.ts",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已读取 src/a.ts",
+                "categories": [
+                  "read"
+                ],
+                "actionSummaries": [
+                  "读取 src/a.ts"
+                ],
+                "toolCallIds": [
+                  "cat-1"
+                ],
+                "outcome": "已读取 src/a.ts"
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "已读取 src/a.ts",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已读取 src&#47;a&#46;ts</font>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "state": {
+            "steps": [
+              {
+                "title": "已读取 src/a.ts",
+                "completedTitle": "已读取 src/a.ts",
+                "actionSummary": "读取 src/a.ts",
+                "category": "read",
+                "confidence": "inferred",
+                "phaseId": "phase-1",
+                "toolCallId": "cat-1",
+                "source": "tool",
+                "status": "completed"
+              },
+              {
+                "title": "正在读取 src/b.ts",
+                "completedTitle": "已读取 src/b.ts",
+                "actionSummary": "读取 src/b.ts",
+                "category": "read",
+                "confidence": "inferred",
+                "phaseId": "phase-2",
+                "toolCallId": "sed-1",
+                "source": "tool",
+                "status": "running"
+              }
+            ],
+            "phases": [
+              {
+                "id": "phase-1",
+                "goal": "正在读取 src/a.ts",
+                "source": "fallback",
+                "status": "completed",
+                "currentAction": "已读取 src/a.ts",
+                "categories": [
+                  "read"
+                ],
+                "actionSummaries": [
+                  "读取 src/a.ts"
+                ],
+                "toolCallIds": [
+                  "cat-1"
+                ],
+                "outcome": "已读取 src/a.ts"
+              },
+              {
+                "id": "phase-2",
+                "goal": "正在读取 src/b.ts",
+                "source": "fallback",
+                "status": "running",
+                "currentAction": "正在读取 src/b.ts",
+                "categories": [
+                  "read"
+                ],
+                "actionSummaries": [
+                  "读取 src/b.ts"
+                ],
+                "toolCallIds": [
+                  "sed-1"
+                ]
+              }
+            ]
+          },
+          "visibleSteps": [
+            {
+              "title": "",
+              "grayTail": "已读取 src/a.ts",
+              "presentationId": "phase-1",
+              "ts": 1784865600000
+            },
+            {
+              "title": "",
+              "grayTail": "正在读取 src/b.ts",
+              "presentationId": "phase-2",
+              "ts": 1784865600000
+            }
+          ],
+          "card": {
+            "schema": "2.0",
+            "config": {
+              "update_multi": true
+            },
+            "body": {
+              "elements": [
+                {
+                  "tag": "markdown",
+                  "content": "**✨ 思考中... (2s)**"
+                },
+                {
+                  "tag": "hr"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">已读取 src&#47;a&#46;ts</font>"
+                },
+                {
+                  "tag": "markdown",
+                  "content": "<font color=\"grey\">正在读取 src&#47;b&#46;ts</font>"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "classifications": [
+        {
+          "eventIndex": 0,
+          "action": {
+            "title": "正在读取 src/a.ts",
+            "completedTitle": "已读取 src/a.ts",
+            "actionSummary": "读取 src/a.ts",
+            "category": "read",
+            "confidence": "inferred"
+          }
+        },
+        {
+          "eventIndex": 1,
+          "action": {
+            "title": "正在执行系统检查",
+            "category": "system",
+            "confidence": "fallback"
+          }
+        },
+        {
+          "eventIndex": 2,
+          "action": {
+            "title": "正在读取 src/b.ts",
+            "completedTitle": "已读取 src/b.ts",
+            "actionSummary": "读取 src/b.ts",
+            "category": "read",
+            "confidence": "inferred"
+          }
+        }
+      ]
+    }
+  ]
+}
