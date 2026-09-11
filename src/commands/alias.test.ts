@@ -28,8 +28,8 @@ vi.mock('../router.js', () => ({
   }),
 }));
 
-vi.mock('../cli-mode.js', () => ({
-  CLAUDE_MODES: ['sdk', 'print', 'interactive'],
+vi.mock('../cli-mode.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../cli-mode.js')>()),
   resolveCliMode: () => 'sdk',
 }));
 
