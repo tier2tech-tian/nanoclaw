@@ -26,6 +26,7 @@ import { fileURLToPath } from 'url';
 import { runCliQuery } from './cli-runner.js';
 import { runCodexQuery } from './codex-runner.js';
 import { runCodexAsQuery } from './codex-as-runner.js';
+import { shouldRetireCodex } from './codex-account-boundary.js';
 import { CodexAsInbox, type CodexAsInput } from './codex-as-inbox.js';
 import { isNoOpResult } from './noop-result.js';
 import { runGeminiQuery } from './gemini-runner.js';
@@ -592,10 +593,10 @@ function drainIpcInput(): IpcMessage[] {
 /**
  * Wait for a new IPC message or _close sentinel.
  */
-function waitForIpcMessage(): Promise<IpcMessage | null> {
+function waitForIpcMessage(shouldEnd = shouldClose): Promise<IpcMessage | null> {
   return new Promise((resolve) => {
     const poll = () => {
-      if (shouldClose()) {
+      if (shouldEnd()) {
         resolve(null);
         return;
       }
@@ -1608,6 +1609,10 @@ async function main(): Promise<void> {
   fs.mkdirSync(PATHS.ipcInput, { recursive: true });
   const cliMode = containerInput.cliMode || 'sdk';
 
+  if (cliMode === 'codex' || cliMode === 'codex-as') {
+    try { fs.unlinkSync(path.join(PATHS.ipcInput, '_retire')); } catch { /* 无旧切号信号 */ }
+  }
+
   // Clean up stale _close sentinel from previous container runs
   try {
     fs.unlinkSync(PATHS.ipcClose);
@@ -1900,8 +1905,8 @@ async function main(): Promise<void> {
         }
         if ('failed' in cxResult && cxResult.failed) break;
 
-        if (shouldClose()) {
-          log('[codex-mode] Close sentinel detected, exiting');
+        if (shouldClose() || shouldRetireCodex(PATHS.ipcInput)) {
+          log('[codex-mode] Close or account retirement detected, exiting');
           break;
         }
 
@@ -1909,14 +1914,14 @@ async function main(): Promise<void> {
         let nextMessage: IpcMessage | null;
         if (asInbox) {
           let claimed: CodexAsInput | null = null;
-          while (!shouldClose() && !claimed) {
+          while (!shouldClose() && !shouldRetireCodex(PATHS.ipcInput) && !claimed) {
             claimed = asInbox.claim(true);
             if (!claimed) await new Promise(resolve => setTimeout(resolve, IPC_POLL_MS));
           }
           asInitialInput = claimed ?? undefined;
           nextMessage = claimed as IpcMessage | null;
         } else {
-          nextMessage = await waitForIpcMessage();
+          nextMessage = await waitForIpcMessage(() => shouldClose() || shouldRetireCodex(PATHS.ipcInput));
         }
         if (nextMessage === null) {
           log('[codex-mode] Close sentinel received, exiting');

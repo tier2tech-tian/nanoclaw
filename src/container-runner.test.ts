@@ -7,6 +7,15 @@ import path from 'path';
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 
+const accountMocks = vi.hoisted(() => ({
+  find: vi.fn((name: string) => ({ name, authFile: `/isolated/${name}.json` })),
+  prepare: vi.fn(() => null),
+}));
+vi.mock('./codex-accounts.js', () => ({
+  findCodexAccount: accountMocks.find,
+  prepareCodexAccount: accountMocks.prepare,
+}));
+
 // Mock config
 vi.mock('./config.js', () => ({
   DATA_DIR: '/tmp/nanoclaw-test-data',
@@ -212,6 +221,36 @@ describe('agent spawn and timeout', () => {
   afterEach(() => {
     vi.useRealTimers();
   });
+
+  it.each(['codex', 'codex-as'] as const)(
+    '%s启动读取已选账号，保留原session',
+    async (mode) => {
+      accountMocks.prepare.mockClear();
+      const promise = runContainerAgent(
+        {
+          ...testGroup,
+          containerConfig: { cliMode: mode, codexAccount: 'backup' },
+        },
+        { ...testInput, cliMode: mode, sessionId: 'existing-thread' },
+        () => {},
+      );
+      await vi.advanceTimersByTimeAsync(10);
+      expect(accountMocks.find).toHaveBeenCalledWith('backup');
+      expect(accountMocks.prepare).toHaveBeenCalledWith(
+        path.join('/tmp/nanoclaw-test-groups', testGroup.folder, '.codex-home'),
+        { name: 'backup', authFile: '/isolated/backup.json' },
+        true,
+      );
+      emitOutputMarker(fakeProc, {
+        status: 'success',
+        result: 'done',
+        newSessionId: 'existing-thread',
+      });
+      fakeProc.emit('close', 0);
+      await vi.advanceTimersByTimeAsync(100);
+      expect((await promise).newSessionId).toBe('existing-thread');
+    },
+  );
 
   it.each(['progress', 'success', 'next-progress'] as const)(
     'codex-as close 实际管线：%s',

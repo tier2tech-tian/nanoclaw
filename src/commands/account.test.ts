@@ -3,6 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockExecSync = vi.fn();
 const mockSetRotateIndex = vi.fn();
 const mockSetLastRotateAt = vi.fn();
+const mockCodexAccountHandler = vi.fn();
+const mockCodexUsageHandler = vi.fn();
+vi.mock('./codex-account.js', () => ({
+  handleCodexAccount: (...args: unknown[]) => mockCodexAccountHandler(...args),
+  handleCodexUsage: (...args: unknown[]) => mockCodexUsageHandler(...args),
+}));
 
 vi.mock('child_process', () => ({
   execSync: (...args: unknown[]) => mockExecSync(...args),
@@ -65,10 +71,25 @@ function makeDeps() {
 }
 
 describe('/account', () => {
+  it.each(['codex', 'codex-as'])(
+    '%s账号和配额命令不进入Claude凭据路径',
+    async (mode) => {
+      const { dispatch } = await loadAccountCommand();
+      const deps = makeDeps();
+      deps.group.containerConfig.cliMode = mode;
+      await dispatch('/account backup', deps);
+      expect(mockCodexAccountHandler).toHaveBeenCalled();
+      await dispatch('/usage all', deps);
+      expect(mockCodexUsageHandler).toHaveBeenCalled();
+      expect(mockExecSync).not.toHaveBeenCalled();
+    },
+  );
   beforeEach(() => {
     mockExecSync.mockReset();
     mockSetRotateIndex.mockReset();
     mockSetLastRotateAt.mockReset();
+    mockCodexAccountHandler.mockReset();
+    mockCodexUsageHandler.mockReset();
   });
 
   it('Claude 系模式切换账号时过滤 openai secret，避免 /account tian 命中 codex-tian', async () => {

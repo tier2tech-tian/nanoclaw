@@ -41,6 +41,8 @@ export interface ContainerConfig {
   timeout?: number; // Default: 300000 (5 minutes)
   /** CLI 执行模式：sdk（默认）| print（--print spawn）| interactive（tmux + tap proxy）| codex | gemini */
   cliMode?: CliMode;
+  /** Codex账号名称；缺省沿用系统账号，独立于Claude的OneCLI绑定。 */
+  codexAccount?: string;
   /** @deprecated 使用 cliMode: 'print' 替代。向后兼容：useCliMode: true 等同于 cliMode: 'print' */
   useCliMode?: boolean;
   /** 安静模式：LLM 中间文字（💬）进进度卡片而非独立发消息 */

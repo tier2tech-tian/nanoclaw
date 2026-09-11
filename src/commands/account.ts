@@ -7,7 +7,7 @@ import {
   setRotateIndex,
 } from '../db.js';
 import { registerCommand } from './registry.js';
-import { CLAUDE_MODES } from '../cli-mode.js';
+import { CLAUDE_MODES, CODEX_MODES, resolveCliMode } from '../cli-mode.js';
 import { parseOneCLIList } from '../onecli-util.js';
 
 type OneCliSecret = { id: string; name: string; type?: string };
@@ -30,19 +30,25 @@ function findSecretByNameOrId(
 // /account — 列出/切换 Anthropic 账号（仅 Claude 系模式）
 registerCommand({
   name: '/account',
-  description: '列出或切换 Anthropic 账号',
+  description: '列出或切换当前模式的账号',
   hasArgs: true,
   order: 30,
-  modes: CLAUDE_MODES,
+  modes: [...CLAUDE_MODES, ...CODEX_MODES],
   subcommands: [
     { usage: '/account', description: '列出所有账号及当前绑定' },
     { usage: '/account <name>', description: '切换到指定账号' },
     {
       usage: '/account auto on|off',
       description: '开关自动轮换（429 时自动切换）',
+      modes: CLAUDE_MODES,
     },
   ],
   handler: async (ctx) => {
+    if (CODEX_MODES.includes(resolveCliMode(ctx.group?.containerConfig))) {
+      const { handleCodexAccount } = await import('./codex-account.js');
+      await handleCodexAccount(ctx);
+      return;
+    }
     const { args, chatJid, channel, group, queue, registeredGroups } = ctx;
     logger.info({ chatJid, arg: args }, '/account 命令匹配');
 
@@ -219,15 +225,14 @@ registerCommand({
   hasArgs: true,
   order: 31,
   // gemini 模式暂不支持配额查询，先隐藏；codex 走 codex 配额，Claude 走 Anthropic OAuth
-  modes: [...CLAUDE_MODES, 'codex', 'codex-as'],
+  modes: [...CLAUDE_MODES, ...CODEX_MODES],
   subcommands: [
     { usage: '/usage', description: '查当前账号配额' },
-    // all / <name> / delete 是 Anthropic OAuth 专属，codex 模式不显示
-    { usage: '/usage all', description: '查所有账号配额', modes: CLAUDE_MODES },
+    // 只保留delete为Claude专属；Codex的all/名称查询由独立分支处理。
+    { usage: '/usage all', description: '查所有账号配额' },
     {
       usage: '/usage <name>',
       description: '查指定账号配额',
-      modes: CLAUDE_MODES,
     },
     {
       usage: '/usage delete <name>',
@@ -237,6 +242,11 @@ registerCommand({
   ],
   handler: async (ctx) => {
     const { args, chatJid, channel, registeredGroups, group } = ctx;
+    if (CODEX_MODES.includes(resolveCliMode(group?.containerConfig))) {
+      const { handleCodexUsage } = await import('./codex-account.js');
+      await handleCodexUsage(ctx);
+      return;
+    }
     // 动态 import 避免循环依赖
     const {
       formatUsage,
@@ -245,23 +255,6 @@ registerCommand({
       getUsageAll,
       getUsageForSecret,
     } = await import('../usage-api.js');
-
-    // codex 模式群:无参数 /usage 走 codex 配额(读最近 rollout 的 rate_limits)。
-    // 带参数(all / <name> / delete)仍走 Claude OAuth 路径,保持原行为。
-    if (!args && group) {
-      const { resolveCliMode } = await import('../cli-mode.js');
-      if (
-        ['codex', 'codex-as'].includes(resolveCliMode(group.containerConfig))
-      ) {
-        const { getCodexUsage, formatCodexUsage } =
-          await import('../codex-usage.js');
-        await channel.sendMessage(
-          chatJid,
-          formatCodexUsage(getCodexUsage(group)),
-        );
-        return;
-      }
-    }
 
     if (args?.startsWith('delete ')) {
       const name = args.slice('delete '.length).trim();

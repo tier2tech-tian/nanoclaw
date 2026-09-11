@@ -82,6 +82,22 @@ function writeRollout(
 }
 
 describe('findLatestCodexRollout', () => {
+  it('切号后拒绝旧账号快照，只读取切号后的配额事件', () => {
+    const file = writeRollout(
+      path.join(tmpRoot, '.codex-home'),
+      '2026/06/04',
+      'rollout-same-thread.jsonl',
+      [tokenCountLine(95, 90)],
+    );
+    const after = Date.parse('2026-06-04T22:41:00Z');
+    expect(extractCodexRateLimits(file, after)).toBeNull();
+    const fresh = JSON.parse(tokenCountLine(12, 8));
+    fresh.timestamp = '2026-06-04T22:42:00Z';
+    fs.appendFileSync(file, JSON.stringify(fresh) + '\n');
+    expect(
+      extractCodexRateLimits(file, after)?.rateLimits.primary?.used_percent,
+    ).toBe(12);
+  });
   it('sessions 目录不存在时返回 null', () => {
     expect(findLatestCodexRollout(path.join(tmpRoot, 'nope'))).toBeNull();
   });
@@ -169,6 +185,18 @@ describe('extractCodexRateLimits', () => {
 });
 
 describe('codexToRateLimits', () => {
+  it('缺失或非法百分比不伪装为零使用率', () => {
+    expect(codexToRateLimits({ primary: {} })).toBeNull();
+    expect(codexToRateLimits({ primary: { used_percent: NaN } })).toBeNull();
+    expect(codexToRateLimits({ secondary: { used_percent: 20 } })).toBeNull();
+    expect(
+      codexToRateLimits({ primary: { used_percent: 0 }, secondary: {} })
+        ?.weeklyPercent,
+    ).toBeUndefined();
+    expect(
+      codexToRateLimits({ primary: { used_percent: 0 } })?.fiveHourPercent,
+    ).toBe(0);
+  });
   it('primary→5h, secondary→7d, 百分比取整并 clamp', () => {
     const rl = codexToRateLimits({
       primary: { used_percent: 100, resets_at: 1780588999 },
