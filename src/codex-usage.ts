@@ -31,6 +31,7 @@ export interface CodexUsageResult {
   rateLimits: RateLimits | null;
   planType?: string | null;
   error?: 'no_session' | 'no_data';
+  observedAt?: string;
 }
 
 // codex sessions 固定 年/月/日/文件 4 层,留余量防异常深层嵌套导致栈溢出
@@ -92,7 +93,12 @@ function toPercent(v: number | undefined): number {
  */
 export function extractCodexRateLimits(
   rolloutPath: string,
-): { rateLimits: CodexRateLimits; planType: string | null } | null {
+  after?: number,
+): {
+  rateLimits: CodexRateLimits;
+  planType: string | null;
+  observedAt?: string;
+} | null {
   let content: string;
   try {
     content = fs.readFileSync(rolloutPath, 'utf-8');
@@ -101,6 +107,7 @@ export function extractCodexRateLimits(
   }
   const lines = content.split('\n');
   let found: CodexRateLimits | null = null;
+  let observedAt: string | undefined;
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed || !trimmed.includes('rate_limits')) continue;
@@ -108,14 +115,24 @@ export function extractCodexRateLimits(
       const obj = JSON.parse(trimmed);
       const payload = obj?.payload;
       if (payload?.type === 'token_count' && payload.rate_limits) {
+        const timestamp =
+          typeof obj.timestamp === 'string' ? Date.parse(obj.timestamp) : NaN;
+        if (
+          after !== undefined &&
+          (!Number.isFinite(timestamp) || timestamp <= after)
+        )
+          continue;
         found = payload.rate_limits as CodexRateLimits;
+        observedAt = Number.isFinite(timestamp)
+          ? new Date(timestamp).toISOString()
+          : undefined;
       }
     } catch {
       // 跳过畸形行
     }
   }
   if (!found) return null;
-  return { rateLimits: found, planType: found.plan_type ?? null };
+  return { rateLimits: found, planType: found.plan_type ?? null, observedAt };
 }
 
 /** 把 codex rate_limits 转成通用 RateLimits 形状(primary→5h, secondary→7d) */
@@ -145,7 +162,10 @@ function sanitizePlanType(plan: string | null): string | null {
  * 主入口:给定 codex 模式群,读最近 rollout 返回配额。
  * 调用方负责确认 group 已是 codex 模式(本函数不再校验 cliMode,避免耦合 container-runner)。
  */
-export function getCodexUsage(group: RegisteredGroup): CodexUsageResult {
+export function getCodexUsage(
+  group: RegisteredGroup,
+  after?: number,
+): CodexUsageResult {
   const codexHome = path.join(
     resolveGroupFolderPath(group.folder),
     '.codex-home',
@@ -154,7 +174,7 @@ export function getCodexUsage(group: RegisteredGroup): CodexUsageResult {
   if (!rollout) {
     return { rateLimits: null, error: 'no_session' };
   }
-  const extracted = extractCodexRateLimits(rollout);
+  const extracted = extractCodexRateLimits(rollout, after);
   if (!extracted) {
     return { rateLimits: null, error: 'no_data' };
   }
@@ -167,7 +187,7 @@ export function getCodexUsage(group: RegisteredGroup): CodexUsageResult {
     { group: group.folder, rollout: path.basename(rollout), plan: planType },
     'codex usage 读取成功',
   );
-  return { rateLimits, planType };
+  return { rateLimits, planType, observedAt: extracted.observedAt };
 }
 
 /** 格式化 codex 配额输出(复用 Claude usage 的进度条/重置时间样式) */

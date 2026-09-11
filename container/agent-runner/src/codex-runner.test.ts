@@ -19,6 +19,20 @@ import {
 } from './codex-runner.js';
 
 describe('群级上下文持久配置', () => {
+  it('受管账号强制文件凭据，重建配置不改授权软链或抄入密钥', () => {
+    const root=fs.mkdtempSync(path.join(os.tmpdir(),'codex-file-account-'));
+    try {
+      const home=path.join(root,'group');fs.mkdirSync(home);
+      const auth=path.join(root,'account.json');fs.writeFileSync(auth,'fake-secret');
+      fs.symlinkSync(auth,path.join(home,'auth.json'));
+      fs.writeFileSync(path.join(home,'account-binding.json'),'{}');
+      prepareCodexHome(home,root,'[mcp_servers.nine]\ncommand="node"\n',()=>{});
+      expect(fs.readlinkSync(path.join(home,'auth.json'))).toBe(auth);
+      const config=fs.readFileSync(path.join(home,'config.toml'),'utf8');
+      expect(config).toContain('cli_auth_credentials_store = "file"');
+      expect(config).not.toContain('fake-secret');
+    }finally{fs.rmSync(root,{recursive:true,force:true});}
+  });
   it('每次重建 MCP 配置都保留窗口设置，未配置的群不变', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-window-'));
     try {

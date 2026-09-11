@@ -4,6 +4,7 @@
  */
 import { ChildProcess, execFileSync, execSync, spawn } from 'child_process';
 import { CodexAsTerminal } from './codex-as-terminal.js';
+import { findCodexAccount, prepareCodexAccount } from './codex-accounts.js';
 import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -811,6 +812,14 @@ export async function runContainerAgent(
   onOutput?: (output: ContainerOutput) => Promise<void>,
 ): Promise<ContainerOutput> {
   const startTime = Date.now();
+  const codexMode = ['codex', 'codex-as'].includes(
+    input.cliMode ?? resolveCliMode(group.containerConfig),
+  );
+  // 固定本次启动所选账号，后续命令不能改变正在启动中的身份。
+  const codexAccountName = group.containerConfig?.codexAccount;
+  const codexAccount = codexMode
+    ? findCodexAccount(codexAccountName ?? 'system')
+    : null;
   const asTerminal =
     input.cliMode === 'codex-as' ? new CodexAsTerminal() : undefined;
   const isMain = input.isMain;
@@ -842,6 +851,19 @@ export async function runContainerAgent(
 
   // 构建环境变量
   const localEnv = await buildLocalEnv(input, groupSessionsDir);
+
+  if (codexAccount) {
+    const binding = prepareCodexAccount(
+      path.join(groupDir, '.codex-home'),
+      codexAccount,
+      codexAccountName !== undefined,
+    );
+    if (binding)
+      logger.info(
+        { group: group.folder, account: binding.name },
+        'Codex账号启动绑定已生效',
+      );
+  }
 
   // agent-runner 需要知道自己的安装目录来定位 CLI
   localEnv.AGENT_RUNNER_DIR = path.join(

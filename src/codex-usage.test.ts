@@ -82,6 +82,22 @@ function writeRollout(
 }
 
 describe('findLatestCodexRollout', () => {
+  it('切号后拒绝旧账号快照，只读取切号后的配额事件', () => {
+    const file = writeRollout(
+      path.join(tmpRoot, '.codex-home'),
+      '2026/06/04',
+      'rollout-same-thread.jsonl',
+      [tokenCountLine(95, 90)],
+    );
+    const after = Date.parse('2026-06-04T22:41:00Z');
+    expect(extractCodexRateLimits(file, after)).toBeNull();
+    const fresh = JSON.parse(tokenCountLine(12, 8));
+    fresh.timestamp = '2026-06-04T22:42:00Z';
+    fs.appendFileSync(file, JSON.stringify(fresh) + '\n');
+    expect(
+      extractCodexRateLimits(file, after)?.rateLimits.primary?.used_percent,
+    ).toBe(12);
+  });
   it('sessions 目录不存在时返回 null', () => {
     expect(findLatestCodexRollout(path.join(tmpRoot, 'nope'))).toBeNull();
   });

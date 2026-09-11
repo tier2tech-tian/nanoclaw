@@ -35,6 +35,49 @@ describe('GroupQueue', () => {
     vi.useRealTimers();
   });
 
+  it('切号排水不打断当前工作，新消息排队，空闲后才关闭旧runner', async () => {
+    const fs = (await import('fs')).default;
+    vi.mocked(fs.writeFileSync).mockClear();
+    let finish!: () => void;
+    const processMessages = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            finish = () => resolve(true);
+          }),
+      )
+      .mockResolvedValue(true);
+    queue.setProcessMessagesFn(processMessages);
+    queue.enqueueMessageCheck('account-group');
+    await vi.advanceTimersByTimeAsync(1);
+    queue.registerProcess(
+      'account-group',
+      { pid: undefined } as ChildProcess,
+      'old',
+      'account-folder',
+    );
+    expect(queue.retireAfterTurn('account-group')).toBe(true);
+    expect(
+      vi
+        .mocked(fs.writeFileSync)
+        .mock.calls.some((call) => String(call[0]).endsWith('_close')),
+    ).toBe(false);
+    expect(queue.sendMessage('account-group', 'next')).toBe(false);
+    expect(queue.canAcceptNewTask('account-group')).toBe(false);
+    queue.enqueueMessageCheck('account-group');
+    queue.notifyIdle('account-group');
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('_retire'),
+      '',
+    );
+    finish();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(processMessages).toHaveBeenCalledTimes(2);
+    expect(queue.canAcceptNewTask('account-group')).toBe(true);
+    vi.mocked(fs.writeFileSync).mockClear();
+  });
+
   // --- Single group at a time ---
 
   it('only runs one container per group at a time', async () => {

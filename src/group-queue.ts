@@ -23,6 +23,7 @@ interface GroupState {
   isTaskContainer: boolean;
   runningTaskId: string | null;
   stopRequested: boolean;
+  retireRequested: boolean;
   pendingMessages: boolean;
   pendingTasks: QueuedTask[];
   process: ChildProcess | null;
@@ -48,6 +49,7 @@ export class GroupQueue {
         isTaskContainer: false,
         runningTaskId: null,
         stopRequested: false,
+        retireRequested: false,
         pendingMessages: false,
         pendingTasks: [],
         process: null,
@@ -119,7 +121,7 @@ export class GroupQueue {
 
     if (state.active) {
       state.pendingTasks.push({ id: taskId, groupJid, fn });
-      if (state.idleWaiting) {
+      if (state.idleWaiting && !state.retireRequested) {
         this.closeStdin(groupJid);
       }
       logger.debug({ groupJid, taskId }, 'Container active, task queued');
@@ -171,7 +173,12 @@ export class GroupQueue {
    */
   isActive(groupJid: string): boolean {
     const state = this.groups.get(groupJid);
-    return !!state?.active && !!state?.groupFolder && !state?.isTaskContainer;
+    return (
+      !!state?.active &&
+      !!state?.groupFolder &&
+      !state?.isTaskContainer &&
+      !state.retireRequested
+    );
   }
 
   /**
@@ -182,7 +189,34 @@ export class GroupQueue {
   canAcceptNewTask(groupJid: string): boolean {
     const state = this.groups.get(groupJid);
     if (!state?.active) return true;
-    return state.idleWaiting && !state.isTaskContainer;
+    return (
+      state.idleWaiting && !state.isTaskContainer && !state.retireRequested
+    );
+  }
+
+  /** 切号只让旧runner在当前轮结束后退出，后续消息仍由原队列保留。 */
+  retireAfterTurn(groupJid: string): boolean {
+    const state = this.getGroup(groupJid);
+    if (!state.active) return false;
+    state.retireRequested = true;
+    this.signalRetirement(groupJid);
+    logger.info({ groupJid }, '账号切换已排队，等待旧runner结束当前轮');
+    return true;
+  }
+
+  private signalRetirement(groupJid: string): void {
+    const state = this.getGroup(groupJid);
+    if (!state.active || !state.groupFolder) return;
+    try {
+      const dir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, '_retire'), '');
+    } catch (error) {
+      logger.warn(
+        { groupJid, errorType: (error as Error).name },
+        'Codex退出信号写入失败，保留待切换状态',
+      );
+    }
   }
 
   /**
@@ -263,7 +297,9 @@ export class GroupQueue {
   notifyIdle(groupJid: string): void {
     const state = this.getGroup(groupJid);
     state.idleWaiting = true;
-    if (state.pendingTasks.length > 0) {
+    if (state.retireRequested) {
+      this.signalRetirement(groupJid);
+    } else if (state.pendingTasks.length > 0) {
       this.closeStdin(groupJid);
     }
   }
@@ -282,7 +318,12 @@ export class GroupQueue {
     messageCount = 1,
   ): boolean {
     const state = this.getGroup(groupJid);
-    if (!state.active || !state.groupFolder || state.isTaskContainer) {
+    if (
+      !state.active ||
+      !state.groupFolder ||
+      state.isTaskContainer ||
+      state.retireRequested
+    ) {
       logger.info(
         {
           groupJid,
@@ -386,6 +427,7 @@ export class GroupQueue {
       if (state.groupFolder) clearContextHash(state.groupFolder);
       state.active = false;
       state.stopRequested = false;
+      state.retireRequested = false;
       state.process = null;
       state.containerName = null;
       state.groupFolder = null;
@@ -417,6 +459,7 @@ export class GroupQueue {
       state.isTaskContainer = false;
       state.runningTaskId = null;
       state.stopRequested = false;
+      state.retireRequested = false;
       state.process = null;
       state.containerName = null;
       state.groupFolder = null;
