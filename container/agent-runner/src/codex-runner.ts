@@ -722,6 +722,9 @@ export function prepareCodexHome(
   // 软链宿主 auth.json（ChatGPT 登录态）。已存在则跳过
   const srcAuth = path.join(homeDir, '.codex', 'auth.json');
   const dstAuth = path.join(codexHome, 'auth.json');
+  if (fs.existsSync(path.join(codexHome, 'account-binding.json')) && !fs.existsSync(dstAuth)) {
+    throw new Error('受管Codex账号授权文件不可用，不会回退系统账号');
+  }
   if (!fs.existsSync(dstAuth)) {
     if (fs.existsSync(srcAuth)) {
       try {

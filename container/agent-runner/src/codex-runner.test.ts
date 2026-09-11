@@ -19,6 +19,17 @@ import {
 } from './codex-runner.js';
 
 describe('群级上下文持久配置', () => {
+  it('受管账号授权在启动前失效时拒绝降级到宿主系统账号', () => {
+    const root=fs.mkdtempSync(path.join(os.tmpdir(),'codex-missing-managed-'));
+    try {
+      const home=path.join(root,'group');fs.mkdirSync(home);
+      fs.mkdirSync(path.join(root,'.codex'));
+      fs.writeFileSync(path.join(root,'.codex/auth.json'),'system-secret');
+      fs.writeFileSync(path.join(home,'account-binding.json'),'{}');
+      expect(()=>prepareCodexHome(home,root,'',()=>{})).toThrow('不会回退系统账号');
+      expect(fs.existsSync(path.join(home,'auth.json'))).toBe(false);
+    }finally{fs.rmSync(root,{recursive:true,force:true});}
+  });
   it('受管账号强制文件凭据，重建配置不改授权软链或抄入密钥', () => {
     const root=fs.mkdtempSync(path.join(os.tmpdir(),'codex-file-account-'));
     try {
