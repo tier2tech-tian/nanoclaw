@@ -1,6 +1,6 @@
 ---
 name: html-report
-description: 将内容生成精美 HTML 页面并上传到报告服务器，返回可直接访问的 URL。当用户说"生成 HTML"、"做个网页"、"发 URL 给我"、"生成报告页面"时触发。
+description: "将报告制作成HTML并发布到报告服务器，返回访问链接。"
 ---
 
 # HTML 报告生成与发布

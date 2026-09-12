@@ -1,6 +1,6 @@
 ---
 name: status
-description: Quick read-only health check — session context, workspace mounts, tool availability, and task snapshot. Use when the user asks for system status or runs /status.
+description: "查询当前会话、挂载、工具和任务状态，不修改系统。"
 ---
 
 # /status — System Status Check
