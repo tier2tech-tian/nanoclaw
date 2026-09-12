@@ -1,6 +1,6 @@
 ---
 name: wiki
-description: 全局共享 Wiki 知识库维护。Ingest 资料、Query 查询、Lint 健康检查。
+description: "查询、整理或检查团队Wiki知识库。"
 ---
 
 # Wiki 知识库

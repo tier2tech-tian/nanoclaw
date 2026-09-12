@@ -1,6 +1,6 @@
 ---
 name: search-chat
-description: 搜索聊天历史记录。当用户要求搜索聊天记录、查找对话、回顾历史消息时使用。
+description: "查找NanoClaw保存的聊天历史与指定消息上下文。"
 ---
 
 # Search Chat Skill

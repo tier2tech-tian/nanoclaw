@@ -1,6 +1,6 @@
 ---
 name: wait-what
-description: "Stop. That last message did not land: re-pitch it."
+description: "用户指出上一条没讲清时，重新组织并解释答案。"
 disable-model-invocation: true
 ---
 

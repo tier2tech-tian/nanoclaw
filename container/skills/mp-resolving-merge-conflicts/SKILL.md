@@ -1,6 +1,6 @@
 ---
 name: resolving-merge-conflicts
-description: "Use when you need to resolve an in-progress git merge/rebase conflict."
+description: "处理正在进行的Git merge或rebase冲突。"
 ---
 
 1. **See the current state** of the merge/rebase. Check git history, and the conflicting files.

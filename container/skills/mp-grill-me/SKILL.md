@@ -1,6 +1,6 @@
 ---
 name: grill-me
-description: A relentless interview to sharpen a plan or design.
+description: "通过追问明确一个方案或设计。"
 disable-model-invocation: true
 ---
 

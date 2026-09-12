@@ -1,6 +1,6 @@
 ---
 name: nine-observability
-description: Nine 平台线上问题排查 & 查日志（GlitchTip→Jaeger→Loki 5 步法）。触发：用户说"查日志"、"看日志"、"拉日志"、"Loki"、"Jaeger"、"GlitchTip"；描述 Nine 报错/超时/500/502/异常；提到 trace_id / span_id / GlitchTip issue ID (AGENT-*/GO-API-*)；涉及生产机 10.117.0.159 或测试机 10.117.5.134；提到 Grafana / OTEL / Sentry / knowledge.search 超时 / Qdrant 检索失败 / LLM 调用失败 / SSE 断开。
+description: "排查Nine线上错误、延迟或断流，关联异常、追踪和日志。"
 ---
 
 # Nine 线上问题排查 Skill

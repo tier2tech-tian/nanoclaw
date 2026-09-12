@@ -1,6 +1,6 @@
 ---
 name: systematic-debugging
-description: 遇到 bug、报错、异常行为时必须走此流程。先收集证据再下结论，禁止瞎猜。触发词：定位问题、定位一下、定位清楚、查 bug、排查、为什么报错。
+description: "排查故障或异常，收集证据、建立复现并验证根因。"
 codex-shared: true
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: improve-codebase-architecture
-description: Scan a codebase for deepening opportunities, present them as a visual HTML report, then grill through whichever one you pick.
+description: "寻找代码模块的职责与封装改进点，并评审候选方案。"
 disable-model-invocation: true
 ---
 

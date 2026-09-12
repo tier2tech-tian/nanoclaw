@@ -1,6 +1,6 @@
 ---
 name: diagnosing-bugs
-description: Diagnosis loop for hard bugs and performance regressions. Use when the user says "diagnose"/"debug this", or reports something broken/throwing/failing/slow.
+description: "为难复现故障或性能回退建立可重复验证循环。"
 ---
 
 # Diagnosing Bugs

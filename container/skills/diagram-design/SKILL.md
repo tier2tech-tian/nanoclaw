@@ -1,6 +1,6 @@
 ---
 name: diagram-design
-description: Create technical and product diagrams — architecture, flowchart, sequence, state machine, ER / data model, timeline, swimlane, quadrant, nested, tree, org chart, layer stack, venn, pyramid — as standalone HTML files with inline SVG. Ships with a neutral editorial skin and a first-run gate that prompts users to customize the style guide (colors, fonts) from their own website before generating. Includes annotation-callout primitive and optional sketchy variant.
+description: "制作架构、流程、时序或数据关系图，输出独立HTML图稿。"
 license: MIT
 metadata:
   version: "1.0"
