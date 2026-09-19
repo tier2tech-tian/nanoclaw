@@ -100,12 +100,20 @@ server.tool(
 
 server.tool(
   'delegate',
-  '派活给指定群，区别于 send_message：delegate 是带账本的"派工"语义，host 会落账本生成 task_id 并注入消息投递给目标群，之后可用 /delegate status 跟踪进度。task_id 完全由 host 生成管理，你不需要也不能自带。任意已注册群都可派给其他已注册群，但不能派给自己。',
+  '派活给指定群，区别于 send_message：delegate 是带账本的"派工"语义，host 会落账本生成 task_id 并注入消息投递给目标群，之后可用 /delegate status 跟踪进度。新建任务不传 task_id，由 host 生成；续投同一任务必须带已有 task_id，不要重复新建。工具等待发送并入库的真实回执，不代表子群已开始执行。任意已注册群都可派给其他已注册群，但不能派给自己。',
   {
     target: z
       .string()
       .describe('目标子群的别名或 JID，如 "3号" 或 "fs:oc_xxx"'),
-    text: z.string().describe('派给子群的任务内容/指令'),
+    text: z.string().trim().min(1).describe('派给子群的任务内容/指令'),
+    task_id: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe(
+        '续投已有任务时填写；只允许发起群或主群续投进行中/等待答复的任务',
+      ),
     title: z
       .string()
       .optional()
@@ -116,8 +124,11 @@ server.tool(
     const normalizedTarget = rawTarget.startsWith('oc_')
       ? `fs:${rawTarget}`
       : rawTarget;
+    const requestId = crypto.randomUUID();
     writeIpcFile(MESSAGES_DIR, {
       type: 'delegate',
+      requestId,
+      task_id: args.task_id,
       // 源群 folder，host 据此写入 task.source_group。
       sourceGroup: groupFolder,
       target: normalizedTarget,
@@ -125,14 +136,29 @@ server.tool(
       title: args.title || undefined,
       timestamp: new Date().toISOString(),
     });
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: `已派工给 ${normalizedTarget}，host 落账本后投递。用 /delegate status 跟踪进度。`,
-        },
-      ],
-    };
+    try {
+      const result = z
+        .object({
+          ok: z.boolean(),
+          message: z.string(),
+          taskId: z.string().optional(),
+        })
+        .parse(await waitForResponse(requestId));
+      return {
+        content: [{ type: 'text' as const, text: result.message }],
+        isError: !result.ok,
+      };
+    } catch {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `尚未确认派工结果（请求 ${requestId}）；请用 /delegate status 核对，勿直接重派。`,
+          },
+        ],
+        isError: true,
+      };
+    }
   },
 );
 

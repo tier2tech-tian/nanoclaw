@@ -25,6 +25,8 @@ import {
   getActiveDelegationByGroup,
   getAliasByJid,
   getGroupAlias,
+  getDelegation,
+  replyDelegation,
   getMessageContext,
   getMessageContextById,
   getMessageRange,
@@ -404,8 +406,8 @@ export function startIpcWatcher(deps: IpcDeps): void {
               }
 
               // --- Commander：派工 delegate（已注册群可发起，host 侧校验 source/target）---
-              if (data.type === 'delegate' && data.target && data.text) {
-                await handleDelegate(data, sourceGroup, registeredGroups, deps);
+              if (data.type === 'delegate') {
+                await handleDelegateRequest(data, sourceGroup, registeredGroups, deps);
               }
 
               // --- Commander：汇报 report（目标群回任务发起群）---
@@ -516,24 +518,83 @@ function findJidByFolder(
  * 先校验 source/target + 一目标群一在办任务约束 → 落账本拿 task_id → host 注入
  * [task_id:xxx] 前缀 → 复用跨群投递 → 回写 dispatch_msg_id。
  */
-async function handleDelegate(
-  data: {
-    target?: string;
-    text?: string;
-    title?: string;
-  },
+interface DelegateRequest {
+  target?: string;
+  text?: string;
+  title?: string;
+  task_id?: string;
+  requestId?: string;
+}
+
+interface DelegateResult {
+  ok: boolean;
+  message: string;
+  taskId?: string;
+}
+
+/** 将后台投递结果写回工具，旧客户端仍可通过群消息获取结果。 */
+async function handleDelegateRequest(
+  data: DelegateRequest,
   sourceGroup: string,
   registeredGroups: Record<string, RegisteredGroup>,
   deps: IpcDeps,
-): Promise<void> {
+): Promise<DelegateResult> {
+  if (
+    data.requestId !== undefined &&
+    (typeof data.requestId !== 'string' ||
+      !/^[a-zA-Z0-9_-]{1,128}$/.test(data.requestId))
+  ) {
+    return { ok: false, message: '派工失败：requestId 格式无效。' };
+  }
+  let result: DelegateResult;
+  try {
+    result = await handleDelegate(data, sourceGroup, registeredGroups, deps);
+  } catch (err) {
+    logger.error({ err, sourceGroup }, 'delegate 处理异常，投递结果待核对');
+    result = {
+      ok: false,
+      message:
+        '派工处理异常，投递结果未确认；请用 /delegate status 核对，勿直接重派。',
+    };
+  }
+  if (data.requestId) writeIpcResponse(sourceGroup, data.requestId, result);
+  return result;
+}
+
+async function handleDelegate(
+  data: DelegateRequest,
+  sourceGroup: string,
+  registeredGroups: Record<string, RegisteredGroup>,
+  deps: IpcDeps,
+): Promise<DelegateResult> {
   const sourceJid = findJidByFolder(registeredGroups, sourceGroup);
   if (!sourceJid) {
     logger.warn({ sourceGroup }, 'delegate source group not registered');
-    return;
+    return { ok: false, message: '派工失败：源群未注册。' };
   }
   const notifySource = async (text: string) => {
-    await deps.sendMessage(sourceJid, text);
+    await deps.sendMessage(sourceJid, text).catch((err) => {
+      logger.warn({ err, sourceGroup }, '派工结果源群通知失败');
+    });
   };
+
+  const reject = async (
+    message: string,
+    taskId?: string,
+  ): Promise<DelegateResult> => {
+    await notifySource(message);
+    return { ok: false, message, taskId };
+  };
+  if (
+    typeof data.target !== 'string' ||
+    !data.target.trim() ||
+    typeof data.text !== 'string' ||
+    !data.text.trim() ||
+    (data.task_id !== undefined &&
+      (typeof data.task_id !== 'string' || !data.task_id.trim()))
+  ) {
+    return reject('派工失败：target、text 和续投 task_id 必须为非空字符串。');
+  }
 
   // 解析目标群别名 → jid
   const rawTarget = String(data.target);
@@ -545,8 +606,7 @@ async function handleDelegate(
       { rawTarget, targetJid, sourceGroup },
       'delegate target group not registered',
     );
-    await notifySource(`派工失败：目标群 ${rawTarget} 未注册。`);
-    return;
+    return reject(`派工失败：目标群 ${rawTarget} 未注册。`);
   }
   const targetFolder = targetGroup.folder;
   if (targetFolder === sourceGroup) {
@@ -554,32 +614,51 @@ async function handleDelegate(
       { rawTarget, sourceGroup },
       'delegate self-delegation rejected',
     );
-    await notifySource(`派工失败：不能给自己派工。`);
-    return;
+    return reject(`派工失败：不能给自己派工。`);
   }
 
-  // 一群一在办任务约束
-  const active = getActiveDelegationByGroup(targetFolder);
-  if (active) {
-    logger.warn(
-      { targetFolder, activeTaskId: active.taskId },
-      'delegate rejected: target group has an in-flight task',
-    );
-    await notifySource(
-      `派工被拒：${rawTarget} 已有在办任务 ${active.taskId}（${active.status}）。` +
-        `用 /delegate reply ${active.taskId} <内容> 续投，或 /delegate close ${active.taskId} 关闭后再派。`,
-    );
-    return;
+  // 显式续投沿用原任务；新任务仍受一群一在办任务约束。
+  const replyable = new Set(['progress', 'blocked', 'question']);
+  let task;
+  if (data.task_id) {
+    task = getDelegation(data.task_id);
+    if (!task) return reject(`续投失败：未找到任务 ${data.task_id}。`);
+    if (
+      task.sourceGroup !== sourceGroup &&
+      !registeredGroups[sourceJid].isMain
+    ) {
+      return reject(`续投失败：无权管理任务 ${task.taskId}。`);
+    }
+    if (task.targetGroup !== targetFolder || task.targetJid !== targetJid) {
+      return reject('续投失败：目标群与原任务不一致。');
+    }
+    if (!replyable.has(task.status)) {
+      return reject(
+        `续投失败：任务 ${task.taskId} 当前状态 ${task.status}，不能续投。`,
+      );
+    }
+  } else {
+    const active = getActiveDelegationByGroup(targetFolder);
+    if (active) {
+      logger.warn(
+        { targetFolder, activeTaskId: active.taskId },
+        'delegate rejected: target group has an in-flight task',
+      );
+      return reject(
+        `派工被拒：${rawTarget} 已有在办任务 ${active.taskId}（${active.status}）。` +
+          `若为同一任务，请用 delegate 携带 task_id="${active.taskId}" 续投；` +
+          `也可用 /delegate reply ${active.taskId} <内容>。新任务不能自动覆盖旧任务。`,
+        active.taskId,
+      );
+    }
+    task = createDelegation({
+      sourceGroup,
+      sourceJid,
+      targetGroup: targetFolder,
+      targetJid,
+      title: data.title,
+    });
   }
-
-  // 先落账本拿 task_id
-  const task = createDelegation({
-    sourceGroup,
-    sourceJid,
-    targetGroup: targetFolder,
-    targetJid,
-    title: data.title,
-  });
 
   // host 注入 task_id 前缀（不靠 agent）
   const prefixedText = `[task_id:${task.taskId}]\n${data.text}`;
@@ -590,13 +669,16 @@ async function handleDelegate(
     msgId = await deps.sendMessage(targetJid, prefixedText);
   } catch (sendErr) {
     // 发送失败：失败终态回滚槽位，保留审计，避免 dispatched 幽灵占槽。
-    failDelegation(task.taskId, `派工失败：发送给 ${rawTarget} 出错。`);
+    if (!data.task_id)
+      failDelegation(task.taskId, `派工失败：发送给 ${rawTarget} 出错。`);
     logger.error(
       { sendErr, taskId: task.taskId, targetFolder },
-      'delegate 发送失败，已标记 failed 回滚槽位',
+      'delegate 发送失败',
     );
-    await notifySource(`派工失败：发送给 ${rawTarget} 出错，已回滚。`);
-    return;
+    return reject(
+      `派工失败：发送给 ${rawTarget} 出错，${data.task_id ? '原任务状态未变更' : '已回滚'}。`,
+      task.taskId,
+    );
   }
   try {
     const crossGroupSender = `${ASSISTANT_NAME}(${sourceGroup})`;
@@ -614,35 +696,40 @@ async function handleDelegate(
     // 飞书发出去了但入目标群库失败：agent 靠 message loop 扫 DB 才收得到，
     // 入库失败 = agent 收不到这条任务，但账本却占着 dispatched 槽。
     // 必须回滚为 failed 释放槽位并通知发起群重派，否则目标群被幽灵任务永久占住。
-    failDelegation(
-      task.taskId,
-      `派工异常：${rawTarget} 消息已发但入库失败，目标群 agent 可能收不到。`,
-    );
+    if (!data.task_id)
+      failDelegation(
+        task.taskId,
+        `派工异常：${rawTarget} 消息已发但入库失败，目标群 agent 可能收不到。`,
+      );
     logger.error(
       { storeErr, taskId: task.taskId, targetFolder },
-      'delegate 入目标群库失败，已标记 failed 回滚槽位（飞书消息已发但 agent 收不到）',
+      'delegate 消息已发但入目标群库失败',
     );
-    await notifySource(
-      `派工异常：${rawTarget} 消息已发但入库失败，子群 agent 可能收不到，已回滚槽位，请重新派工。`,
+    return reject(
+      `派工异常：${rawTarget} 消息已发但入库失败，子群 agent 可能收不到；${data.task_id ? '原任务状态未变更' : '已回滚槽位'}，请先核对再重试。`,
+      task.taskId,
     );
-    return;
   }
 
-  if (msgId) setDelegationDispatchMsgId(task.taskId, msgId);
-
-  await notifySource(
-    `⏳ 已派工给 ${fmtGroupLabel(targetJid)}，等待结果...\n(task ${task.taskId})`,
-  ).catch((err) => {
-    logger.warn(
-      { err, taskId: task.taskId, sourceGroup },
-      'delegate 成功但源群通知发送失败（非致命）',
-    );
-  });
-
+  if (data.task_id) {
+    // 网络投递期间可能已收到终态汇报，不能将终态任务重新置为 progress。
+    if (replyable.has(getDelegation(task.taskId)?.status || ''))
+      replyDelegation(task.taskId);
+  } else if (msgId) {
+    setDelegationDispatchMsgId(task.taskId, msgId);
+  }
+  const message = `已${data.task_id ? '续投' : '派工'}给 ${fmtGroupLabel(targetJid)}，消息已发送并入库；尚未确认目标开始执行。\n(task ${task.taskId})`;
+  await notifySource(message);
   logger.info(
-    { taskId: task.taskId, targetFolder, sourceGroup },
+    {
+      taskId: task.taskId,
+      targetFolder,
+      sourceGroup,
+      resumed: Boolean(data.task_id),
+    },
     'delegate dispatched',
   );
+  return { ok: true, message, taskId: task.taskId };
 }
 
 /**
@@ -919,6 +1006,7 @@ export const __testing = {
   buildReportNotification,
   fmtGroupLabel,
   handleDelegate,
+  handleDelegateRequest,
   handleReport,
 };
 
