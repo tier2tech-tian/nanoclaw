@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ---- mocks ----
 
@@ -64,9 +64,10 @@ vi.mock('./container-runner.js', async (importOriginal) => {
   return {
     ...actual,
     runContainerAgent: vi.fn(),
+    rotateAccount: vi.fn(),
     writeTasksSnapshot: vi.fn(),
     writeGroupsSnapshot: vi.fn(),
-    getSecretCount: () => 1,
+    getSecretCount: vi.fn(() => 1),
   };
 });
 vi.mock('./memory/index.js', async (importOriginal) => {
@@ -122,7 +123,9 @@ import {
   processGroupMessages,
 } from './index.js';
 import { buildTriggerPattern } from './config.js';
-import { runContainerAgent } from './container-runner.js';
+import { runContainerAgent, rotateAccount, getSecretCount } from './container-runner.js';
+import { GroupQueue } from './group-queue.js';
+import * as ipcModule from './ipc.js';
 import { setSession, getMessagesSince, setRouterState } from './db.js';
 import fs from 'fs';
 import path from 'path';
@@ -617,5 +620,49 @@ describe('decideThinkingOnlyAction', () => {
         textSentToUser: true,
       }),
     ).toBe('none');
+  });
+});
+
+
+describe('派工执行回调：正常与限流切号走相同的空回复保护', () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.mocked(getSecretCount).mockReturnValue(1); _setRegisteredGroups({}); });
+
+  it.each([0, 1, 2])('限流%s次后：首次空回复重试、耗尽后回报未完成，后续回合仍可回复', async (rateLimits) => {
+    const rotate = rateLimits > 0;
+    const jid = `empty-turn-${rotate}`;
+    _setRegisteredGroups({ [jid]: { name: '回调验证', folder: jid, trigger: '@test-bot', added_at: '', isMain: true, containerConfig: { cliMode: 'sdk' } } });
+    vi.mocked(getMessagesSince).mockReturnValueOnce([{ id: 'ipc_test', chat_jid: jid, content: '继续采集', sender: 'source', sender_name: '主群', timestamp: '2026-09-19T13:00:00.000Z' }]);
+    const pipe = vi.spyOn(GroupQueue.prototype, 'sendMessage').mockReturnValue(true);
+    const kill = vi.spyOn(GroupQueue.prototype, 'killGroup').mockImplementation(() => {});
+    const idle = vi.spyOn(GroupQueue.prototype, 'notifyIdle').mockImplementation(() => {});
+    const finish = vi.spyOn(ipcModule, 'finalizeDelegationOnTurnEnd').mockReturnValue(false);
+    const sendMessage = vi.fn().mockResolvedValue('reply-id');
+    vi.mocked(runContainerAgent).mockReset();
+    vi.mocked(getSecretCount).mockReturnValue(rateLimits + 1);
+    for (let attempt = 0; attempt < rateLimits; attempt++) {
+      vi.mocked(rotateAccount).mockReturnValue({ success: true, newSecretName: 'test-next', oldSecretName: 'test-old' });
+      vi.mocked(runContainerAgent).mockImplementationOnce(async (_g, _i, _p, onOutput) => {
+        await onOutput!({ status: 'success', result: "You've hit your session limit · resets 7:30pm (Asia/Shanghai)" });
+        return { status: 'success', result: attempt === 0 ? null : "You've hit your session limit · resets 7:30pm (Asia/Shanghai)" };
+      });
+    }
+    const observations: Array<{ retries: number; reports: number; idle: number }> = [];
+    vi.mocked(runContainerAgent).mockImplementationOnce(async (_g, _i, _p, onOutput) => {
+      const empty = { status: 'success' as const, result: null, usage: { outputTokens: 7992 } as any };
+      // 真实执行主/切号回调，不只测试判定纯函数。
+      await onOutput!(empty);
+      observations.push({ retries: pipe.mock.calls.length, reports: finish.mock.calls.length, idle: idle.mock.calls.length });
+      await onOutput!(empty);
+      observations.push({ retries: pipe.mock.calls.length, reports: finish.mock.calls.length, idle: idle.mock.calls.length });
+      await onOutput!({ status: 'success', result: '采集断点已保留' });
+      return { status: 'success', result: null };
+    });
+    await processGroupMessages(jid, [{ name: 'test', ownsJid: () => true, sendMessage } as any]);
+    expect(observations).toEqual([{ retries: 1, reports: 0, idle: 0 }, { retries: 1, reports: 1, idle: 1 }]);
+    expect(pipe.mock.calls[0][2]).toEqual({ thinking: 'disabled' });
+    expect(sendMessage.mock.calls.some(([, text]) => text.includes('已停止自动重试'))).toBe(true);
+    expect(sendMessage.mock.calls.some(([, text]) => text === '采集断点已保留')).toBe(true);
+    expect(runContainerAgent).toHaveBeenCalledTimes(rateLimits + 1);
+    expect(kill).toHaveBeenCalledTimes(rateLimits);
   });
 });

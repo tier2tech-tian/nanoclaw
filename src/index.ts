@@ -1187,6 +1187,9 @@ export async function processGroupMessages(chatJid: string, availableChannels: C
     newSecretName: string;
     oldSecretName?: string;
   }) => {
+    // 每次切号都开启新执行尝试，包括 runAgent 内部的后续轮换。
+    // 旧进程的限流标记不能把新账号输出一起吞掉；通知仍只发一次。
+    streamingRateLimitDetected = false;
     if (rotatedNotificationSent) return;
     rotatedNotificationSent = true;
     channel
@@ -1386,120 +1389,12 @@ export async function processGroupMessages(chatJid: string, availableChannels: C
         '[rate-limit] 已轮换账号，开始重试',
       );
       notifyRotation(rotateResult);
-      // 重试：复用原始 onOutput 回调，确保 progress/usage/reply 全链路完整
+      // 重试复用完整回调，包含空回复保护；轮换回调已清除旧进程限流标记。
       const retryOutput = await runAgentWithQuestionCard(
         group,
         prompt,
         chatJid,
-        async (result) => {
-          // 进度消息 — 与原始回调完全一致
-          if (result.status === 'progress' && result.result) {
-            await mainOnOutput(result);
-            return;
-          }
-
-          // usage 传递
-          if (result.usage && 'setUsage' in channel) {
-            (
-              channel as {
-                setUsage: (
-                  jid: string,
-                  usage: typeof result.usage,
-                  thinking?: 'adaptive' | 'disabled',
-                ) => void;
-              }
-            ).setUsage(
-              chatJid,
-              result.usage,
-              modelOverride?.thinking === 'disabled' ? 'disabled' : 'adaptive',
-            );
-          }
-
-          // 正式回复（过滤限流文本，由 runAgent 内部处理重试）
-          if (result.result) {
-            const raw =
-              typeof result.result === 'string'
-                ? result.result
-                : JSON.stringify(result.result);
-            // 重试也可能再次限流，必须检查并抑制 + kill 子进程避免死锁
-            if (
-              detectRateLimitResult(raw) &&
-              shouldAutoRotateAnthropicAccount(
-                resolveCliMode(group.containerConfig),
-              )
-            ) {
-              logger.warn(
-                { group: group.name, text: raw.slice(0, 200) },
-                'Retry 输出仍包含限流文本，抑制发送并 kill 子进程',
-              );
-              queue.killGroup(chatJid);
-              return;
-            }
-            const text = raw
-              .replace(/<internal>[\s\S]*?<\/internal>/g, '')
-              .trim();
-            // SDK 系统消息过滤（同主回调）
-            if (text && /^(?:🔄\s*)?New session:\s*[0-9a-f-]+$/i.test(text)) {
-              logger.warn(
-                { group: group.name, text, chatJid },
-                '[rate-limit-retry] SDK 系统消息被拦截（New session），不发给用户',
-              );
-              return;
-            }
-            if (text && /^(?:fetch failed|API Error:\s*\d{3}\b)/i.test(text)) {
-              // 限流重试期间也可能遇到 SDK 假成功 API 错误，同样标记触发外层 API error 重试
-              streamingApiErrorDetected = true;
-              streamingApiErrorText = text.slice(0, 200);
-              logger.warn(
-                { group: group.name, text: text.slice(0, 200), chatJid },
-                '[api-error] 限流重试期间检测到 API 瞬时错误，标记重试并 kill',
-              );
-              queue.killGroup(chatJid);
-              return;
-            }
-            // 模型拒绝回复文本过滤（同主回调逻辑）
-            if (text && isModelRefusal(text)) {
-              logger.warn(
-                { chatJid, text: text.slice(0, 100) },
-                '[retry-reply] 模型拒绝文本被拦截，不发给用户',
-              );
-              return;
-            }
-            if (text) {
-              const retryFmid = await sendAgentMessage(text);
-              if (retryFmid) lastFeishuMsgId = retryFmid;
-              outputSentToUser = true;
-              textSentToUser = true;
-              everSentToUser = true;
-              agentReplies.push(text);
-              currentQueryReplies.push(text);
-              autoFollowupSummaryTextParts.push(text);
-            }
-          }
-          if (result.status === 'success') {
-            maybeEnqueueAutoFollowupSummary();
-            // 重试成功后也要清理进度卡片和 typing 状态
-            if (!outputSentToUser) {
-              await channel.setTyping?.(chatJid, false);
-            }
-            // CLI interactive: usage-only 卡片（同主回调，在 cleanup 之前）
-            await finalizeInteractiveTurn(channel, chatJid, textSentToUser);
-            // Commander 自动终态兜底（共享函数，与 mainOnOutput 统一）
-            finalizeActiveDelegationForTurn({ ok: true, logPrefix: '[retry]' });
-            outputSentToUser = false;
-            textSentToUser = false;
-            autoFollowupSummaryTextParts = [];
-            currentQueryReplies = [];
-            queue.notifyIdle(chatJid);
-          }
-          if (result.status === 'error') {
-            hadError = true;
-            finalizeActiveDelegationForTurn({
-              ok: false,
-              logPrefix: '[retry-error]',
-            });
-          }
-        },
+        mainOnOutput,
         latestUserMessage,
         memorySenderId,
         1, // retryCount=1，runAgent 内部会继续轮换
