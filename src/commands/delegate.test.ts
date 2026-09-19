@@ -135,6 +135,27 @@ describe('/delegate 命令', () => {
     expect(text).toContain('⚠️失联');
   });
 
+  it('reply 可追加刚派发尚未汇报的任务，保留原编号且内容入库', async () => {
+    const t = createTestDelegation({
+      targetGroup: 'sub3',
+      targetJid: 'fs:oc_3',
+    });
+    expect(getDelegation(t.taskId)?.status).toBe('dispatched');
+    const { sendMessage } = await run(`reply ${t.taskId} 追加要求`);
+    expect(sendMessage).toHaveBeenCalledWith(
+      'fs:oc_3',
+      `[task_id:${t.taskId}]\n追加要求`,
+      expect.anything(),
+    );
+    expect(getDelegation(t.taskId)?.status).toBe('progress');
+    expect(getActiveDelegationByGroup('sub3')?.taskId).toBe(t.taskId);
+    expect(
+      getDb()
+        .prepare('SELECT content FROM messages WHERE chat_jid = ?')
+        .all('fs:oc_3'),
+    ).toEqual([{ content: `[task_id:${t.taskId}]\n追加要求` }]);
+  });
+
   it('reply 续投 question 任务 → 投子群 + 状态回 progress', async () => {
     const t = createTestDelegation({
       targetGroup: 'sub3',
@@ -188,7 +209,7 @@ describe('/delegate 命令', () => {
     const { sendMessage } = await run(`reply ${t.taskId} 追加`);
     expect(sendMessage).toHaveBeenCalledWith(
       'fs:oc_main',
-      expect.stringContaining('已关闭，不能续投'),
+      expect.stringContaining('当前状态 done，不能续投'),
       expect.anything(),
     );
     // 不应投到子群

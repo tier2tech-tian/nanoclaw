@@ -15,8 +15,8 @@ import { registerCommand } from './registry.js';
 /** 失联阈值（毫秒）：仅 dispatched/progress 参与判定 */
 const STALE_THRESHOLD_MS = 15 * 60 * 1000;
 
-/** 续投/重派可作用的占槽态（reply 仅限进行/等待态） */
-const REPLYABLE = new Set(['progress', 'blocked', 'question']);
+/** 已派发、进行中及等待态均可用原任务号追加内容。 */
+const REPLYABLE = new Set(['dispatched', 'progress', 'blocked', 'question']);
 
 function shortId(taskId: string): string {
   // dlg_<ts>_<rand> → 取末段 rand，足够人眼区分
@@ -187,7 +187,7 @@ registerCommand({
       }
       if (!REPLYABLE.has(task.status)) {
         await reply(
-          `任务 ${taskId} 当前状态 ${task.status}，已关闭，不能续投。`,
+          `任务 ${taskId} 当前状态 ${task.status}，不能续投。`,
         );
         return;
       }

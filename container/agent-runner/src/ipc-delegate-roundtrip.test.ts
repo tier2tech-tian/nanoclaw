@@ -12,7 +12,12 @@ import {
   vi,
 } from 'vitest';
 import * as db from '../../../src/db.js';
-import { __testing, finalizeDelegationOnTurnEnd, startIpcWatcher, type IpcDeps } from '../../../src/ipc.js';
+import {
+  __testing,
+  finalizeDelegationOnTurnEnd,
+  startIpcWatcher,
+  type IpcDeps,
+} from '../../../src/ipc.js';
 import type { DelegationStatus, RegisteredGroup } from '../../../src/types.js';
 
 const fixture = vi.hoisted(() => ({
@@ -145,22 +150,54 @@ describe('派工工具与后台文件回执', () => {
     expect(count()).toEqual({ n: 1 });
   });
 
+  it('刚派发未汇报时，按拒绝提示用原编号追加可成功且两条内容均入库', async () => {
+    expect((await roundtrip({ text: '第一单' })).isError).toBe(false);
+    const task = db.getActiveDelegationByGroup('target')!;
+    expect(task.status).toBe('dispatched');
+    const rejected = await roundtrip({ text: '追加要求' });
+    expect(rejected.isError).toBe(true);
+    expect(rejected.content[0].text).toContain(`task_id="${task.taskId}"`);
+    const resumed = await roundtrip({ text: '追加要求', task_id: task.taskId });
+    expect(resumed.isError).toBe(false);
+    expect(db.getDelegation(task.taskId)?.status).toBe('progress');
+    expect(count()).toEqual({ n: 1 });
+    expect(messages()).toEqual([
+      { chat_jid: 'fs:oc_target', content: `[task_id:${task.taskId}]\n第一单` },
+      {
+        chat_jid: 'fs:oc_target',
+        content: `[task_id:${task.taskId}]\n追加要求`,
+      },
+    ]);
+  });
+
   it('阶段结束不关单 → 拒绝另建 → 原号续投 → 显式完成，账本与源群消息一致', async () => {
     expect((await roundtrip()).isError).toBe(false);
     const task = db.getActiveDelegationByGroup('target')!;
-    __testing.handleReport({ status: 'progress', summary: '70/1009，继续采集' }, 'target', groups);
-    expect(finalizeDelegationOnTurnEnd('target', true, '下一批继续')).toBe(true);
+    __testing.handleReport(
+      { status: 'progress', summary: '70/1009，继续采集' },
+      'target',
+      groups,
+    );
+    expect(finalizeDelegationOnTurnEnd('target', true, '下一批继续')).toBe(
+      true,
+    );
     expect(db.getDelegation(task.taskId)?.status).toBe('blocked');
     expect((await roundtrip()).isError).toBe(true);
     expect((await roundtrip({ task_id: task.taskId })).isError).toBe(false);
     expect(db.getDelegation(task.taskId)?.status).toBe('progress');
-    __testing.handleReport({ status: 'done', summary: '全部验收完成' }, 'target', groups);
+    __testing.handleReport(
+      { status: 'done', summary: '全部验收完成' },
+      'target',
+      groups,
+    );
     expect(finalizeDelegationOnTurnEnd('target', true)).toBe(false);
     expect(db.getDelegation(task.taskId)?.status).toBe('done');
     expect(db.getActiveDelegationByGroup('target')).toBeUndefined();
     expect(count()).toEqual({ n: 1 });
-    const reports = (messages() as Array<{ chat_jid: string; content: string }>).filter(r => r.chat_jid === 'fs:oc_source');
-    expect(reports.map(r => r.content)).toEqual([
+    const reports = (
+      messages() as Array<{ chat_jid: string; content: string }>
+    ).filter((r) => r.chat_jid === 'fs:oc_source');
+    expect(reports.map((r) => r.content)).toEqual([
       expect.stringContaining('｜progress】70/1009'),
       expect.stringContaining('｜blocked】子群本轮已结束，但任务未确认完成'),
       expect.stringContaining('｜done】全部验收完成'),
@@ -178,7 +215,7 @@ describe('派工工具与后台文件回执', () => {
     expect(count()).toEqual({ n: 1 });
   });
 
-  it.each(['question', 'blocked', 'progress'] as const)(
+  it.each(['dispatched', 'question', 'blocked', 'progress'] as const)(
     '显式续投 %s 沿用任务号、不增账本且真实入库',
     async (status) => {
       const task = existing(status);
@@ -196,7 +233,7 @@ describe('派工工具与后台文件回执', () => {
     },
   );
 
-  it.each(['closed', 'done', 'failed', 'dispatched'] as const)(
+  it.each(['closed', 'done', 'failed'] as const)(
     '%s 任务不能续投',
     async (status) => {
       const task = existing(status);

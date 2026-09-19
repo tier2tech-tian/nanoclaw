@@ -618,7 +618,7 @@ async function handleDelegate(
   }
 
   // 显式续投沿用原任务；新任务仍受一群一在办任务约束。
-  const replyable = new Set(['progress', 'blocked', 'question']);
+  const replyable = new Set(['dispatched', 'progress', 'blocked', 'question']);
   let task;
   if (data.task_id) {
     task = getDelegation(data.task_id);
