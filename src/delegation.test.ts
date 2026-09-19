@@ -265,7 +265,7 @@ describe('finalizeDelegationOnTurnEnd 自动终态兜底', () => {
     });
   }
 
-  it('dispatched 任务一轮结束自动补 done', () => {
+  it('无正文的回合结束保留占槽，不能自动完成', () => {
     regMain();
     const t = createTestDelegation({
       sourceGroup: 'main',
@@ -274,9 +274,33 @@ describe('finalizeDelegationOnTurnEnd 自动终态兜底', () => {
       targetJid: 'fs:oc_3',
     } as never);
     expect(finalizeDelegationOnTurnEnd('sub3', true)).toBe(true);
-    expect(getDelegation(t.taskId)?.status).toBe('done');
-    // 已关闭，再次调用不重复触发
+    expect(getDelegation(t.taskId)?.status).toBe('blocked');
+    // 已进入等待态，再次调用不重复触发
     expect(finalizeDelegationOnTurnEnd('sub3', true)).toBe(false);
+  });
+
+  it('阶段汇报后回合结束只报未完成，并允许沿用原任务续办', () => {
+    regMain();
+    storeChatMetadata('fs:oc_main', new Date().toISOString(), 'main', 'mock', true);
+    const task = createTestDelegation({ targetGroup: 'sub3', targetJid: 'fs:oc_3' });
+    updateDelegationOnReport({ taskId: task.taskId, status: 'progress', summary: '70/1009' });
+    expect(finalizeDelegationOnTurnEnd('sub3', true, '已采70条，下一批继续')).toBe(true);
+    expect(getActiveDelegationByGroup('sub3')?.taskId).toBe(task.taskId);
+    expect(getDelegation(task.taskId)?.status).toBe('blocked');
+    const row = getDb().prepare('SELECT content FROM messages WHERE chat_jid = ?').get('fs:oc_main') as { content: string };
+    expect(row.content).toContain('未确认完成');
+    expect(row.content).toContain(task.taskId);
+    expect(row.content).not.toContain('自动标记完成');
+    replyDelegation(task.taskId, '按断点继续');
+    expect(getDelegation(task.taskId)?.status).toBe('progress');
+  });
+
+  it.each(['done', 'question', 'blocked'] as const)('显式汇报%s后，回合结束不能覆盖', (status) => {
+    regMain();
+    const task = createTestDelegation({ targetGroup: 'sub3', targetJid: 'fs:oc_3' });
+    updateDelegationOnReport({ taskId: task.taskId, status, summary: '子群明确汇报' });
+    expect(finalizeDelegationOnTurnEnd('sub3', true, '本轮结束')).toBe(false);
+    expect(getDelegation(task.taskId)?.status).toBe(status);
   });
 
   it('异常结束自动补 failed', () => {
@@ -321,7 +345,7 @@ describe('finalizeDelegationOnTurnEnd 自动终态兜底', () => {
     const longReply = 'x'.repeat(5000);
     expect(finalizeDelegationOnTurnEnd('sub3', true, longReply)).toBe(true);
     const got = getDelegation(t.taskId)!;
-    expect(got.status).toBe('done');
+    expect(got.status).toBe('blocked');
     expect(got.details).toBe('x'.repeat(2000));
   });
 
@@ -390,9 +414,9 @@ describe('finalizeDelegationOnTurnEnd 多次调用幂等（共享函数场景）
       targetGroup: 'sub3',
       targetJid: 'fs:oc_3',
     } as never);
-    // 第一次 success → done
+    // 第一次 success → blocked（完成未确认）
     expect(finalizeDelegationOnTurnEnd('sub3', true, '回复内容')).toBe(true);
-    expect(getDelegation(t.taskId)?.status).toBe('done');
+    expect(getDelegation(t.taskId)?.status).toBe('blocked');
     expect(getDelegation(t.taskId)?.details).toBe('回复内容');
     // 第二次调用（模拟 main + retry 两个 onOutput 都调用）→ 不重复触发
     expect(finalizeDelegationOnTurnEnd('sub3', true, '不同内容')).toBe(false);
@@ -541,9 +565,8 @@ describe('sendDirectNotify 飞书直发通知', () => {
 
     expect(notifyCalls).toHaveLength(1);
     expect(notifyCalls[0].jid).toBe('fs:oc_main');
-    expect(notifyCalls[0].text).toBe(
-      `C1(fs:oc_3) 已处理并回复：${Array.from(fullReply).slice(0, 30).join('')}……`,
-    );
+    expect(notifyCalls[0].text).toContain('未确认完成');
+    expect(notifyCalls[0].text).not.toContain('已处理并回复：已完成');
     expect(injectedReports).toHaveLength(1);
     expect(injectedReports[0]).toContain(fullReply);
   });
@@ -573,8 +596,8 @@ describe('sendDirectNotify 飞书直发通知', () => {
       sendDirectNotify: failingNotify,
     });
 
-    // DB 投递正常，任务状态已更新
-    expect(getDelegation(t.taskId)?.status).toBe('done');
+    // DB 投递正常，仍是未完成的等待态
+    expect(getDelegation(t.taskId)?.status).toBe('blocked');
     const rows = getDb()
       .prepare('SELECT chat_jid FROM messages WHERE chat_jid = ?')
       .all('fs:oc_main') as Array<{ chat_jid: string }>;

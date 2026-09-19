@@ -12,7 +12,7 @@ import {
   vi,
 } from 'vitest';
 import * as db from '../../../src/db.js';
-import { __testing, startIpcWatcher, type IpcDeps } from '../../../src/ipc.js';
+import { __testing, finalizeDelegationOnTurnEnd, startIpcWatcher, type IpcDeps } from '../../../src/ipc.js';
 import type { DelegationStatus, RegisteredGroup } from '../../../src/types.js';
 
 const fixture = vi.hoisted(() => ({
@@ -110,7 +110,7 @@ function start(args: object = {}) {
   const request = JSON.parse(
     fs.readFileSync(path.join(ipcDir(), 'messages', requestFile), 'utf8'),
   );
-  return { result, request };
+  return { result, request, requestFile };
 }
 const count = () =>
   db.getDb().prepare('SELECT COUNT(*) n FROM delegation_tasks').get();
@@ -124,6 +124,8 @@ async function roundtrip(args: object = {}) {
     groups,
     deps,
   );
+  // 此帮助函数直接调处理器，补上 watcher 的请求移除行为。
+  fs.unlinkSync(path.join(ipcDir(), 'messages', started.requestFile));
   return await started.result;
 }
 
@@ -141,6 +143,28 @@ describe('派工工具与后台文件回执', () => {
     expect(await result).toMatchObject({ isError: false });
     expect(messages()).toHaveLength(1);
     expect(count()).toEqual({ n: 1 });
+  });
+
+  it('阶段结束不关单 → 拒绝另建 → 原号续投 → 显式完成，账本与源群消息一致', async () => {
+    expect((await roundtrip()).isError).toBe(false);
+    const task = db.getActiveDelegationByGroup('target')!;
+    __testing.handleReport({ status: 'progress', summary: '70/1009，继续采集' }, 'target', groups);
+    expect(finalizeDelegationOnTurnEnd('target', true, '下一批继续')).toBe(true);
+    expect(db.getDelegation(task.taskId)?.status).toBe('blocked');
+    expect((await roundtrip()).isError).toBe(true);
+    expect((await roundtrip({ task_id: task.taskId })).isError).toBe(false);
+    expect(db.getDelegation(task.taskId)?.status).toBe('progress');
+    __testing.handleReport({ status: 'done', summary: '全部验收完成' }, 'target', groups);
+    expect(finalizeDelegationOnTurnEnd('target', true)).toBe(false);
+    expect(db.getDelegation(task.taskId)?.status).toBe('done');
+    expect(db.getActiveDelegationByGroup('target')).toBeUndefined();
+    expect(count()).toEqual({ n: 1 });
+    const reports = (messages() as Array<{ chat_jid: string; content: string }>).filter(r => r.chat_jid === 'fs:oc_source');
+    expect(reports.map(r => r.content)).toEqual([
+      expect.stringContaining('｜progress】70/1009'),
+      expect.stringContaining('｜blocked】子群本轮已结束，但任务未确认完成'),
+      expect.stringContaining('｜done】全部验收完成'),
+    ]);
   });
 
   it('等待答复仍占槽，新建被拒必须返回错误与原任务号', async () => {

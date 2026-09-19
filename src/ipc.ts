@@ -902,12 +902,12 @@ function deliverReportToSource(
  *
  * 背景：report_to_main 是子群主动汇报的主路径，但 agent 可能正常干完却忘了调，
  * 账本就停在 dispatched/progress，要等 15 分钟失联才暴露。这里在 host 侧的
- * 「一轮 query 结束」信号里兜底：若该群仍有进行态任务，自动补 done/failed。
+ * 「一轮 query 结束」信号里回报：进行态任务转 blocked/failed，绝不推断 done。
  *
  * 仅对进行态（dispatched/progress）生效：
- * - 等待态（blocked/question）是 agent 主动留给主群的信号，不能被自动 done 覆盖；
+ * - 等待态（blocked/question）是 agent 主动留给主群的信号，不能被回合结束覆盖；
  * - 关闭态（done/failed/closed）已结束，getActiveDelegationByGroup 查不到，天然跳过。
- * 因此 agent 若已自主汇报，本函数自动不触发，无重复。
+ * 显式 done 才代表完成；阶段 progress 不代表完成。等待态天然防重复汇报。
  *
  * @returns 是否实际触发了一次自动汇报（用于日志）
  */
@@ -950,12 +950,12 @@ export function finalizeDelegationOnTurnEnd(
   if (!task) return false;
   if (task.status !== 'dispatched' && task.status !== 'progress') return false;
 
-  const status: ReportStatus = ok ? 'done' : 'failed';
+  const status: ReportStatus = ok ? 'blocked' : 'failed';
   const baseSummary = ok
-    ? '子群本轮结束未显式汇报，host 自动标记完成。'
+    ? '子群本轮已结束，但任务未确认完成；已保留任务，请用原 task_id 续办或要求显式汇报完成。'
     : '子群本轮异常结束，host 自动标记失败。';
   // agent 忘了主动 report_to_main，host 兜底时把子群本轮最终回复当作结果摘要带给
-  // 主群，避免主群只收到「host 自动标记完成」却不知道完成了什么。截断防超长。
+  // 主群，说明执行已停但完成未确认；摘要仅作续办线索，截断防超长。
   const details = finalReply?.trim()
     ? finalReply.trim().slice(0, FINALIZE_DETAILS_MAX)
     : undefined;
@@ -968,13 +968,13 @@ export function finalizeDelegationOnTurnEnd(
 
   let reportText = `【汇报｜${fmtGroupLabel(task.targetJid)}｜${status}】${baseSummary}`;
   if (details) reportText += `\n结果：${details}`;
-  reportText += `\n(task ${task.taskId}，自动终态)`;
+  reportText += `\n(task ${task.taskId}，回合结束汇报)`;
   try {
     const meta = deliverReportToSource(
       task.sourceJid,
       reportingGroup,
       reportText,
-      { targetJid: task.targetJid, summary: details || baseSummary },
+      { targetJid: task.targetJid, summary: baseSummary },
       deps,
     );
     logger.info(
