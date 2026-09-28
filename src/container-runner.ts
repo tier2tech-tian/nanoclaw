@@ -91,8 +91,9 @@ export function detectRateLimit(text: string): boolean {
     /rate_limit_error/,
     /overloaded_error/,
     // Claude Code "假成功" 限流提示（强信号）
-    /you['\u2019]ve\s+hit\s+your\s+(?:(?:usage|session)\s+)?limit/i,
-    /you\s+have\s+hit\s+your\s+(?:(?:usage|session)\s+)?limit/i,
+    // 覆盖 hit/reached × 0~2 个限额名词：usage / session / Fable / Fable 5 …
+    // 例："You've hit your limit"、"You've reached your Fable limit"
+    /you(?:['\u2019]ve|\s+have)\s+(?:hit|reached)\s+your\s+(?:[\w.-]+\s+){0,2}limit/i,
     // 经典限流完整短语
     /rate[\s-]?limit\s+exceeded/i,
     /(?:api\s+)?quota\s+exceeded/i,
