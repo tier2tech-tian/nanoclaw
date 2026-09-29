@@ -16,10 +16,11 @@
 - [ ] 2.3 单测（✅ 已补）+ 实测（随第 5 步细狗 E2E 一起验）：独立群 system prompt 不含 SOUL/TOOLS 内容，skills 列表只有白名单
 
 ## 3. MeegleChannel 与派活入口
-- [ ] 3.1 src/channels/meegle.ts：ownsJid(meegle:)、sendMessage 镜像到 observe_jid
-- [ ] 3.2 src/meegle-dispatch.ts：POST /meegle/dispatch（127.0.0.1），按需 registerGroup（folder/customCwd/containerConfig 由 employee.json 生成）、storeChatMetadata、storeMessage、enqueue；员工级并发
-- [ ] 3.3 员工清单加载器：扫描 EMPLOYEES_DIR/*/employee.json，校验字段
-- [ ] 3.4 单测：同一 work_item 两次 dispatch 命中同一 folder；不同 work_item 不同 folder
+- [x] 3.1 src/channels/meegle.ts：ownsJid(meegle:)、sendMessage 镜像到 observe_jid
+- [x] 3.2 `src/meegle-employees.ts` + debug API `POST /meegle/dispatch`（127.0.0.1:19877），按需 registerGroup（folder/customCwd/containerConfig 由 employee.json 生成，独立模式不拷全局 CLAUDE.md 模板）、storeChatMetadata、storeMessage、enqueue
+- [ ] 3.2b 员工级并发（`max_concurrent`）：暂不做，先靠全局 MAX_CONCURRENT_AGENTS；需要时在 message loop 按员工限流
+- [x] 3.3 员工清单加载器：扫描 EMPLOYEES_DIR/*/employee.json，校验字段
+- [x] 3.4 单测：同一 work_item 两次 dispatch 命中同一 folder；不同 work_item 不同 folder
 
 ## 4. 回调迁移（细狗）
 - [ ] 4.1 meegle-hook 仓库推 GitHub 私有仓，细狗 clone

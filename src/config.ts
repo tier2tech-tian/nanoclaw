@@ -33,6 +33,7 @@ const envConfig = readEnvFile([
   'QDRANT_URL',
   'CHAT_INDEX_DEBOUNCE_MS',
   'NANOCLAW_PERSONAL_DIR',
+  'EMPLOYEES_DIR',
   'GITHUB_PROJECT_AUTO_DISPATCH',
   'GITHUB_PROJECT_OWNER',
   'GITHUB_PROJECT_ASSIGNEE',
@@ -138,6 +139,9 @@ export const IPC_POLL_INTERVAL = 1000;
 // 个人资产目录（平台无关个人资产），加进 agent 目录白名单；空串=未配置
 export const PERSONAL_DIR =
   process.env.NANOCLAW_PERSONAL_DIR || envConfig.NANOCLAW_PERSONAL_DIR || '';
+// 飞书项目数字员工目录（每个子目录一个员工，含 employee.json）；空串=不启用
+export const EMPLOYEES_DIR =
+  process.env.EMPLOYEES_DIR || envConfig.EMPLOYEES_DIR || '';
 
 // --- Chat Index ---
 export const CHAT_INDEX_ENABLED =

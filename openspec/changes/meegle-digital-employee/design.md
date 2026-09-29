@@ -8,7 +8,7 @@
   ▼
 meegle-hook（细狗，经 CF 隧道 meegle-hook.heasenbug.com）
   │ 验签、去重、按 employee.json 的 nodes 找员工；8004 且停在 done → ai_node/edit 置回 running
-  │ POST 127.0.0.1:<port>/meegle/dispatch {employee, work_item_id, state_key, flow_id, text}
+  │ POST 127.0.0.1:19877/meegle/dispatch {employee, work_item_id, state_key, flow_id, text}
   ▼
 NanoClaw（细狗实例）
   │ 虚拟群 jid = meegle:<employee>:<work_item_id>，folder = emp-<employee>-<work_item_id>
@@ -45,8 +45,7 @@ MeegleChannel.sendMessage → 镜像到员工观察群（fs:oc_...），首行�
   "nodes": [{"project_key": "6ab9e7e22298e75d1ddf7cf7", "state_key": "ai_review"}],
   "observe_jid": "fs:oc_5d413755f2b4e3b91b3749d514e5969a",
   "skills": ["nine-refine-product"],
-  "env": {"LARK_CLI_PROFILE": "prd-review"},
-  "max_concurrent": 2
+  "env": {"LARK_CLI_PROFILE": "prd-review"}
 }
 ```
 
@@ -107,7 +106,7 @@ MeegleChannel.sendMessage → 镜像到员工观察群（fs:oc_...），首行�
 
 ## 十、并发与清理
 
-- 全局并发沿用 MAX_CONCURRENT_AGENTS；员工级 `max_concurrent` 由 dispatch 入口排队控制。
+- 全局并发沿用 MAX_CONCURRENT_AGENTS；员工级并发第一版不做（见 tasks 3.2b）。
 - 需求走到结束节点（8003 且为最后一个 AI 节点，或手动）→ 标记虚拟群归档：保留 transcript，不再续接；定期清理 90 天前归档的会话目录。
 
 ## 十一、不做

@@ -386,14 +386,17 @@ describe('agent spawn and timeout', () => {
       },
     ]);
 
-    async function spawnEnv(group: RegisteredGroup): Promise<NodeJS.ProcessEnv> {
+    async function spawnEnv(
+      group: RegisteredGroup,
+    ): Promise<NodeJS.ProcessEnv> {
       vi.mocked(spawn).mockClear();
       vi.mocked(execSync).mockImplementation(((cmd: string) =>
         cmd.startsWith('onecli agents list') ? agentsJson : '[]') as any);
       const promise = runContainerAgent(group, testInput, () => {});
       await vi.advanceTimersByTimeAsync(10);
-      const env = (vi.mocked(spawn).mock.calls[0][2] as { env: NodeJS.ProcessEnv })
-        .env;
+      const env = (
+        vi.mocked(spawn).mock.calls[0][2] as { env: NodeJS.ProcessEnv }
+      ).env;
       fakeProc.emit('close', 0);
       await vi.advanceTimersByTimeAsync(10);
       await promise;

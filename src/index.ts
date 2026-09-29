@@ -21,6 +21,7 @@ import {
   CHAT_INDEX_ENABLED,
   DATA_DIR,
   DEFAULT_TRIGGER,
+  EMPLOYEES_DIR,
   GITHUB_PROJECT_AUTO_DISPATCH_CONFIG,
   getTriggerPattern,
   GROUPS_DIR,
@@ -44,6 +45,12 @@ import {
 } from './session-recovery.js';
 import './channels/index.js';
 import type { FeishuChannel } from './channels/feishu.js';
+import { MeegleChannel } from './channels/meegle.js';
+import {
+  dispatchToEmployee,
+  EmployeeManifest,
+  loadEmployees,
+} from './meegle-employees.js';
 import {
   getChannelFactory,
   getRegisteredChannelNames,
@@ -143,6 +150,10 @@ let lastAgentTimestamp: Record<string, string> = {};
 let messageLoopRunning = false;
 
 const channels: Channel[] = [];
+
+// 飞书项目数字员工清单：启动时加载，每次派活重新扫描（加员工不用重启）
+let employees = new Map<string, EmployeeManifest>();
+const getEmployee = (id: string) => employees.get(id);
 const queue = new GroupQueue();
 const activeQuestionCardTurns = new Map<string, ActiveQuestionCardTurn>();
 
@@ -352,8 +363,9 @@ function registerGroup(jid: string, group: RegisteredGroup): void {
 
   // Copy CLAUDE.md template into the new group folder so agents have
   // identity and instructions from the first run.  (Fixes #1391)
+  // 独立模式（数字员工）的人设只来自员工目录，不拷全局模板
   const groupMdFile = path.join(groupDir, 'CLAUDE.md');
-  if (!fs.existsSync(groupMdFile)) {
+  if (!group.containerConfig?.standalone && !fs.existsSync(groupMdFile)) {
     const templateFile = path.join(
       GROUPS_DIR,
       group.isMain ? 'main' : 'global',
@@ -2101,6 +2113,24 @@ async function startMessageLoop(): Promise<void> {
         queue.enqueueMessageCheck(jid);
         return `message stored and enqueued: ${id}`;
       },
+      meegleDispatch: EMPLOYEES_DIR
+        ? (body) => {
+            employees = loadEmployees(EMPLOYEES_DIR);
+            const result = dispatchToEmployee(body, {
+              getEmployee,
+              getGroup: (jid) => registeredGroups[jid],
+              registerGroup,
+              storeChatMetadata: (jid, timestamp, name) =>
+                storeChatMetadata(jid, timestamp, name, 'meegle', true),
+              storeMessage,
+              enqueueMessageCheck: (jid) => queue.enqueueMessageCheck(jid),
+              skillsSrcDir: path.join(process.cwd(), 'container', 'skills'),
+            });
+            return result.ok
+              ? { status: 200, body: result }
+              : { status: result.status, body: { error: result.error } };
+          }
+        : undefined,
       getStatus: () => ({
         pid: process.pid,
         uptime: process.uptime(),
@@ -2561,6 +2591,25 @@ async function main(): Promise<void> {
   if (channels.length === 0) {
     logger.fatal('No channels connected');
     process.exit(1);
+  }
+
+  // 数字员工虚拟频道：meegle:* 的回复镜像到员工观察群（走真实频道发出）
+  if (EMPLOYEES_DIR) {
+    employees = loadEmployees(EMPLOYEES_DIR);
+    channels.push(
+      new MeegleChannel(getEmployee, async (jid, text) => {
+        const target = findChannel(channels, jid);
+        if (!target || target.name === 'meegle') return undefined;
+        return target.sendMessage(jid, text, {
+          isCommandReply: true,
+          skipVoiceNotify: true,
+        });
+      }),
+    );
+    logger.info(
+      { employeesDir: EMPLOYEES_DIR, employees: [...employees.keys()] },
+      '[meegle] 数字员工频道已启用',
+    );
   }
 
   // 启动时同步一次群列表（获取飞书群名等元数据）
