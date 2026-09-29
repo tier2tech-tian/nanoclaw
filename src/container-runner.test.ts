@@ -142,10 +142,12 @@ import {
   prepareGroupSession,
   prepareCodexSkills,
   redactContainerInputForLog,
+  mergeGroupEnv,
+  canAutoRotateGroupAccount,
 } from './container-runner.js';
 import type { RegisteredGroup } from './types.js';
 import fs from 'fs';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { logger } from './logger.js';
 import { consumeQuestionCardAuthorization } from './question-card-auth.js';
 import { normalizeQuestionCardDraft } from './question-card.js';
@@ -373,6 +375,64 @@ describe('agent spawn and timeout', () => {
     await resultPromise;
   });
 
+  describe('共享 OneCLI 账号组与群级 env', () => {
+    const agentsJson = JSON.stringify([
+      { id: 'd', name: 'Default', accessToken: 'default-tok', isDefault: true },
+      {
+        id: 'g',
+        name: 'Test Group',
+        identifier: 'test-group',
+        accessToken: 'group-tok',
+      },
+    ]);
+
+    async function spawnEnv(group: RegisteredGroup): Promise<NodeJS.ProcessEnv> {
+      vi.mocked(spawn).mockClear();
+      vi.mocked(execSync).mockImplementation(((cmd: string) =>
+        cmd.startsWith('onecli agents list') ? agentsJson : '[]') as any);
+      const promise = runContainerAgent(group, testInput, () => {});
+      await vi.advanceTimersByTimeAsync(10);
+      const env = (vi.mocked(spawn).mock.calls[0][2] as { env: NodeJS.ProcessEnv })
+        .env;
+      fakeProc.emit('close', 0);
+      await vi.advanceTimersByTimeAsync(10);
+      await promise;
+      vi.mocked(execSync).mockImplementation((() => '[]') as any);
+      return env;
+    }
+
+    it('普通群换成本群 agent token，共享群保留 Default token', async () => {
+      const normal = await spawnEnv(testGroup);
+      expect(normal.HTTPS_PROXY).toBe('http://x:group-tok@localhost:10255');
+
+      fakeProc = createFakeProcess();
+      const shared = await spawnEnv({
+        ...testGroup,
+        containerConfig: { sharedOneCLIAgent: true },
+      });
+      expect(shared.HTTPS_PROXY).toBe('http://x:token@localhost:10255');
+    });
+
+    it('群级 env 合进子进程，PATH 前插，代理变量不被覆盖', async () => {
+      const env = await spawnEnv({
+        ...testGroup,
+        containerConfig: {
+          sharedOneCLIAgent: true,
+          env: {
+            PATH: '/emp/bin',
+            LARK_CLI_PROFILE: 'prd-review',
+            HTTPS_PROXY: 'http://evil:1',
+            NANOCLAW_IPC_DIR: '/evil',
+          },
+        },
+      });
+      expect(env.PATH?.startsWith('/emp/bin:')).toBe(true);
+      expect(env.LARK_CLI_PROFILE).toBe('prd-review');
+      expect(env.HTTPS_PROXY).toBe('http://x:token@localhost:10255');
+      expect(env.NANOCLAW_IPC_DIR).not.toBe('/evil');
+    });
+  });
+
   it('timeout after output resolves as success', async () => {
     const onOutput = vi.fn(async () => {});
     const resultPromise = runContainerAgent(
@@ -574,6 +634,34 @@ describe('agent spawn and timeout', () => {
     expect(result.status).toBe('success');
     // onOutput 被调用了两次
     expect(onOutput).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('mergeGroupEnv', () => {
+  it('无群级 env 原样返回', () => {
+    const base = { PATH: '/usr/bin' };
+    expect(mergeGroupEnv(base, undefined, 'g')).toBe(base);
+  });
+
+  it('PATH 前插、普通键覆盖、受保护键忽略', () => {
+    const merged = mergeGroupEnv(
+      { PATH: '/usr/bin', FOO: 'a', SSL_CERT_FILE: '/ca.pem' },
+      { PATH: '/emp/bin', FOO: 'b', SSL_CERT_FILE: '/x.pem' },
+      'g',
+    );
+    expect(merged).toEqual({
+      PATH: '/emp/bin:/usr/bin',
+      FOO: 'b',
+      SSL_CERT_FILE: '/ca.pem',
+    });
+  });
+});
+
+describe('canAutoRotateGroupAccount', () => {
+  it('Claude 系可切号，共享账号组与 codex 不切', () => {
+    expect(canAutoRotateGroupAccount(undefined)).toBe(true);
+    expect(canAutoRotateGroupAccount({ sharedOneCLIAgent: true })).toBe(false);
+    expect(canAutoRotateGroupAccount({ cliMode: 'codex' })).toBe(false);
   });
 });
 

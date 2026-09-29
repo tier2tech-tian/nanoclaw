@@ -56,7 +56,7 @@ import {
   resolveCliMode,
   rotateAccount,
   runContainerAgent,
-  shouldAutoRotateAnthropicAccount,
+  canAutoRotateGroupAccount,
   writeGroupsSnapshot,
   writeTasksSnapshot,
 } from './container-runner.js';
@@ -207,7 +207,9 @@ async function sendDirectNotify(jid: string, text: string): Promise<void> {
 const onecli = new OneCLI({ url: ONECLI_URL });
 
 function ensureOneCLIAgent(jid: string, group: RegisteredGroup): void {
-  // 所有群（包括 main group）都创建独立 agent，防止 rotateAccount fallback 到 Default Agent
+  // 共享账号组直接用 Default Agent，不建 per-group agent（否则会在 OneCLI 留下空账号组）
+  if (group.containerConfig?.sharedOneCLIAgent) return;
+  // 其余群（包括 main group）都创建独立 agent，防止 rotateAccount fallback 到 Default Agent
   const identifier = group.folder.toLowerCase().replace(/_/g, '-');
   onecli.ensureAgent({ name: group.name, identifier }).then(
     (res) => {
@@ -944,7 +946,7 @@ export async function processGroupMessages(chatJid: string, availableChannels: C
       //    Anthropic 账号（见 runAgent 返回后的轮换逻辑），kill 纯属白杀。
       if (
         detectRateLimitResult(raw) &&
-        shouldAutoRotateAnthropicAccount(resolveCliMode(group.containerConfig))
+        canAutoRotateGroupAccount(group.containerConfig)
       ) {
         streamingRateLimitDetected = true;
         logger.warn(
@@ -1356,12 +1358,14 @@ export async function processGroupMessages(chatJid: string, availableChannels: C
   // Streaming 模式下限流检测：onOutput 回调中发现 "hit your limit" 等文本
   // 轮换账号并重试，runAgent 内部会继续轮换直到试完所有账号
   const cliMode = resolveCliMode(group.containerConfig);
-  const canAutoRotateAnthropic = shouldAutoRotateAnthropicAccount(cliMode);
+  const canAutoRotateAnthropic = canAutoRotateGroupAccount(
+    group.containerConfig,
+  );
 
   if (streamingRateLimitDetected && !canAutoRotateAnthropic) {
     logger.warn(
       { group: group.name, cliMode },
-      '[rate-limit] 当前模式不是 Claude 系，跳过 Anthropic 自动轮换',
+      '[rate-limit] 非 Claude 系或共享账号组，跳过本地自动轮换',
     );
     hadError = true;
   }
@@ -1630,7 +1634,9 @@ export async function runAgent(
 ): Promise<RunAgentResult> {
   const isCurrentModeRun = captureModeRun(chatJid);
   const cliMode = resolveCliMode(group.containerConfig);
-  const canAutoRotateAnthropic = shouldAutoRotateAnthropicAccount(cliMode);
+  const canAutoRotateAnthropic = canAutoRotateGroupAccount(
+    group.containerConfig,
+  );
   const maxRetries = canAutoRotateAnthropic ? getSecretCount() - 1 : 0; // 最多试完所有账号
   const isMain = group.isMain === true;
   const sessionId = sessions[group.folder];
@@ -1865,7 +1871,7 @@ export async function runAgent(
       ) {
         logger.warn(
           { group: group.name, cliMode, error: output.error?.slice(0, 200) },
-          '[rate-limit] 当前模式不是 Claude 系，跳过 Anthropic 自动轮换',
+          '[rate-limit] 非 Claude 系或共享账号组，跳过本地自动轮换',
         );
       }
 
@@ -1953,7 +1959,7 @@ export async function runAgent(
     ) {
       logger.warn(
         { group: group.name, cliMode, result: output.result?.slice(0, 200) },
-        '[rate-limit] 当前模式不是 Claude 系，跳过 Anthropic 自动轮换',
+        '[rate-limit] 非 Claude 系或共享账号组，跳过本地自动轮换',
       );
       return { status: 'error' };
     }

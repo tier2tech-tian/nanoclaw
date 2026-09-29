@@ -31,8 +31,13 @@ import {
   resolveCliMode,
   CODEX_MODES,
   shouldAutoRotateAnthropicAccount,
+  canAutoRotateGroupAccount,
 } from './cli-mode.js';
-export { resolveCliMode, shouldAutoRotateAnthropicAccount };
+export {
+  resolveCliMode,
+  shouldAutoRotateAnthropicAccount,
+  canAutoRotateGroupAccount,
+};
 
 const onecli = new OneCLI({ url: ONECLI_URL });
 import { getRotateEnabled, getRotateIndex, setRotateIndex } from './db.js';
@@ -618,17 +623,62 @@ function getAgentAccessToken(groupFolder: string): string | undefined {
   return undefined;
 }
 
+/** 群级 env 不允许覆盖的键：OneCLI 代理/证书、会话目录、NanoClaw 内部变量 */
+const PROTECTED_ENV_KEYS = new Set([
+  'HTTPS_PROXY',
+  'https_proxy',
+  'HTTP_PROXY',
+  'http_proxy',
+  'NODE_EXTRA_CA_CERTS',
+  'SSL_CERT_FILE',
+  'NODE_USE_ENV_PROXY',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'ANTHROPIC_API_KEY',
+  'CLAUDE_CONFIG_DIR',
+  'HOME',
+]);
+
+/**
+ * 把群级 containerConfig.env 合进子进程环境。
+ * PATH 前插（员工 bin/ 优先），受保护键与 NANOCLAW_* 忽略并告警，其余覆盖。
+ */
+export function mergeGroupEnv(
+  base: NodeJS.ProcessEnv,
+  extra: Record<string, string> | undefined,
+  groupFolder: string,
+): NodeJS.ProcessEnv {
+  if (!extra) return base;
+  const merged = { ...base };
+  const ignored: string[] = [];
+  for (const [key, value] of Object.entries(extra)) {
+    if (PROTECTED_ENV_KEYS.has(key) || key.startsWith('NANOCLAW_')) {
+      ignored.push(key);
+    } else if (key === 'PATH') {
+      merged.PATH = base.PATH ? `${value}:${base.PATH}` : value;
+    } else {
+      merged[key] = value;
+    }
+  }
+  if (ignored.length > 0) {
+    logger.warn({ groupFolder, ignored }, '群级 env 含受保护变量，已忽略');
+  }
+  return merged;
+}
+
 /** 构建子进程环境变量（精确过滤，不泄露宿主无关变量） */
 async function buildLocalEnv(
   input: ContainerInput,
   groupSessionsDir: string,
+  containerConfig?: ContainerConfig,
 ): Promise<NodeJS.ProcessEnv> {
   // OneCLI 代理注入（HTTPS_PROXY + CA 证书）
   const proxyEnv = await getOneCLIProxyEnv();
   const staticCreds = getStaticCredentials();
 
-  // 按群替换 access token（per-group 账号隔离）
-  const groupToken = getAgentAccessToken(input.groupFolder || '');
+  // 按群替换 access token（per-group 账号隔离）；共享账号组保留 Default Agent 的 token
+  const groupToken = containerConfig?.sharedOneCLIAgent
+    ? undefined
+    : getAgentAccessToken(input.groupFolder || '');
   if (groupToken && proxyEnv.HTTPS_PROXY) {
     // 替换 proxy URL 里的 access token: http://x:<old_token>@host:port → http://x:<group_token>@host:port
     proxyEnv.HTTPS_PROXY = proxyEnv.HTTPS_PROXY.replace(
@@ -656,7 +706,7 @@ async function buildLocalEnv(
     }
   }
 
-  return {
+  const env: NodeJS.ProcessEnv = {
     HOME: process.env.HOME,
     PATH: `${path.dirname(process.execPath)}:${process.env.PATH}`,
     NODE_PATH: process.env.NODE_PATH,
@@ -709,6 +759,7 @@ async function buildLocalEnv(
     CREDENTIAL_PROXY_URL: process.env.CREDENTIAL_PROXY_URL,
     CREDENTIAL_PROXY_API_KEY: process.env.CREDENTIAL_PROXY_API_KEY,
   };
+  return mergeGroupEnv(env, containerConfig?.env, input.groupFolder || '');
 }
 
 /** 检查 agent-runner 编译产物是否存在 */
@@ -852,7 +903,11 @@ export async function runContainerAgent(
   checkAgentRunnerDist();
 
   // 构建环境变量
-  const localEnv = await buildLocalEnv(input, groupSessionsDir);
+  const localEnv = await buildLocalEnv(
+    input,
+    groupSessionsDir,
+    group.containerConfig,
+  );
 
   if (codexAccount) {
     const binding = prepareCodexAccount(

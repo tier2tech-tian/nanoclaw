@@ -59,6 +59,17 @@ export interface ContainerConfig {
      *  替代一刀切 120 字压缩。灰度期间按群开关，验证通过后全量 */
     summaryV2?: boolean;
   };
+  /**
+   * 共享 OneCLI 账号组：不为本群建专属 agent、不按群切号，直接用 OneCLI Default Agent。
+   * 用于接 metal 那种"Default Agent 绑整池账号、网关侧自动切换"的部署（细狗数字员工）。
+   */
+  sharedOneCLIAgent?: boolean;
+  /**
+   * 按群附加的 agent 进程环境变量（数字员工的 CLI profile 等）。
+   * `PATH` 特殊处理：前插到默认 PATH 之前，不整体覆盖。
+   * OneCLI 代理/证书相关变量不允许被覆盖（见 PROTECTED_ENV_KEYS）。
+   */
+  env?: Record<string, string>;
 }
 
 export interface RegisteredGroup {

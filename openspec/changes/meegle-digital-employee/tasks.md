@@ -5,10 +5,10 @@
 - [x] 0.2 实测：细狗 `lark-cli profile add --name prd-review`（不 --use，不动已有 Thrall profile）+ `--profile prd-review --as bot` 读群列表成功
 
 ## 1. ContainerConfig 与共享 OneCLI（独立 PR，可先合）
-- [ ] 1.1 types.ts：`standalone` / `sharedOneCLIAgent` / `env` / `employee` 字段
-- [ ] 1.2 sharedOneCLIAgent：ensureOneCLIAgent、getAgentAccessToken、rotateAccount 四个调用点
-- [ ] 1.3 env 合并进 buildLocalEnv（PATH 前插员工 bin/）
-- [ ] 1.4 单测：shared 群不建 agent、不切号、token 取 Default；env 合并不覆盖 OneCLI 代理变量
+- [x] 1.1 types.ts：`sharedOneCLIAgent` / `env`（`standalone` 放第 2 步、员工信息由 3.2 派活入口生成 containerConfig，不单独加 `employee` 字段）
+- [x] 1.2 sharedOneCLIAgent：ensureOneCLIAgent 跳过；getAgentAccessToken 不替换；rotateAccount 四个调用点经 `canAutoRotateGroupAccount` 统一拦住
+- [x] 1.3 env 合并进 buildLocalEnv（`mergeGroupEnv`：PATH 前插，代理/证书/会话目录/NANOCLAW_* 受保护）
+- [x] 1.4 单测（缺陷注入验证：去掉 shared 判断或 PATH 前插，3 条测试失败）：shared 群不建 agent、不切号、token 取 Default；env 合并不覆盖 OneCLI 代理变量
 
 ## 2. 独立模式
 - [ ] 2.1 resolveWorkspacePaths 不传 global；computeExtraDirs 只留员工目录

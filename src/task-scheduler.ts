@@ -11,7 +11,7 @@ import {
   resolveCliMode,
   rotateAccount,
   runContainerAgent,
-  shouldAutoRotateAnthropicAccount,
+  canAutoRotateGroupAccount,
   writeTasksSnapshot,
 } from './container-runner.js';
 import {
@@ -179,7 +179,7 @@ async function runTask(
   // 检测到 "hit your limit" 等文本 → 抑制发送 + kill 子进程 → rotateAccount 换号重跑，
   // 直到成功或试完所有备用账号。夜班等定时任务不再因单账号限额直接躺平（2026-08-06 首班阵亡复盘）。
   const taskCliMode = resolveCliMode(group.containerConfig);
-  const canRotateOnLimit = shouldAutoRotateAnthropicAccount(taskCliMode);
+  const canRotateOnLimit = canAutoRotateGroupAccount(group.containerConfig);
   const maxRotations = canRotateOnLimit ? Math.max(0, getSecretCount() - 1) : 0;
   let rateLimitDetected = false;
 

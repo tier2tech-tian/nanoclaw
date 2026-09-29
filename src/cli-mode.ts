@@ -35,6 +35,15 @@ export function shouldAutoRotateAnthropicAccount(cliMode: CliMode): boolean {
   return CLAUDE_MODES.includes(cliMode);
 }
 
+/**
+ * 本群限流时能否由 NanoClaw 自己切号：Claude 系 cliMode 且不是共享 OneCLI 账号组。
+ * 共享账号组（sharedOneCLIAgent）的切号交给 OneCLI 网关，本地不动 agent 绑定。
+ */
+export function canAutoRotateGroupAccount(config?: ContainerConfig): boolean {
+  if (config?.sharedOneCLIAgent) return false;
+  return shouldAutoRotateAnthropicAccount(resolveCliMode(config));
+}
+
 /** 从 ContainerConfig 解析 cliMode，向后兼容 useCliMode */
 export function resolveCliMode(config?: ContainerConfig): CliMode {
   if (config?.cliMode) {
