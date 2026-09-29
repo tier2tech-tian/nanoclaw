@@ -13,7 +13,7 @@
 ## 2. 独立模式
 - [x] 2.1 resolveWorkspacePaths 不传 global；computeExtraDirs 只留员工目录
 - [x] 2.2 standalone 不同步 container/skills 到会话目录（员工 skills 在 `<员工目录>/.claude/skills`，白名单公共 skill 由派活入口拷进去）；跳过 memory override / injectMemory
-- [ ] 2.3 单测（✅ 已补）+ 实测（随第 5 步细狗 E2E 一起验）：独立群 system prompt 不含 SOUL/TOOLS 内容，skills 列表只有白名单
+- [x] 2.3 单测 + 实测（09-29 细狗：员工会话 transcript 无 SOUL/大狗内容，只用 meegle-emp/lark）：独立群 system prompt 不含 SOUL/TOOLS 内容，skills 列表只有白名单
 
 ## 3. MeegleChannel 与派活入口
 - [x] 3.1 src/channels/meegle.ts：ownsJid(meegle:)、sendMessage 镜像到 observe_jid
@@ -28,8 +28,8 @@
 - [ ] 4.3 CF 隧道迁到细狗（大杰授权 cloudflared login），停 Mac mini 上的 server/tunnel
 
 ## 5. 第一个员工：prd-review
-- [ ] 5.1 员工目录：CLAUDE.md（由现 review 群 SOP 改写，去掉群相关）、skills（nine-refine product 阶段）、assets/index.md、bin/
-- [ ] 5.2 E2E：tian-测试建需求 → 推到 AI 需求评审 → 细狗员工评审、写正式评论 → 需澄清/不通过/通过三条路径各走一遍；退回再进入验证会话续接
+- [x] 5.1 员工目录（细狗 ~/ai/employees/prd-review，git 管理；工具 bin/meegle-emp 纯插件凭证，替代依赖个人登录的 meegle-np）：CLAUDE.md（由现 review 群 SOP 改写，去掉群相关）、skills（nine-refine product 阶段）、assets/index.md、bin/
+- [ ] 5.2 E2E（09-29 已验：本机派活→员工评审→识别重复批次不重复评论→自记经验并 commit；待验：新需求三条结论路径、写评论接口、退回续接）：tian-测试建需求 → 推到 AI 需求评审 → 细狗员工评审、写正式评论 → 需澄清/不通过/通过三条路径各走一遍；退回再进入验证会话续接
 - [ ] 5.3 每周资产汇总定时任务
 
 ## 6. 收尾
