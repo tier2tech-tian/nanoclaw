@@ -1,8 +1,8 @@
 # 任务拆分
 
 ## 0. 先验（不改代码）
-- [ ] 0.1 实测 `settingSources: ['project']` 下 `CLAUDE_CONFIG_DIR/skills` 是否加载 → 决定员工 skills 放置位置
-- [ ] 0.2 实测 lark-cli `profile add` + `--profile x --as bot` 在细狗可用（应用身份发一条消息到观察群）
+- [x] 0.1 实测（09-29 细狗 SDK 探针）：`settingSources: ['project']` 下 `CLAUDE_CONFIG_DIR/skills` **不加载**，`<cwd>/.claude/skills` **加载** → 员工 skills 放 `<员工目录>/.claude/skills/`
+- [x] 0.2 实测：细狗 `lark-cli profile add --name prd-review`（不 --use，不动已有 Thrall profile）+ `--profile prd-review --as bot` 读群列表成功
 
 ## 1. ContainerConfig 与共享 OneCLI（独立 PR，可先合）
 - [ ] 1.1 types.ts：`standalone` / `sharedOneCLIAgent` / `env` / `employee` 字段
@@ -12,7 +12,7 @@
 
 ## 2. 独立模式
 - [ ] 2.1 resolveWorkspacePaths 不传 global；computeExtraDirs 只留员工目录
-- [ ] 2.2 skills 白名单同步；跳过 memory override / injectMemory
+- [ ] 2.2 standalone 不同步 container/skills 到会话目录（员工 skills 在 `<员工目录>/.claude/skills`，白名单公共 skill 由派活入口拷进去）；跳过 memory override / injectMemory
 - [ ] 2.3 单测 + 实测：独立群 system prompt 不含 SOUL/TOOLS 内容，skills 列表只有白名单
 
 ## 3. MeegleChannel 与派活入口

@@ -31,7 +31,7 @@ MeegleChannel.sendMessage → 镜像到员工观察群（fs:oc_...），首行�
 ~/ai/employees/prd-review/
   employee.json      # 清单（见下）
   CLAUDE.md          # 职责、SOP、红线；独立模式下这是唯一的"人设"
-  skills/<name>/     # 专属 skill，同步到该员工所有会话的 .claude/skills
+  .claude/skills/    # 专属 skill（cwd 下 project 级 skills，SDK 直接加载）
   assets/            # 员工自己的资产：index.md + 经验/踩坑/原子块，执行中自己追加
   bin/               # 员工专用命令封装（如 lark-cli 固定 --profile）
 ```
@@ -66,12 +66,12 @@ MeegleChannel.sendMessage → 镜像到员工观察群（fs:oc_...），首行�
 | --- | --- |
 | `resolveWorkspacePaths`（container-runner.ts:407） | 不传 `global` → agent-runner 跳过 SOUL/TOOLS/全局 CLAUDE.md（各注入点已有 `globalDir &&` 判断） |
 | `computeExtraDirs`（agent-runner index.ts:773-782） | 只保留员工目录，不推 groups/、nanoclaw 根、NANOCLAW_PERSONAL_DIR |
-| `prepareGroupSession` skills 同步（container-runner.ts:443-452） | 只同步员工 `skills/` + employee.json 白名单里的公共 skill（如 meegle、lark-doc），不全量拷 container/skills |
+| `prepareGroupSession` skills 同步（container-runner.ts:443-452） | 不同步 container/skills；员工 skills 在 `<员工目录>/.claude/skills`（见下方实测），白名单公共 skill（如 meegle、lark-doc）由派活入口拷进去 |
 | `buildLocalEnv`（container-runner.ts:676） | 不设共享 memory override |
 | `injectMemory`（index.ts:1639-1651） | 跳过 |
 | `customCwd` | 指向员工目录，避开 NANOCLAW_DEFAULT_CWD |
 
-待实测：`settingSources` 只含 `project` 时，`CLAUDE_CONFIG_DIR/skills` 是否仍加载（调研 5 未查到证据）。实现第一步先验这个，决定 skills 放会话 .claude 还是员工目录 .claude。
+已实测（09-29）：`settingSources: ['project']` 时 `CLAUDE_CONFIG_DIR/skills` 不加载、`<cwd>/.claude/skills` 加载。所以员工 skills 放 `<员工目录>/.claude/skills/`，独立模式下不再往会话目录同步 container/skills；employee.json 白名单里的公共 skill 由派活入口拷进员工 `.claude/skills`。
 
 ## 五、共享 OneCLI 账号组（containerConfig.sharedOneCLIAgent = true）
 
