@@ -137,6 +137,21 @@ describe('detectRateLimit', () => {
     expect(detectRateLimit("You've hit your session limit · resets 5:10am (Asia/Shanghai)")).toBe(true);
   });
 
+  // --- reached 变体：Fable 等模型级限额（2026-09-28 漏检，不触发切号）---
+
+  it('匹配 Fable 模型级限额 "You\'ve reached your Fable limit"', () => {
+    expect(
+      detectRateLimit("You've reached your Fable limit. Switch to another model to continue."),
+    ).toBe(true);
+  });
+
+  it('匹配 reached 的通用 / 多词模型名 / smart quote 变体', () => {
+    expect(detectRateLimit("You've reached your usage limit")).toBe(true);
+    expect(detectRateLimit('You have reached your session limit')).toBe(true);
+    expect(detectRateLimit("You've reached your Fable 5 limit")).toBe(true);
+    expect(detectRateLimit('You\u2019ve reached your Opus limit')).toBe(true);
+  });
+
   // --- 误匹配防御测试（回归 bug：正常对话被误判为限流） ---
 
   it('不误匹配单独的 429（如 bug 编号）', () => {
@@ -152,6 +167,14 @@ describe('detectRateLimit', () => {
   it('不误匹配讨论 hit your limit 话题', () => {
     // 正则要求 "hit your (usage )?limit"，"the" 不匹配
     expect(detectRateLimit('如果用户触发 hit the limit 场景')).toBe(false);
+  });
+
+  it('不误匹配讨论 reached limit 话题', () => {
+    // 缺主语 you've/you have，或宾语不是 your，都不算限流信号
+    expect(detectRateLimit('如果 reached the limit 就降级')).toBe(false);
+    expect(detectRateLimit('when a user reached your limit settings page')).toBe(false);
+    // 限额名词超过 2 个，不吃（防止贪婪吞整句）
+    expect(detectRateLimit("You've reached your very long custom quota name limit")).toBe(false);
   });
 
   it('不误匹配讨论 overloaded / quota 普通语义', () => {
