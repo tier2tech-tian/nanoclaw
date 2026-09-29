@@ -409,14 +409,20 @@ export function resolveWorkspacePaths(
     // 都没有才 fallback 到群目录。让 cwd 默认落在 nine 仓库内（分层文档懒加载），无需逐群 /cwd。
     queryCwd: group.customCwd || process.env.NANOCLAW_DEFAULT_CWD || undefined,
     project: isMain ? projectRoot : undefined,
-    global: path.join(GROUPS_DIR, 'global'),
+    // 独立模式不给 global：agent-runner 据此跳过 SOUL/TOOLS/全局 CLAUDE.md
+    global: group.containerConfig?.standalone
+      ? undefined
+      : path.join(GROUPS_DIR, 'global'),
     ipc: resolveGroupIpcPath(group.folder),
     extra: group.containerConfig?.additionalMounts?.[0]?.hostPath,
   };
 }
 
-/** 准备 per-group .claude 配置目录（settings.json + skills 同步） */
-export function prepareGroupSession(groupFolder: string): string {
+/** 准备 per-group .claude 配置目录（settings.json + skills 同步；独立模式不同步 skills） */
+export function prepareGroupSession(
+  groupFolder: string,
+  options: { syncSkills?: boolean } = {},
+): string {
   const groupSessionsDir = path.join(
     DATA_DIR,
     'sessions',
@@ -447,7 +453,7 @@ export function prepareGroupSession(groupFolder: string): string {
   // 同步 container/skills/ → per-group .claude/skills/
   const skillsSrc = path.join(process.cwd(), 'container', 'skills');
   const skillsDst = path.join(groupSessionsDir, 'skills');
-  if (fs.existsSync(skillsSrc)) {
+  if (options.syncSkills !== false && fs.existsSync(skillsSrc)) {
     for (const skillDir of fs.readdirSync(skillsSrc)) {
       const srcDir = path.join(skillsSrc, skillDir);
       if (!fs.statSync(srcDir).isDirectory()) continue;
@@ -706,6 +712,7 @@ async function buildLocalEnv(
     }
   }
 
+  const standalone = containerConfig?.standalone === true;
   const env: NodeJS.ProcessEnv = {
     HOME: process.env.HOME,
     PATH: `${path.dirname(process.execPath)}:${process.env.PATH}`,
@@ -722,12 +729,16 @@ async function buildLocalEnv(
     // Claude SDK
     CLAUDE_CONFIG_DIR: groupSessionsDir,
 
-    // 所有群共享同一个 auto-memory（MEMORY.md），覆盖 SDK 默认的 per-cwd 隔离
-    CLAUDE_COWORK_MEMORY_PATH_OVERRIDE: path.join(
-      GROUPS_DIR,
-      'global',
-      'memory',
-    ),
+    // 所有群共享同一个 auto-memory（MEMORY.md），覆盖 SDK 默认的 per-cwd 隔离；独立模式不共享
+    ...(standalone
+      ? { NANOCLAW_STANDALONE: '1' }
+      : {
+          CLAUDE_COWORK_MEMORY_PATH_OVERRIDE: path.join(
+            GROUPS_DIR,
+            'global',
+            'memory',
+          ),
+        }),
 
     // NanoClaw IPC 路径（agent-runner 传给 MCP server）
     NANOCLAW_IPC_DIR: input.workspacePaths!.ipc,
@@ -738,7 +749,9 @@ async function buildLocalEnv(
     // 个人资产目录（协作协议母版、want-to-do 等平台无关资产），
     // agent-runner 会把它加进 additionalDirectories 让所有群可读写。
     // 注意：主进程不整体加载 .env 进 process.env，必须走 config 的 envConfig 白名单读取
-    ...(PERSONAL_DIR ? { NANOCLAW_PERSONAL_DIR: PERSONAL_DIR } : {}),
+    ...(PERSONAL_DIR && !standalone
+      ? { NANOCLAW_PERSONAL_DIR: PERSONAL_DIR }
+      : {}),
 
     // 群标识（feishu-docs 等 skill 通过 IPC 请求 token 时需要）
     NANOCLAW_CHAT_JID: input.chatJid || '',
@@ -886,7 +899,9 @@ export async function runContainerAgent(
   input.workspacePaths = workspacePaths;
 
   // 准备 per-group .claude 目录
-  const groupSessionsDir = prepareGroupSession(group.folder);
+  const groupSessionsDir = prepareGroupSession(group.folder, {
+    syncSkills: !group.containerConfig?.standalone,
+  });
 
   // codex 模式：同步标记了 codex-shared 的 skill 到群 .codex-home/skills
   if (CODEX_MODES.includes(resolveCliMode(group.containerConfig))) {

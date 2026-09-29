@@ -755,6 +755,12 @@ function computeExtraDirs(paths: {
     if (d && fs.existsSync(d) && !extraDirs.includes(d)) extraDirs.push(d);
   };
 
+  // 独立模式（数字员工）：人设与 skills 只来自 cwd（员工目录），只额外放行会话目录
+  if (process.env.NANOCLAW_STANDALONE === '1') {
+    pushDir(paths.group);
+    return extraDirs;
+  }
+
   const effectiveCwd = paths.queryCwd || paths.group;
   const extraBase = paths.extra;
   const cwdInExtra = !!(

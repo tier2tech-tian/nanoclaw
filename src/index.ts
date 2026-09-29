@@ -1641,8 +1641,8 @@ export async function runAgent(
   const isMain = group.isMain === true;
   const sessionId = sessions[group.folder];
 
-  // R8.2: 启动容器前注入记忆
-  if (isMemoryEnabled()) {
+  // R8.2: 启动容器前注入记忆（独立模式的数字员工只用自己的 assets，不注入共享记忆）
+  if (isMemoryEnabled() && !group.containerConfig?.standalone) {
     try {
       const groupDir = resolveGroupFolderPath(group.folder);
       await injectMemory(

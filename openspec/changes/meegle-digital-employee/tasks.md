@@ -11,9 +11,9 @@
 - [x] 1.4 单测（缺陷注入验证：去掉 shared 判断或 PATH 前插，3 条测试失败）：shared 群不建 agent、不切号、token 取 Default；env 合并不覆盖 OneCLI 代理变量
 
 ## 2. 独立模式
-- [ ] 2.1 resolveWorkspacePaths 不传 global；computeExtraDirs 只留员工目录
-- [ ] 2.2 standalone 不同步 container/skills 到会话目录（员工 skills 在 `<员工目录>/.claude/skills`，白名单公共 skill 由派活入口拷进去）；跳过 memory override / injectMemory
-- [ ] 2.3 单测 + 实测：独立群 system prompt 不含 SOUL/TOOLS 内容，skills 列表只有白名单
+- [x] 2.1 resolveWorkspacePaths 不传 global；computeExtraDirs 只留员工目录
+- [x] 2.2 standalone 不同步 container/skills 到会话目录（员工 skills 在 `<员工目录>/.claude/skills`，白名单公共 skill 由派活入口拷进去）；跳过 memory override / injectMemory
+- [ ] 2.3 单测（✅ 已补）+ 实测（随第 5 步细狗 E2E 一起验）：独立群 system prompt 不含 SOUL/TOOLS 内容，skills 列表只有白名单
 
 ## 3. MeegleChannel 与派活入口
 - [ ] 3.1 src/channels/meegle.ts：ownsJid(meegle:)、sendMessage 镜像到 observe_jid

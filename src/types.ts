@@ -60,6 +60,11 @@ export interface ContainerConfig {
     summaryV2?: boolean;
   };
   /**
+   * 独立模式（数字员工）：不加载 SOUL/TOOLS/全局 CLAUDE.md、不同步 container/skills、
+   * 不注入共享记忆，additionalDirectories 只留会话目录；人设与 skills 全部来自 customCwd（员工目录）。
+   */
+  standalone?: boolean;
+  /**
    * 共享 OneCLI 账号组：不为本群建专属 agent、不按群切号，直接用 OneCLI Default Agent。
    * 用于接 metal 那种"Default Agent 绑整池账号、网关侧自动切换"的部署（细狗数字员工）。
    */

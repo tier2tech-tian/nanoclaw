@@ -431,6 +431,23 @@ describe('agent spawn and timeout', () => {
       expect(env.HTTPS_PROXY).toBe('http://x:token@localhost:10255');
       expect(env.NANOCLAW_IPC_DIR).not.toBe('/evil');
     });
+
+    it('独立模式打标记、不共享 auto-memory', async () => {
+      const normal = await spawnEnv(testGroup);
+      expect(normal.NANOCLAW_STANDALONE).toBeUndefined();
+      expect(normal.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE).toMatch(
+        /global\/memory$/,
+      );
+
+      fakeProc = createFakeProcess();
+      const standalone = await spawnEnv({
+        ...testGroup,
+        containerConfig: { standalone: true },
+      });
+      expect(standalone.NANOCLAW_STANDALONE).toBe('1');
+      expect(standalone.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE).toBeUndefined();
+      expect(standalone.NANOCLAW_GLOBAL_DIR).toBeUndefined();
+    });
   });
 
   it('timeout after output resolves as success', async () => {
@@ -719,6 +736,19 @@ describe('resolveWorkspacePaths', () => {
     const p = resolveWorkspacePaths(testGroup, true);
     expect(p.global).toMatch(/groups\/global$/);
   });
+
+  it('独立模式不给 global，cwd 用员工目录', () => {
+    const p = resolveWorkspacePaths(
+      {
+        ...testGroup,
+        customCwd: '/emp/prd-review',
+        containerConfig: { standalone: true },
+      },
+      false,
+    );
+    expect(p.global).toBeUndefined();
+    expect(p.queryCwd).toBe('/emp/prd-review');
+  });
 });
 
 describe('prepareGroupSession', () => {
@@ -733,6 +763,21 @@ describe('prepareGroupSession', () => {
   it('path ends with .claude', () => {
     const dir = prepareGroupSession('main');
     expect(dir).toMatch(/sessions\/main\/\.claude$/);
+  });
+
+  it('syncSkills=false 不同步 container/skills', () => {
+    vi.mocked(fs.readdirSync).mockReturnValue([
+      'kickoff',
+    ] as unknown as ReturnType<typeof fs.readdirSync>);
+    vi.mocked(fs.statSync).mockReturnValue({
+      isDirectory: () => true,
+    } as unknown as ReturnType<typeof fs.statSync>);
+    vi.mocked(fs.cpSync).mockClear();
+    prepareGroupSession('emp-a', { syncSkills: false });
+    expect(fs.cpSync).not.toHaveBeenCalled();
+    prepareGroupSession('emp-a');
+    expect(fs.cpSync).toHaveBeenCalled();
+    vi.mocked(fs.readdirSync).mockReturnValue([]);
   });
 });
 
