@@ -7,6 +7,7 @@
  * 连接 ID 的最新累计值，连接消失时结算落盘，做到不漏。
  */
 import { request } from 'http';
+import { execSync } from 'child_process';
 import { appendFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
@@ -35,15 +36,36 @@ function dayFile() {
   return join(OUT_DIR, `flow-${d.toISOString().slice(0, 10)}.jsonl`);
 }
 
+/** 判断链路是否走代理出海（Clash 为 TUN 模式，DIRECT 也会经过它） */
+function isProxied(chain) {
+  return /vless|vmess|trojan|hysteria|ss-|shadowsocks/i.test(chain);
+}
+
 function settle(id, c) {
-  // 只记走代理的连接；DIRECT 不消耗 BWG 流量
-  if (!c.chain.includes('vless') && !c.chain.includes('VLESS') && !c.chain.includes('VMess')) return;
   if (c.up + c.dn < 1024) return; // 忽略 1KB 以下噪音
+  // 全量记录（含 DIRECT），用 px 标注是否走代理——只有 px=true 才消耗 BWG 流量
   appendFileSync(dayFile(), JSON.stringify({
     t: new Date().toISOString(),
     host: c.host, proc: c.process, chain: c.chain,
+    px: isProxied(c.chain),
     up: c.up, dn: c.dn, dur: Math.round((Date.now() - c.start) / 1000),
   }) + '\n');
+}
+
+/** 网卡级快照：用于和 Clash 统计对账，差额=没走 Clash 的流量 */
+function snapshotNic() {
+  try {
+    const out = execSync("/usr/sbin/netstat -ib", { encoding: 'utf8' });
+    for (const line of out.split('\n')) {
+      const f = line.trim().split(/\s+/);
+      if (f[0] === 'en1' && /Link/.test(f[2] || '')) {
+        appendFileSync(dayFile().replace('flow-', 'nic-'), JSON.stringify({
+          t: new Date().toISOString(), rx: Number(f[6]), tx: Number(f[9]),
+        }) + '\n');
+        return;
+      }
+    }
+  } catch { /* 取不到就跳过，不影响主流程 */ }
 }
 
 async function tick() {
@@ -70,6 +92,8 @@ async function tick() {
 console.log(`[traffic-recorder] started, sampling every ${INTERVAL}ms → ${OUT_DIR}`);
 setInterval(tick, INTERVAL);
 tick();
+setInterval(snapshotNic, 300_000);
+snapshotNic();
 
 // 退出前把还活着的连接也结算掉
 for (const sig of ['SIGINT', 'SIGTERM']) {
