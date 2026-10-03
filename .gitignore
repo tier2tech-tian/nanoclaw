@@ -29,6 +29,9 @@ groups/global/*
 # Secrets
 *.keys.json
 .env
+# .env 的手工备份同样含密钥（2026-10-03 曾被 git add -A 扫进提交，被 GitHub 推送保护拦下）
+.env.bak*
+.env.*.bak
 
 # Temp files
 .tmp-*
