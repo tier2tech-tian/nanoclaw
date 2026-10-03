@@ -1,6 +1,6 @@
 ---
 name: taskboard
-description: 群级持久化任务看板。查看/添加/完成/删除待办。触发词：待办、任务、todo、tasks、看板、加个任务、完成任务。
+description: "查看或维护当前群的持久化待办看板。"
 ---
 
 # 任务看板

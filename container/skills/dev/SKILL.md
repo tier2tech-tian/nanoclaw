@@ -1,6 +1,6 @@
 ---
 name: dev
-description: 加载 NanoClaw 开发上下文（架构、核心文件、开发命令）。当用户要求修改 NanoClaw 源码、修 bug、加功能、重构代码、查看架构时自动触发。触发词包括：改代码、修复、重构、加功能、看下代码、源码、build、编译、debug 代码。
+description: "修改NanoClaw宿主或agent-runner源码时，查本项目运行与构建约束。"
 ---
 
 # NanoClaw 开发上下文

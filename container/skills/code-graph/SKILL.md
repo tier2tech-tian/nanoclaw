@@ -1,6 +1,6 @@
 ---
 name: code-graph
-description: "代码逻辑查询工具。用户说'查 XX 代码逻辑'、'XX 的调用链'、'XX 怎么实现的'时触发。复用共享主干索引，提供符号上下文、执行流搜索和影响分析；任务 worktree 不重建索引。"
+description: "用GitNexus查询调用链或改动影响；使用现有共享索引。"
 ---
 
 # Code Graph — 代码逻辑查询

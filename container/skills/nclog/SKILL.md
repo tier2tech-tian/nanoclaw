@@ -1,6 +1,6 @@
 ---
 name: nclog
-description: NanoClaw 本地日志查询工具。当 agent 需要查看自身日志、排查 NanoClaw 运行问题、查看消息处理链路、排查断连/compaction/IPC 问题时使用。触发词："查日志"、"看日志"、"nanoclaw 日志"、"nclog"、"自己的日志"、"查一下你的日志"。
+description: "查询NanoClaw宿主与Agent运行日志，排查消息处理和断连。"
 ---
 
 # NanoClaw 日志查询 Skill

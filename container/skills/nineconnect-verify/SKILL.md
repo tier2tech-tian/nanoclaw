@@ -1,6 +1,6 @@
 ---
 name: nineconnect-verify
-description: NineConnect macOS App 构建后自测流程。构建 DMG 后自动执行完整验证，确保不让用户当测试员。触发词：nineconnect 自测、验证 nineconnect、测试 app、nineconnect-verify。
+description: "构建NineConnect macOS应用后验证安装与核心功能。"
 ---
 
 # NineConnect 构建后自测

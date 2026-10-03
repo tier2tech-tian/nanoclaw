@@ -1,6 +1,6 @@
 ---
 name: prototype
-description: Build a throwaway prototype to answer a design question. Use when the user wants to sanity-check whether a state model or logic feels right, or explore what a UI should look like.
+description: "制作可丢弃原型，验证一个明确的设计问题。"
 ---
 
 # Prototype

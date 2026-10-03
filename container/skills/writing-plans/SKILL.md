@@ -1,6 +1,6 @@
 ---
 name: writing-plans
-description: Use when you have a spec or requirements for a multi-step task, before touching code
+description: "将已确定的多步需求整理为可执行实现计划。"
 ---
 
 # Writing Plans
