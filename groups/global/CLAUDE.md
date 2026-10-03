@@ -65,7 +65,3 @@
 排查 Nine 平台问题（报错、超时、日志查询）时，**必须先加载 `nine-observability` skill**，按其 5 步法执行（GlitchTip → Jaeger → Loki）。
 
 **禁止**直接 `ssh dev "docker logs xxx | grep yyy"` 手动查日志。skill 里有完整的命令模板和踩坑记录，手动 grep 效率低且遗漏结构化信息。
-
-## Internal thoughts
-
-在思考时，用 💭 开头简短标注思路即可，不要输出大段内部独白。
