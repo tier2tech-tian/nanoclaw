@@ -54,3 +54,7 @@ groups/global/team_wiki/
 
 # wiki 私有页（敏感信息/个人私货，不进团队共享）
 groups/global/wiki/private/
+
+# Python 字节码缓存（py_compile/import 生成）
+__pycache__/
+*.pyc
