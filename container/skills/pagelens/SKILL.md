@@ -13,7 +13,7 @@ codex-shared: true
 ```bash
 pagelens doctor
 ```
-四行 ✓ 才可用。缺 Key 时按 README 配 `~/.config/pagelens/bailian.key`，**不要把 Key 写进任何文件或回复**。命令不存在 → `uv tool install --python 3.11 <pagelens 仓库>/cli`。
+四行 ✓ 才可用。Key 已内置在包里不用配；doctor 显示的 Key 片段**不要抄进回复**。命令不存在 → `uv tool install --python 3.11 <pagelens 仓库>/cli`。
 
 ## 用法
 
