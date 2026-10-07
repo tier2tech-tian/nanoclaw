@@ -6,14 +6,14 @@ codex-shared: true
 
 # PageLens 代码定位
 
-本地 CLI `pagelens` 直连百炼定位模型 + 随包数据，不依赖 134/159 服务。源码与 README 在 `pagelens` 仓库 `cli/`。
+本地 CLI `pagelens` 直连百炼定位模型 + 随包数据，不依赖 134/159 服务。源码与 README 在 GitHub `TierIITech/screenshot-code-locator` 的 `pagelens-cli/`。
 
 ## 前置
 
 ```bash
 pagelens doctor
 ```
-四行 ✓ 才可用。Key 已内置在包里不用配；doctor 显示的 Key 片段**不要抄进回复**。命令不存在 → `uv tool install --python 3.11 <pagelens 仓库>/cli`。
+四行 ✓ 才可用。Key 已内置在包里不用配；doctor 显示的 Key 片段**不要抄进回复**。命令不存在 → `uv tool install --python 3.11 "git+ssh://git@github.com/TierIITech/screenshot-code-locator.git#subdirectory=pagelens-cli"`。
 
 ## 用法
 
