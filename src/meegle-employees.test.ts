@@ -76,7 +76,7 @@ describe('dispatchToEmployee', () => {
     return { deps, groups };
   }
 
-  it('同一需求两次派活命中同一 folder，只注册一次', () => {
+  it('同一需求两次派活命中同一 folder，配置按清单刷新', () => {
     const { deps, groups } = makeDeps();
     const req = {
       employee: 'prd-review',
@@ -92,7 +92,10 @@ describe('dispatchToEmployee', () => {
       folder: 'emp-prd-review-7126683372',
     });
     expect(second).toMatchObject({ ok: true, created: false });
-    expect(deps.registerGroup).toHaveBeenCalledTimes(1);
+    expect(deps.registerGroup).toHaveBeenCalledTimes(2);
+    const calls = vi.mocked(deps.registerGroup).mock.calls;
+    expect(calls[1][1].folder).toBe(calls[0][1].folder);
+    expect(calls[1][1].added_at).toBe(calls[0][1].added_at);
     expect(deps.enqueueMessageCheck).toHaveBeenCalledTimes(2);
 
     const group = groups['meegle:prd-review:7126683372'];
@@ -101,6 +104,7 @@ describe('dispatchToEmployee', () => {
     expect(group.containerConfig).toMatchObject({
       standalone: true,
       sharedOneCLIAgent: true,
+      idleTimeout: 60_000,
       env: {
         LARK_CLI_PROFILE: 'prd-review',
         PATH: path.join(root, 'employees', 'prd-review', 'bin'),

@@ -120,6 +120,8 @@ export function buildEmployeeGroup(
       standalone: true,
       sharedOneCLIAgent: true,
       quietProgress: true,
+      // 一次回调一轮评审，跑完 1 分钟即退出；同一需求再进来会按 session 续接
+      idleTimeout: 60_000,
       env: { ...employee.env, PATH: path.join(employee.dir, 'bin') },
     },
   };
@@ -200,13 +202,12 @@ export function dispatchToEmployee(
   const now = (deps.now ?? (() => new Date()))();
   const timestamp = now.toISOString();
   const existing = deps.getGroup(jid);
-  if (!existing) {
-    syncEmployeeSkills(employee, deps.skillsSrcDir);
-    deps.registerGroup(
-      jid,
-      buildEmployeeGroup(employee, workItemId, timestamp),
-    );
-  }
+  // 每次派活都按当前 employee.json 重建配置（改 env/超时等无需重注册），会话按 folder 续接不受影响
+  syncEmployeeSkills(employee, deps.skillsSrcDir);
+  deps.registerGroup(
+    jid,
+    buildEmployeeGroup(employee, workItemId, existing?.added_at ?? timestamp),
+  );
 
   const messageId = `meegle-${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`;
   deps.storeChatMetadata(jid, timestamp, `${employee.name} · ${workItemId}`);

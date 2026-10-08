@@ -645,7 +645,7 @@ export async function processGroupMessages(chatJid: string, availableChannels: C
         'Idle timeout, closing container stdin',
       );
       queue.closeStdin(chatJid);
-    }, IDLE_TIMEOUT);
+    }, group.containerConfig?.idleTimeout ?? IDLE_TIMEOUT);
   };
 
   await channel.setTyping?.(chatJid, true);
