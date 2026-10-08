@@ -98,13 +98,16 @@ describe('FeishuUserChannel 轮询', () => {
         textMsg('om_1', 1_000_500, 'ou_zhang', '你好 nine'),
       ],
     };
-    const { channel, lark, stored, groups, deps } = setup(msgs);
+    const { channel, lark, stored, groups, setNow } = setup(msgs);
     await channel.connect();
     await channel.disconnect(); // 只手动驱动 pollOnce
     expect(await channel.pollOnce()).toBe(0); // 第一轮：记进度点
+    setNow(1_005_000); // 轮询晚于消息发送（真实情况：有十几秒延迟）
     expect(await channel.pollOnce()).toBe(1); // 第二轮：收到 om_1，历史消息被进度点挡住
     expect(await channel.pollOnce()).toBe(0); // 第三轮：同一批再返回也不重复
     expect(stored.map((m) => m.id)).toEqual(['om_1']);
+    // 按入库时间记，不早于本轮轮询时刻（message loop 才看得到）
+    expect(stored[0].timestamp).toBe(new Date(1_005_000).toISOString());
     expect(stored[0]).toMatchObject({
       chat_jid: 'nine:oc_p2p',
       sender_name: '张三',

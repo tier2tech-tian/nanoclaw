@@ -300,7 +300,9 @@ export class FeishuUserChannel implements Channel {
         continue; // 群里只接 @ 自己的
       const text = messageText(m);
       if (!text) continue;
-      const ts = new Date(t).toISOString();
+      // 按入库时间记（不用飞书发送时间）：message loop 只看比"已看过时间点"新的消息，
+      // 轮询晚到的消息若按发送时间入库，会落在时间点之前、永远不被处理（2026-10-08 实测）
+      const ts = new Date(Math.max(t, now + stored)).toISOString();
       if (!this.deps.getGroup(jid)) {
         this.deps.registerGroup(
           jid,
