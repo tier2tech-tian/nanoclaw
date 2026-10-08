@@ -238,6 +238,8 @@ export class FeishuUserChannel implements Channel {
     this.round++;
     let stored = 0;
     for (const chat of this.chats) {
+      // 已被机器人会话占用的群（如数字员工需求群）归机器人处理，nine 只是成员、不插话
+      if (this.deps.getGroup(`fs:${chat.chat_id}`)) continue;
       stored += await this.pollChat(chat);
     }
     return stored;

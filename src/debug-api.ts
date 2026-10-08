@@ -15,10 +15,9 @@ const DEBUG_PORT = 19877;
 interface DebugDeps {
   sendTestMessage: (jid: string, text: string) => Promise<string>;
   getStatus: () => Record<string, unknown>;
-  meegleDispatch?: (body: Record<string, unknown>) => {
-    status: number;
-    body: Record<string, unknown>;
-  };
+  meegleDispatch?: (
+    body: Record<string, unknown>,
+  ) => Promise<{ status: number; body: Record<string, unknown> }>;
 }
 
 async function readJsonBody(
@@ -71,7 +70,7 @@ export function startDebugApi(deps: DebugDeps): void {
           res.end(JSON.stringify({ error: String(err) }));
           return;
         }
-        const result = deps.meegleDispatch(body);
+        const result = await deps.meegleDispatch(body);
         res.writeHead(result.status);
         res.end(JSON.stringify(result.body));
         return;

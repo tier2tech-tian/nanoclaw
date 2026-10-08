@@ -37,6 +37,8 @@ const envConfig = readEnvFile([
   'FEISHU_USER_EMPLOYEE',
   'FEISHU_USER_LARK_PROFILE',
   'FEISHU_USER_POLL_MS',
+  'MEEGLE_GROUP_LARK_PROFILE',
+  'MEEGLE_GROUP_MEMBERS',
   'GITHUB_PROJECT_AUTO_DISPATCH',
   'GITHUB_PROJECT_OWNER',
   'GITHUB_PROJECT_ASSIGNEE',
@@ -156,6 +158,19 @@ export const FEISHU_USER_POLL_MS = parseInt(
   process.env.FEISHU_USER_POLL_MS || envConfig.FEISHU_USER_POLL_MS || '15000',
   10,
 );
+// 数字员工会话绑定飞书群：用哪个 lark-cli profile 的机器人身份建群、默认拉哪些成员（open_id，逗号分隔）
+export const MEEGLE_GROUP_LARK_PROFILE =
+  process.env.MEEGLE_GROUP_LARK_PROFILE ||
+  envConfig.MEEGLE_GROUP_LARK_PROFILE ||
+  '';
+export const MEEGLE_GROUP_MEMBERS = (
+  process.env.MEEGLE_GROUP_MEMBERS ||
+  envConfig.MEEGLE_GROUP_MEMBERS ||
+  ''
+)
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 // --- Chat Index ---
 export const CHAT_INDEX_ENABLED =

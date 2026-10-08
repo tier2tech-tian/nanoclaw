@@ -103,18 +103,22 @@ export function parseEmployeeJid(
   return { employeeId, workItemId };
 }
 
-/** 生成"员工 × 需求"虚拟群：独立模式 + 共享账号组，cwd 指向员工目录，员工 bin/ 前插 PATH */
+/**
+ * 生成"员工 × 需求"会话配置：独立模式 + 共享账号组，cwd 指向员工目录，员工 bin/ 前插 PATH。
+ * 绑定飞书群时 trigger 用机器人名、要求 @ 才处理（群里人互相聊天不打扰员工）。
+ */
 export function buildEmployeeGroup(
   employee: EmployeeManifest,
   workItemId: string,
   addedAt: string,
+  opts: { name?: string; trigger?: string } = {},
 ): RegisteredGroup {
   return {
-    name: `${employee.name} · ${workItemId}`,
+    name: opts.name || `${employee.name} · ${workItemId}`,
     folder: employeeFolder(employee.id, workItemId),
-    trigger: `@${employee.id}`,
+    trigger: opts.trigger || `@${employee.id}`,
     added_at: addedAt,
-    requiresTrigger: false,
+    requiresTrigger: !!opts.trigger,
     customCwd: employee.dir,
     containerConfig: {
       standalone: true,
@@ -154,9 +158,21 @@ export interface MeegleDispatchRequest {
   employee: string;
   work_item_id: string;
   text: string;
+  /** 需求名，用于给群起名（hook 查好传来，可缺省） */
+  work_item_name?: string;
   /** hook 传来的运行批次，只进日志 */
   flow_id?: string;
   state_key?: string;
+}
+
+/** 员工会话绑定飞书群：首次派活由机器人建群（拉总控等成员），群 = 会话 */
+export interface EmployeeGroupBinding {
+  /** 机器人名（群里 @ 它才处理），也作为派活消息前缀 */
+  trigger: string;
+  /** 机器人建群，返回 chat_id；失败抛错 */
+  createChat: (name: string) => Promise<string>;
+  getBinding: (key: string) => string | undefined;
+  setBinding: (key: string, jid: string) => void;
 }
 
 export interface MeegleDispatchDeps {
@@ -166,6 +182,8 @@ export interface MeegleDispatchDeps {
   storeChatMetadata: (jid: string, timestamp: string, name: string) => void;
   storeMessage: (msg: NewMessage) => void;
   skillsSrcDir: string;
+  /** 配了就每个"员工 × 需求"绑定一个飞书群；不配则用虚拟会话（meegle:<员工>:<需求>） */
+  groupBinding?: EmployeeGroupBinding;
   now?: () => Date;
 }
 
@@ -179,10 +197,14 @@ export type MeegleDispatchResult =
     }
   | { ok: false; status: number; error: string };
 
-export function dispatchToEmployee(
+export function bindingKey(employeeId: string, workItemId: string): string {
+  return `meegle:group:${employeeId}:${workItemId}`;
+}
+
+export async function dispatchToEmployee(
   req: Partial<MeegleDispatchRequest>,
   deps: MeegleDispatchDeps,
-): MeegleDispatchResult {
+): Promise<MeegleDispatchResult> {
   const employeeId = String(req.employee || '');
   const workItemId = String(req.work_item_id || '');
   const text = typeof req.text === 'string' ? req.text : '';
@@ -193,29 +215,56 @@ export function dispatchToEmployee(
   if (!employee)
     return { ok: false, status: 404, error: `员工不存在: ${employeeId}` };
 
-  const jid = employeeJid(employee.id, workItemId);
   const folder = employeeFolder(employee.id, workItemId);
   if (!isValidGroupFolder(folder))
     return { ok: false, status: 400, error: `folder 非法: ${folder}` };
 
   const now = (deps.now ?? (() => new Date()))();
   const timestamp = now.toISOString();
+  const title = `${employee.name} · ${req.work_item_name || '需求'} #${workItemId}`;
+
+  let jid = employeeJid(employee.id, workItemId);
+  const binding = deps.groupBinding;
+  if (binding) {
+    const key = bindingKey(employee.id, workItemId);
+    const bound = binding.getBinding(key);
+    if (bound) {
+      jid = bound;
+    } else {
+      try {
+        jid = `fs:${await binding.createChat(title)}`;
+      } catch (err) {
+        // 不降级成虚拟会话：建群失败直接报错，hook 会记 ok=false
+        return { ok: false, status: 502, error: `建群失败: ${String(err)}` };
+      }
+      binding.setBinding(key, jid);
+      logger.info(
+        { employee: employee.id, workItemId, jid },
+        '[meegle] 已建需求群',
+      );
+    }
+  }
+
   const existing = deps.getGroup(jid);
   // 每次派活都按当前 employee.json 重建配置（改 env/超时等无需重注册），会话按 folder 续接不受影响
   syncEmployeeSkills(employee, deps.skillsSrcDir);
   deps.registerGroup(
     jid,
-    buildEmployeeGroup(employee, workItemId, existing?.added_at ?? timestamp),
+    buildEmployeeGroup(employee, workItemId, existing?.added_at ?? timestamp, {
+      name: binding ? title : undefined,
+      trigger: binding?.trigger,
+    }),
   );
 
   const messageId = `meegle-${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`;
-  deps.storeChatMetadata(jid, timestamp, `${employee.name} · ${workItemId}`);
+  deps.storeChatMetadata(jid, timestamp, title);
   deps.storeMessage({
     id: messageId,
     chat_jid: jid,
     sender: 'meegle-hook',
     sender_name: '飞书项目',
-    content: text,
+    // 绑群时要求 @ 机器人才处理，派活消息带上前缀
+    content: binding ? `${binding.trigger} ${text}` : text,
     timestamp,
     is_from_me: false,
     is_bot_message: false,
@@ -225,6 +274,7 @@ export function dispatchToEmployee(
     {
       employee: employee.id,
       workItemId,
+      jid,
       flowId: req.flow_id,
       stateKey: req.state_key,
       created: !existing,

@@ -26,6 +26,8 @@ import {
   FEISHU_USER_LARK_PROFILE,
   FEISHU_USER_POLL_MS,
   GITHUB_PROJECT_AUTO_DISPATCH_CONFIG,
+  MEEGLE_GROUP_LARK_PROFILE,
+  MEEGLE_GROUP_MEMBERS,
   getTriggerPattern,
   GROUPS_DIR,
   IDLE_TIMEOUT,
@@ -2121,16 +2123,51 @@ async function startMessageLoop(): Promise<void> {
         return `message stored and enqueued: ${id}`;
       },
       meegleDispatch: EMPLOYEES_DIR
-        ? (body) => {
+        ? async (body) => {
             employees = loadEmployees(EMPLOYEES_DIR);
-            const result = dispatchToEmployee(body, {
+            const groupLark = MEEGLE_GROUP_LARK_PROFILE
+              ? createLarkRunner(MEEGLE_GROUP_LARK_PROFILE)
+              : null;
+            const result = await dispatchToEmployee(body, {
               getEmployee,
               getGroup: (jid) => registeredGroups[jid],
               registerGroup,
               storeChatMetadata: (jid, timestamp, name) =>
-                storeChatMetadata(jid, timestamp, name, 'meegle', true),
+                storeChatMetadata(
+                  jid,
+                  timestamp,
+                  name,
+                  jid.startsWith('fs:') ? 'feishu' : 'meegle',
+                  true,
+                ),
               storeMessage,
               skillsSrcDir: path.join(process.cwd(), 'container', 'skills'),
+              groupBinding: groupLark
+                ? {
+                    trigger: DEFAULT_TRIGGER,
+                    createChat: async (name) => {
+                      const res = await groupLark([
+                        'im',
+                        '+chat-create',
+                        '--name',
+                        name.slice(0, 60),
+                        ...(MEEGLE_GROUP_MEMBERS.length
+                          ? ['--users', MEEGLE_GROUP_MEMBERS.join(',')]
+                          : []),
+                        '--as',
+                        'bot',
+                      ]);
+                      const chatId = res?.data?.chat_id;
+                      if (!res?.ok || !chatId)
+                        throw new Error(
+                          res?.error?.message || '建群返回无 chat_id',
+                        );
+                      return chatId;
+                    },
+                    getBinding: getRouterState,
+                    setBinding: setRouterState,
+                  }
+                : undefined,
             });
             return result.ok
               ? { status: 200, body: result }

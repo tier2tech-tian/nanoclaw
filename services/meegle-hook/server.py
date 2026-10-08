@@ -54,6 +54,19 @@ def find_employee(project_key: str, state_key: str):
     return None
 
 
+def work_item_name(emp_dir: str, wid) -> str:
+    """用员工自带的 meegle-emp 查需求名（给需求群起名用）；查不到返回空串，不影响派活"""
+    for rel in ("bin/meegle-emp", "lib/meegle-emp"):
+        tool = os.path.join(emp_dir, rel)
+        if os.path.exists(tool):
+            try:
+                r = subprocess.run([tool, "get", str(wid)], capture_output=True, text=True, timeout=15)
+                return (json.loads(r.stdout) or {}).get("name") or ""
+            except (subprocess.SubprocessError, ValueError):
+                return ""
+    return ""
+
+
 def _already_dispatched(flow_id: str) -> bool:
     if not os.path.exists(DISPATCHED):
         return False
@@ -72,7 +85,7 @@ def dispatch(data: dict):
     if not emp or not wid:
         _log(f"skip dispatch: project={project} node={node} wid={wid} 无员工")
         return
-    employee_id = emp[0]
+    employee_id, emp_dir = emp
     with _lock:
         if flow_id and _already_dispatched(flow_id):
             _log(f"skip dispatch: flow {flow_id} 已派过")
@@ -87,6 +100,7 @@ def dispatch(data: dict):
             f"按 CLAUDE.md 的 SOP 执行，完成后写回并流转节点。"
         )
         payload = json.dumps({"employee": employee_id, "work_item_id": str(wid), "state_key": node,
+                              "work_item_name": work_item_name(emp_dir, wid),
                               "flow_id": flow_id, "text": text}).encode()
         try:
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
