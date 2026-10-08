@@ -92,6 +92,7 @@ import {
   getRecentUserMessages,
   getMessageById,
   hasMessageInChat,
+  getLatestMessageTimestamp,
   getRouterState,
   initDatabase,
   setRegisteredGroup,
@@ -173,6 +174,11 @@ const activeQuestionCardTurns = new Map<string, ActiveQuestionCardTurn>();
  * 单调推进 per-JID cursor。只有 ts > 当前值才写入，防止被旧值覆盖回退。
  * 所有对 lastAgentTimestamp 的赋值都必须走这个函数。
  */
+/** 共享记忆（全局 Wiki / facts）的读写开关：独立模式的数字员工只用自己的 assets */
+function usesSharedMemory(group: RegisteredGroup): boolean {
+  return isMemoryEnabled() && !group.containerConfig?.standalone;
+}
+
 function advanceAgentCursor(jid: string, ts: string, save = true): void {
   const current = lastAgentTimestamp[jid] || '';
   if (ts > current) {
@@ -1176,7 +1182,7 @@ export async function processGroupMessages(chatJid: string, availableChannels: C
       // R8.1 实时记忆入队：agent 回复完成后立即入队，不等进程退出
       // agent-runner 完成回复后会进入 IPC 等待循环（可达 8 小时），
       // 如果等进程退出才入队，记忆会延迟数小时甚至因 SIGTERM 丢失
-      if (!memoryEnqueued && isMemoryEnabled() && agentReplies.length > 0) {
+      if (!memoryEnqueued && usesSharedMemory(group) && agentReplies.length > 0) {
         const memoryMessages = [
           ...missedMessages.map((m) => ({
             content: m.content,
@@ -1541,7 +1547,7 @@ export async function processGroupMessages(chatJid: string, availableChannels: C
     if (everSentToUser) {
       // error 但已有回复发给用户：推进 cursor（防止重启后重复回复）+ 入队记忆
       advanceAgentCursor(chatJid, newCursor);
-      if (!memoryEnqueued && isMemoryEnabled() && agentReplies.length > 0) {
+      if (!memoryEnqueued && usesSharedMemory(group) && agentReplies.length > 0) {
         const memoryMessages = [
           ...missedMessages.map((m) => ({
             content: m.content,
@@ -1603,7 +1609,7 @@ export async function processGroupMessages(chatJid: string, availableChannels: C
   // chatIndex 已在 onOutput 回调中实时索引，此处无需重复
 
   // R8.1 兜底：如果 onOutput 中未能入队（如 agent 未发 success 状态），在进程退出后补入队
-  if (!memoryEnqueued && isMemoryEnabled()) {
+  if (!memoryEnqueued && usesSharedMemory(group)) {
     const memoryMessages = [
       ...missedMessages.map((m) => ({
         content: m.content,
@@ -1666,7 +1672,7 @@ export async function runAgent(
   const sessionId = sessions[group.folder];
 
   // R8.2: 启动容器前注入记忆（独立模式的数字员工只用自己的 assets，不注入共享记忆）
-  if (isMemoryEnabled() && !group.containerConfig?.standalone) {
+  if (usesSharedMemory(group)) {
     try {
       const groupDir = resolveGroupFolderPath(group.folder);
       await injectMemory(
@@ -2145,6 +2151,10 @@ async function startMessageLoop(): Promise<void> {
                 ),
               storeMessage,
               skillsSrcDir: path.join(process.cwd(), 'container', 'skills'),
+              getState: getRouterState,
+              setState: setRouterState,
+              latestMessageTime: () =>
+                Date.parse(getLatestMessageTimestamp() || '') || 0,
               groupBinding: groupLark
                 ? {
                     trigger: DEFAULT_TRIGGER,
@@ -2364,7 +2374,7 @@ async function startMessageLoop(): Promise<void> {
           // 动态记忆/Wiki 注入：仅 container active 时才做（避免冷启动路径浪费）
           // 用最后一条原始用户消息做 query，避免 formatted 中的时间戳/发送者噪声
           let dynamicContext: MessageContext | null = null;
-          if (isMemoryEnabled() && queue.isActive(chatJid)) {
+          if (usesSharedMemory(group) && queue.isActive(chatJid)) {
             try {
               const lastMsg = messagesToSend[messagesToSend.length - 1];
               const queryText = lastMsg?.content || formatted.prompt;
@@ -2677,6 +2687,9 @@ async function main(): Promise<void> {
             storeChatMetadata(jid, ts, name, 'feishu-user', isGroup),
           storeMessage,
           hasMessage: (id, jid) => hasMessageInChat(id, jid),
+          latestMessageTime: () =>
+            Date.parse(getLatestMessageTimestamp() || '') || 0,
+          maxBatch: MAX_MESSAGES_PER_PROMPT,
           getState: getRouterState,
           setState: setRouterState,
         },

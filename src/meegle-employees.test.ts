@@ -214,6 +214,76 @@ describe('dispatchToEmployee', () => {
     expect(deps.storeMessage).not.toHaveBeenCalled();
     expect(deps.registerGroup).not.toHaveBeenCalled();
   });
+
+  it('同一需求并发首次派活只建一个群', async () => {
+    const { deps } = makeDeps();
+    const bindings = new Map<string, string>();
+    let n = 0;
+    const createChat = vi.fn(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      return `oc_${++n}`;
+    });
+    deps.groupBinding = {
+      trigger: '@bot',
+      createChat,
+      getBinding: (k) => bindings.get(k),
+      setBinding: (k, v) => bindings.set(k, v),
+    };
+    const req = { employee: 'prd-review', work_item_id: '42', text: 'x' };
+    const [a, b] = await Promise.all([
+      dispatchToEmployee({ ...req, flow_id: 'f1' }, deps),
+      dispatchToEmployee({ ...req, flow_id: 'f2' }, deps),
+    ]);
+    expect(createChat).toHaveBeenCalledTimes(1);
+    expect(a).toMatchObject({ ok: true, jid: 'fs:oc_1' });
+    expect(b).toMatchObject({ ok: true, jid: 'fs:oc_1' });
+  });
+
+  it('同一 flow_id 重复派活只入队一次（hook 回包超时重试）', async () => {
+    const { deps } = makeDeps();
+    const state = new Map<string, string>();
+    deps.getState = (k) => state.get(k);
+    deps.setState = (k, v) => state.set(k, v);
+    const req = {
+      employee: 'prd-review',
+      work_item_id: '42',
+      text: 'x',
+      flow_id: 'flow-1',
+    };
+    const first = await dispatchToEmployee(req, deps);
+    const again = await dispatchToEmployee(req, deps);
+    expect(deps.storeMessage).toHaveBeenCalledTimes(1);
+    expect(again).toMatchObject({
+      ok: true,
+      duplicate: true,
+      messageId: first.ok ? first.messageId : '',
+    });
+    await dispatchToEmployee({ ...req, flow_id: 'flow-2' }, deps);
+    expect(deps.storeMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('入库时间晚于建群等待期间库里出现的最新消息', async () => {
+    const { deps } = makeDeps();
+    let latest = 0;
+    deps.now = () => new Date(1_000_000);
+    deps.latestMessageTime = () => latest;
+    deps.groupBinding = {
+      trigger: '@bot',
+      createChat: async () => {
+        latest = 1_005_000; // 建群这几秒里别的频道入库了更新的消息
+        return 'oc_x';
+      },
+      getBinding: () => undefined,
+      setBinding: vi.fn(),
+    };
+    await dispatchToEmployee(
+      { employee: 'prd-review', work_item_id: '1', text: 'x' },
+      deps,
+    );
+    expect(vi.mocked(deps.storeMessage).mock.calls[0][0].timestamp).toBe(
+      new Date(1_005_001).toISOString(),
+    );
+  });
 });
 
 describe('MeegleChannel', () => {

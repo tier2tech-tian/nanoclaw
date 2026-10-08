@@ -825,6 +825,14 @@ export function getMessageById(
     .get(messageId) as { sender_name: string; content: string } | undefined;
 }
 
+/** 库里最新一条消息的时间（ISO）；补收频道据此保证入库时间晚于 message loop 已看过的 */
+export function getLatestMessageTimestamp(): string | undefined {
+  const row = db.prepare('SELECT MAX(timestamp) AS ts FROM messages').get() as
+    | { ts: string | null }
+    | undefined;
+  return row?.ts ?? undefined;
+}
+
 /** 某会话里是否已有这条消息（按 id + chat_jid，与 messages 主键一致） */
 export function hasMessageInChat(messageId: string, chatJid: string): boolean {
   return !!db

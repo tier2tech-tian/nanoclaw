@@ -278,6 +278,79 @@ describe('FeishuUserChannel 群归属', () => {
   });
 });
 
+describe('FeishuUserChannel 补收可靠性', () => {
+  it('一轮补收超过 agent 单次上限：较早的合成一条，全部送达', async () => {
+    const msgs = {
+      oc_p2p: Array.from({ length: 12 }, (_, i) =>
+        textMsg(`om_${i}`, 990_000 + i, 'ou_zhang', `第${i}条`),
+      ),
+    };
+    const ctx = setup(msgs, [
+      { chat_id: 'oc_p2p', name: '张三', chat_mode: 'p2p' },
+    ]);
+    ctx.deps.maxBatch = 10;
+    await ctx.channel.connect();
+    await ctx.channel.disconnect();
+    await ctx.channel.pollOnce();
+    expect(ctx.stored).toHaveLength(10);
+    expect(ctx.stored[0].content).toContain(
+      '[补收：以下 3 条是较早未处理的消息]',
+    );
+    for (const i of [0, 1, 2])
+      expect(ctx.stored[0].content).toContain(`张三：第${i}条`);
+    expect(ctx.stored.slice(1).map((m) => m.content)).toEqual(
+      Array.from({ length: 9 }, (_, i) => `第${i + 3}条`),
+    );
+  });
+
+  it('入库时间晚于库里最新消息（拉取期间别的频道已入库更新的）', async () => {
+    const ctx = setup({
+      oc_p2p: [textMsg('om_1', 999_000, 'ou_zhang', '你好')],
+    });
+    ctx.deps.latestMessageTime = () => 1_000_500;
+    await ctx.channel.connect();
+    await ctx.channel.disconnect();
+    await ctx.channel.pollOnce();
+    expect(ctx.stored[0].timestamp).toBe(new Date(1_000_501).toISOString());
+  });
+
+  it('回复发失败进待发件箱，下一轮重投；同会话后续回复排在后面', async () => {
+    const ctx = setup({});
+    let fail = true;
+    const sent: string[] = [];
+    ctx.lark.mockImplementation(async (args: string[]) => {
+      if (args[0] === 'auth')
+        return { identities: { user: { status: 'ready', openId: SELF } } };
+      if (args[1] === '+messages-send') {
+        if (fail) return { ok: false, error: { message: '503' } };
+        sent.push(args[5]);
+        return { ok: true, data: { message_id: `om_${sent.length}` } };
+      }
+      return { ok: true, data: { chats: [], items: [] } };
+    });
+    await ctx.channel.connect();
+    await ctx.channel.disconnect();
+    expect(
+      await ctx.channel.sendMessage('nine:oc_p2p', '第一句'),
+    ).toBeUndefined();
+    expect(
+      await ctx.channel.sendMessage('nine:oc_p2p', '第二句'),
+    ).toBeUndefined();
+    expect(sent).toEqual([]);
+    fail = false;
+    await ctx.channel.pollOnce();
+    expect(sent).toEqual(['第一句', '第二句']);
+    expect(await ctx.channel.sendMessage('nine:oc_p2p', '第三句')).toBe('om_3');
+    // 超过 24 小时还发不出去就放弃，不无限堆
+    fail = true;
+    await ctx.channel.sendMessage('nine:oc_p2p', '过期');
+    ctx.setNow(1_000_000 + 25 * 3600_000);
+    fail = false;
+    await ctx.channel.pollOnce();
+    expect(sent).toEqual(['第一句', '第二句', '第三句']);
+  });
+});
+
 describe('messageText', () => {
   it('富文本拍平，图片给占位', () => {
     expect(

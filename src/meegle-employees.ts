@@ -165,7 +165,7 @@ export interface MeegleDispatchRequest {
   text: string;
   /** 需求名，用于给群起名（hook 查好传来，可缺省） */
   work_item_name?: string;
-  /** hook 传来的运行批次，只进日志 */
+  /** hook 传来的运行批次：同一批次只入队一次（hook 回包超时重试也不会派两遍） */
   flow_id?: string;
   state_key?: string;
 }
@@ -189,6 +189,11 @@ export interface MeegleDispatchDeps {
   skillsSrcDir: string;
   /** 配了就每个"员工 × 需求"绑定一个飞书群；不配则用虚拟会话（meegle:<员工>:<需求>） */
   groupBinding?: EmployeeGroupBinding;
+  /** router_state 读写，用于 flow_id 去重 */
+  getState?: (key: string) => string | undefined;
+  setState?: (key: string, value: string) => void;
+  /** 库里最新一条消息的时间（毫秒）；入库时间必须晚于它，message loop 才看得到 */
+  latestMessageTime?: () => number;
   now?: () => Date;
 }
 
@@ -199,11 +204,27 @@ export type MeegleDispatchResult =
       folder: string;
       created: boolean;
       messageId: string;
+      /** 同一 flow_id 之前已入队，这次没再入队 */
+      duplicate?: boolean;
     }
   | { ok: false; status: number; error: string };
 
 export function bindingKey(employeeId: string, workItemId: string): string {
   return `meegle:group:${employeeId}:${workItemId}`;
+}
+
+/** 同一"员工 × 需求"的派活串行执行：防并发回调各建一个群 */
+const dispatchLocks = new Map<string, Promise<unknown>>();
+
+function withKeyLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = dispatchLocks.get(key) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  const tail = run.catch(() => undefined);
+  dispatchLocks.set(key, tail);
+  void tail.then(() => {
+    if (dispatchLocks.get(key) === tail) dispatchLocks.delete(key);
+  });
+  return run;
 }
 
 export async function dispatchToEmployee(
@@ -224,8 +245,39 @@ export async function dispatchToEmployee(
   if (!isValidGroupFolder(folder))
     return { ok: false, status: 400, error: `folder 非法: ${folder}` };
 
+  return withKeyLock(bindingKey(employee.id, workItemId), () =>
+    dispatchLocked(req, employee, workItemId, text, folder, deps),
+  );
+}
+
+async function dispatchLocked(
+  req: Partial<MeegleDispatchRequest>,
+  employee: EmployeeManifest,
+  workItemId: string,
+  text: string,
+  folder: string,
+  deps: MeegleDispatchDeps,
+): Promise<MeegleDispatchResult> {
+  const flowKey = req.flow_id
+    ? `meegle:flow:${employee.id}:${req.flow_id}`
+    : '';
+  const seen = flowKey ? deps.getState?.(flowKey) : undefined;
+  if (seen) {
+    const prev = JSON.parse(seen) as { jid: string; messageId: string };
+    logger.info(
+      { employee: employee.id, workItemId, flowId: req.flow_id },
+      '[meegle] 同一 flow 已入队过，跳过',
+    );
+    return {
+      ok: true,
+      jid: prev.jid,
+      folder,
+      created: false,
+      messageId: prev.messageId,
+      duplicate: true,
+    };
+  }
   const now = (deps.now ?? (() => new Date()))();
-  const timestamp = now.toISOString();
   const title = `${employee.name} · ${req.work_item_name || '需求'} #${workItemId}`;
 
   let jid = employeeJid(employee.id, workItemId);
@@ -250,6 +302,13 @@ export async function dispatchToEmployee(
     }
   }
 
+  // 以下全同步：入库时间在建群等 await 之后现取，保证晚于库里任何消息，message loop 一定看得到
+  const timestamp = new Date(
+    Math.max(
+      (deps.now ?? (() => new Date()))().getTime(),
+      (deps.latestMessageTime?.() ?? 0) + 1,
+    ),
+  ).toISOString();
   const existing = deps.getGroup(jid);
   // 每次派活都按当前 employee.json 重建配置（改 env/超时等无需重注册），会话按 folder 续接不受影响
   syncEmployeeSkills(employee, deps.skillsSrcDir);
@@ -274,6 +333,7 @@ export async function dispatchToEmployee(
     is_from_me: false,
     is_bot_message: false,
   });
+  if (flowKey) deps.setState?.(flowKey, JSON.stringify({ jid, messageId }));
   // 不主动 enqueue，交给 message loop（2s 一轮）统一发现，避免同一条被送两次
   logger.info(
     {

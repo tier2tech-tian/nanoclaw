@@ -1,10 +1,11 @@
 """飞书项目 AI 节点回调接收服务。
 
 - 收到推送立即回 200（平台要求 1000ms 内，否则重发 4 次）
-- 按 sha256(plugin_id + request_time + 回调token) 验签，结果写进落盘记录
-- 按 data.idempotent_key 去重，每个事件落一个 JSON 到 events/
+- 按 sha256(plugin_id + request_time + 回调token) 验签；验签失败只落盘不占幂等键
+- 按 data.idempotent_key 完整键原子去重（seen/ 下 O_EXCL 建文件），每个事件落一个 JSON 到 events/
 - 派活：AI 节点进入 running（8001 after=running）→ 按 employee.json 的 nodes 找员工，
-  POST NanoClaw /meegle/dispatch（员工 × 需求 = 一个会话）
+  POST NanoClaw /meegle/dispatch（员工 × 需求 = 一个会话）。只有成功才算派过；失败退避重试，
+  启动时补派近 24 小时没成功的（NanoClaw 按 flow_id 幂等，重派不会入队两次）
 - 自愈：后续节点退回到 AI 节点（8004 且节点 REACHED、AI 状态停在 done）→ 员工 meegle-emp restart 置回 running，平台会重推 8001
 
 运行数据（events/、dispatched.jsonl、.callback_token）放 MEEGLE_HOOK_DATA，不进仓库。
@@ -21,6 +22,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 DATA_DIR = os.path.expanduser(os.environ.get("MEEGLE_HOOK_DATA", "~/ai/meegle-hook-data"))
 EMPLOYEES_DIR = os.path.expanduser(os.environ.get("EMPLOYEES_DIR", "~/ai/employees"))
 EVENTS_DIR = os.path.join(DATA_DIR, "events")
+SEEN_DIR = os.path.join(DATA_DIR, "seen")
+RETRY_DELAYS = (0, 10, 60, 300)
+RECOVER_WINDOW_S = 24 * 3600
 PLUGIN_ID = os.environ.get("MEEGLE_AI_PLUGIN_ID", "MII_6ABA18B45C808CB7")
 PORT = int(os.environ.get("MEEGLE_HOOK_PORT", "18775"))
 with open(os.path.join(DATA_DIR, ".callback_token")) as f:
@@ -31,6 +35,7 @@ NODE_NAMES = {"ai_review": "AI 需求评审", "pre_dev": "预开发", "dev": "�
 NANOCLAW_DISPATCH = os.environ.get("NANOCLAW_DISPATCH_URL", "http://127.0.0.1:19877/meegle/dispatch")
 DISPATCHED = os.path.join(DATA_DIR, "dispatched.jsonl")
 _lock = threading.Lock()
+_inflight: set = set()
 
 
 def _log(msg: str):
@@ -68,10 +73,27 @@ def work_item_name(emp_dir: str, wid) -> str:
 
 
 def _already_dispatched(flow_id: str) -> bool:
+    """只认成功的派活；失败记录不挡重试"""
     if not os.path.exists(DISPATCHED):
         return False
     with open(DISPATCHED) as f:
-        return any(json.loads(line).get("flow_id") == flow_id for line in f if line.strip())
+        for line in f:
+            if not line.strip():
+                continue
+            rec = json.loads(line)
+            if rec.get("flow_id") == flow_id and rec.get("ok"):
+                return True
+    return False
+
+
+def _post_dispatch(payload: bytes):
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        r = opener.open(urllib.request.Request(NANOCLAW_DISPATCH, data=payload, method="POST",
+                                               headers={"Content-Type": "application/json"}), timeout=60)
+        return r.status == 200, r.read().decode()
+    except Exception as e:  # noqa: BLE001
+        return False, repr(e)
 
 
 def dispatch(data: dict):
@@ -86,10 +108,13 @@ def dispatch(data: dict):
         _log(f"skip dispatch: project={project} node={node} wid={wid} 无员工")
         return
     employee_id, emp_dir = emp
+    # 锁只管查重和占位，重试等待不占锁（别的需求照常派）
     with _lock:
-        if flow_id and _already_dispatched(flow_id):
-            _log(f"skip dispatch: flow {flow_id} 已派过")
+        if flow_id and (flow_id in _inflight or _already_dispatched(flow_id)):
+            _log(f"skip dispatch: flow {flow_id} 已派过或正在派")
             return
+        _inflight.add(flow_id)
+    try:
         url = f"https://project.feishu.cn/{project}/story/detail/{wid}"
         text = (
             f"【飞书项目 AI 节点任务】{NODE_NAMES.get(node, node)}\n"
@@ -102,19 +127,20 @@ def dispatch(data: dict):
         payload = json.dumps({"employee": employee_id, "work_item_id": str(wid), "state_key": node,
                               "work_item_name": work_item_name(emp_dir, wid),
                               "flow_id": flow_id, "text": text}).encode()
-        try:
-            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-            r = opener.open(urllib.request.Request(NANOCLAW_DISPATCH, data=payload, method="POST",
-                                                   headers={"Content-Type": "application/json"}), timeout=10)
-            result = r.read().decode()
-            ok = r.status == 200
-        except Exception as e:  # noqa: BLE001
-            ok, result = False, repr(e)
-        with open(DISPATCHED, "a") as f:
-            f.write(json.dumps({"at": time.strftime("%Y-%m-%d %H:%M:%S"), "flow_id": flow_id, "node": node,
-                                "work_item_id": wid, "employee": employee_id, "ok": ok, "result": result[:300]},
-                               ensure_ascii=False) + "\n")
-        _log(f"dispatch employee={employee_id} node={node} wid={wid} flow={flow_id} ok={ok}")
+        for attempt, delay in enumerate(RETRY_DELAYS, 1):
+            time.sleep(delay)
+            ok, result = _post_dispatch(payload)
+            with _lock, open(DISPATCHED, "a") as f:
+                f.write(json.dumps({"at": time.strftime("%Y-%m-%d %H:%M:%S"), "flow_id": flow_id, "node": node,
+                                    "work_item_id": wid, "employee": employee_id, "ok": ok, "attempt": attempt,
+                                    "result": result[:300]}, ensure_ascii=False) + "\n")
+            _log(f"dispatch employee={employee_id} node={node} wid={wid} flow={flow_id} ok={ok} attempt={attempt}")
+            if ok:
+                return
+        _log(f"dispatch 重试 {len(RETRY_DELAYS)} 次仍失败，下次启动补派: flow={flow_id}")
+    finally:
+        with _lock:
+            _inflight.discard(flow_id)
 
 
 def restart_if_stuck(data: dict):
@@ -127,7 +153,14 @@ def restart_if_stuck(data: dict):
     if ai.get("node_state") != "REACHED" or status != "done" or not emp or not wid:
         return
     tool = os.path.join(emp[1], "bin", "meegle-emp")
-    r = subprocess.run([tool, "restart", str(wid), node], capture_output=True, text=True)
+    try:
+        r = subprocess.run([tool, "restart", str(wid), node], capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        _log(f"restart 超时 node={node} wid={wid}")
+        return
+    if r.returncode != 0:
+        _log(f"restart 失败 node={node} wid={wid} code={r.returncode}: {(r.stderr or r.stdout).strip()[:300]}")
+        return
     _log(f"restart node={node} wid={wid}: {r.stdout.strip()[:200]}")
 
 
@@ -138,6 +171,37 @@ def handle(data: dict):
         dispatch(data)
     elif et == 8004:
         restart_if_stuck(data)
+
+
+def recover():
+    """启动补派：近 24 小时验签通过、AI 节点进入 running、但没派成功的事件"""
+    cutoff = time.time() - RECOVER_WINDOW_S
+    for name in sorted(os.listdir(EVENTS_DIR)):
+        path = os.path.join(EVENTS_DIR, name)
+        if not name.endswith(".json") or os.path.getmtime(path) < cutoff:
+            continue
+        try:
+            with open(path) as f:
+                rec = json.load(f)
+        except (OSError, ValueError):
+            continue
+        data = (rec.get("body") or {}).get("data") or {}
+        after = ((data.get("change_ai_node_info") or {}).get("after") or {}).get("status")
+        if not rec.get("signature_ok") or data.get("event_type") != 8001 or after != "running":
+            continue
+        if data.get("ai_flow_id") and not _already_dispatched(data["ai_flow_id"]):
+            _log(f"启动补派 {name}")
+            dispatch(data)
+
+
+def claim(key: str) -> bool:
+    """按完整幂等键原子占位：第一次返回 True，重复返回 False"""
+    path = os.path.join(SEEN_DIR, hashlib.sha256(key.encode()).hexdigest())
+    try:
+        os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        return True
+    except FileExistsError:
+        return False
 
 
 def verify(body: dict) -> bool:
@@ -170,18 +234,21 @@ class Handler(BaseHTTPRequestHandler):
         self._reply(200, {"ok": True})
         data = body.get("data") or {}
         key = data.get("idempotent_key") or f"nokey-{time.time_ns()}"
-        path = os.path.join(EVENTS_DIR, f"{int(time.time() * 1000)}_{data.get('event_type', 'x')}_{key[:16]}.json")
-        if any(name.endswith(f"_{key[:16]}.json") for name in os.listdir(EVENTS_DIR)):
+        signature_ok = verify(body)
+        # 先验签再占幂等键：伪造/坏签名的请求不能挡掉同键的合法事件
+        if signature_ok and not claim(key):
             return  # 重发的重复事件
+        digest = hashlib.sha256(key.encode()).hexdigest()[:16]
+        path = os.path.join(EVENTS_DIR, f"{int(time.time() * 1000)}_{data.get('event_type', 'x')}_{digest}.json")
         record = {
             "received_at": time.strftime("%Y-%m-%d %H:%M:%S"),
             "path": self.path,
-            "signature_ok": verify(body),
+            "signature_ok": signature_ok,
             "body": body,
         }
         with open(path, "w") as f:
             json.dump(record, f, ensure_ascii=False, indent=2)
-        if record["signature_ok"]:
+        if signature_ok:
             threading.Thread(target=handle, args=(data,), daemon=True).start()
         else:
             _log(f"验签失败，不处理: {os.path.basename(path)}")
@@ -192,5 +259,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     os.makedirs(EVENTS_DIR, exist_ok=True)
+    os.makedirs(SEEN_DIR, exist_ok=True)
+    threading.Thread(target=recover, daemon=True).start()
     print(f"meegle-hook listening on 127.0.0.1:{PORT}", flush=True)
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
