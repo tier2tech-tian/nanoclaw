@@ -246,6 +246,33 @@ describe('FeishuUserChannel 重启', () => {
   });
 });
 
+describe('FeishuUserChannel 群归属', () => {
+  it('数字员工需求群让给员工；机器人也在的普通群，@nine 仍由 nine 回', async () => {
+    const msgs = {
+      oc_emp: [
+        textMsg('om_e', 1_000_100, 'ou_li', '@_user_1 看下', [
+          { key: '@_user_1', id: SELF, name: 'nine' },
+        ]),
+      ],
+      oc_bot: [
+        textMsg('om_b', 1_000_200, 'ou_li', '@_user_1 在吗', [
+          { key: '@_user_1', id: SELF, name: 'nine' },
+        ]),
+      ],
+    };
+    const ctx = setup(msgs, [
+      { chat_id: 'oc_emp', name: '需求群', chat_mode: 'group' },
+      { chat_id: 'oc_bot', name: '普通群', chat_mode: 'group' },
+    ]);
+    ctx.groups['fs:oc_emp'] = { folder: 'emp-prd-review-1' } as RegisteredGroup;
+    ctx.groups['fs:oc_bot'] = { folder: 'fs_oc_bot' } as RegisteredGroup;
+    await ctx.channel.connect();
+    await ctx.channel.disconnect();
+    await ctx.channel.pollOnce();
+    expect(ctx.stored.map((m) => m.id)).toEqual(['om_b']);
+  });
+});
+
 describe('messageText', () => {
   it('富文本拍平，图片给占位', () => {
     expect(

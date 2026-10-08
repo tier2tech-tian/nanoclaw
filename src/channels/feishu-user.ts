@@ -11,6 +11,7 @@ import { execFile } from 'child_process';
 import path from 'path';
 
 import { logger } from '../logger.js';
+import { isEmployeeFolder } from '../meegle-employees.js';
 import type { EmployeeManifest } from '../meegle-employees.js';
 import type {
   Channel,
@@ -235,8 +236,10 @@ export class FeishuUserChannel implements Channel {
     this.round++;
     let stored = 0;
     for (const chat of this.chats) {
-      // 已被机器人会话占用的群（如数字员工需求群）归机器人处理，nine 只是成员、不插话
-      if (this.deps.getGroup(`fs:${chat.chat_id}`)) continue;
+      // 数字员工的需求群归员工处理，nine 只是成员、不插话；
+      // 其他群即使机器人也在（会被机器人频道自动注册），@nine 的仍由 nine 回
+      const botGroup = this.deps.getGroup(`fs:${chat.chat_id}`);
+      if (botGroup && isEmployeeFolder(botGroup.folder)) continue;
       stored += await this.pollChat(chat);
     }
     return stored;

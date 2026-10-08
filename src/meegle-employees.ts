@@ -92,6 +92,11 @@ export function employeeFolder(employeeId: string, workItemId: string): string {
   return `emp-${employeeId}-${workItemId}`;
 }
 
+/** 是否数字员工「员工 × 需求」会话（按 folder 前缀识别，不管绑没绑群） */
+export function isEmployeeFolder(folder: string): boolean {
+  return folder.startsWith('emp-');
+}
+
 export function parseEmployeeJid(
   jid: string,
 ): { employeeId: string; workItemId: string } | null {
