@@ -1,0 +1,8 @@
+tunnel: 81d2e4d2-4528-4675-96b3-2a928a7b4ccb
+credentials-file: /Users/admin/ai/meegle-hook-data/tunnel-credentials.json
+ingress:
+  # 只放行 /hook 和健康检查根路径，其它一律 404
+  - hostname: meegle-hook.heasenbug.com
+    path: ^/(hook)?$
+    service: http://127.0.0.1:18765
+  - service: http_status:404
