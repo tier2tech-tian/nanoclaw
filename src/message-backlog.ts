@@ -8,8 +8,9 @@
 import { getMessagesSince } from './db.js';
 import type { NewMessage, RegisteredGroup } from './types.js';
 
-/** foldBacklog 会话一次最多取多少条待处理（24 小时回看的量级远小于此） */
-export const BACKLOG_FETCH_LIMIT = 1000;
+/** 不设上限：取最新 N 条会把最早的排除在外、游标一推进就永久漏掉（SQLite LIMIT -1 = 全部）。
+ *  量由真人账号 24 小时回看兜住 */
+const NO_LIMIT = -1;
 
 export function foldBacklog(
   msgs: NewMessage[],
@@ -45,7 +46,7 @@ export function getPendingMessages(
   if (!group?.containerConfig?.foldBacklog)
     return getMessagesSince(chatJid, cursor, botPrefix, maxBatch);
   return foldBacklog(
-    getMessagesSince(chatJid, cursor, botPrefix, BACKLOG_FETCH_LIMIT),
+    getMessagesSince(chatJid, cursor, botPrefix, NO_LIMIT),
     maxBatch,
   );
 }

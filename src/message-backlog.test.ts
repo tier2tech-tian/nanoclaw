@@ -56,6 +56,16 @@ describe('getPendingMessages', () => {
     ).toEqual([]);
   });
 
+  it('积压再多也不排除最早的一条', () => {
+    for (let i = 0; i < 1001; i++) store(i);
+    const pending = getPendingMessages(JID, '', group(true), 'Andy', 10);
+    expect(pending).toHaveLength(10);
+    expect(pending[0].content).toContain(
+      '[补收：以下 992 条是较早未处理的消息]',
+    );
+    expect(pending[0].content).toContain('张三：第0条\n');
+  });
+
   it('普通群保持原行为：只取最新 maxBatch 条', () => {
     for (let i = 0; i < 12; i++) store(i);
     const pending = getPendingMessages(JID, '', group(false), 'Andy', 10);
