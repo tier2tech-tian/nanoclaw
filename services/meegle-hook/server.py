@@ -5,7 +5,8 @@
 - 按 data.idempotent_key 完整键原子去重（seen/ 下 O_EXCL 建文件），每个事件落一个 JSON 到 events/
 - 派活：AI 节点进入 running（8001 after=running）→ 按 employee.json 的 nodes 找员工，
   POST NanoClaw /meegle/dispatch（员工 × 需求 = 一个会话）。只有成功才算派过；失败退避重试，
-  启动时补派近 24 小时没成功的（NanoClaw 按 flow_id 幂等，重派不会入队两次）
+  启动时及每 10 分钟补派近 24 小时没成功的（NanoClaw 按 flow_id 幂等，重派不会入队两次）。
+  重试/补派前先查节点当前状态：仍是这一批次且在 running 才派，已被新批次取代/终止的标作废，查询失败留待下次
 - 自愈：后续节点退回到 AI 节点（8004 且节点 REACHED、AI 状态停在 done）→ 员工 meegle-emp restart 置回 running，平台会重推 8001
 
 运行数据（events/、dispatched.jsonl、.callback_token）放 MEEGLE_HOOK_DATA，不进仓库。
@@ -25,6 +26,7 @@ EVENTS_DIR = os.path.join(DATA_DIR, "events")
 SEEN_DIR = os.path.join(DATA_DIR, "seen")
 RETRY_DELAYS = (0, 10, 60, 300)
 RECOVER_WINDOW_S = 24 * 3600
+RECOVER_EVERY_S = 600
 PLUGIN_ID = os.environ.get("MEEGLE_AI_PLUGIN_ID", "MII_6ABA18B45C808CB7")
 PORT = int(os.environ.get("MEEGLE_HOOK_PORT", "18775"))
 with open(os.path.join(DATA_DIR, ".callback_token")) as f:
@@ -73,7 +75,7 @@ def work_item_name(emp_dir: str, wid) -> str:
 
 
 def _already_dispatched(flow_id: str) -> bool:
-    """只认成功的派活；失败记录不挡重试"""
+    """已了结：派成功或已作废（节点不再是这一批次在跑）；单纯失败不挡重试"""
     if not os.path.exists(DISPATCHED):
         return False
     with open(DISPATCHED) as f:
@@ -81,9 +83,26 @@ def _already_dispatched(flow_id: str) -> bool:
             if not line.strip():
                 continue
             rec = json.loads(line)
-            if rec.get("flow_id") == flow_id and rec.get("ok"):
+            if rec.get("flow_id") == flow_id and (rec.get("ok") or rec.get("stale")):
                 return True
     return False
+
+
+def node_current(emp_dir: str, wid, node: str):
+    """查 AI 节点当前 (status, current_flow_id)；查询失败返回 None"""
+    for rel in ("bin/meegle-emp", "lib/meegle-emp"):
+        tool = os.path.join(emp_dir, rel)
+        if not os.path.exists(tool):
+            continue
+        try:
+            r = subprocess.run([tool, "query", str(wid), node], capture_output=True, text=True, timeout=20)
+            if r.returncode != 0:
+                return None
+            ai = (json.loads(r.stdout) or {}).get("ai_info") or {}
+        except (subprocess.SubprocessError, ValueError):
+            return None
+        return ai.get("status"), ai.get("current_flow_id")
+    return None
 
 
 def _post_dispatch(payload: bytes):
@@ -96,7 +115,12 @@ def _post_dispatch(payload: bytes):
         return False, repr(e)
 
 
-def dispatch(data: dict):
+def _record(entry: dict):
+    with _lock, open(DISPATCHED, "a") as f:
+        f.write(json.dumps({"at": time.strftime("%Y-%m-%d %H:%M:%S"), **entry}, ensure_ascii=False) + "\n")
+
+
+def dispatch(data: dict, check_first: bool = False):
     """AI 节点开始运行 → 派给负责该节点的员工。按 ai_flow_id 去重（一次运行只派一次）。"""
     node = (data.get("ai_node_info") or {}).get("state_key", "")
     project = data.get("project_key", "")
@@ -127,17 +151,26 @@ def dispatch(data: dict):
         payload = json.dumps({"employee": employee_id, "work_item_id": str(wid), "state_key": node,
                               "work_item_name": work_item_name(emp_dir, wid),
                               "flow_id": flow_id, "text": text}).encode()
+        base = {"flow_id": flow_id, "node": node, "work_item_id": wid, "employee": employee_id}
         for attempt, delay in enumerate(RETRY_DELAYS, 1):
             time.sleep(delay)
+            # 首派紧跟回调，节点必然在跑；重试/补派可能隔了很久，先核对还是不是这一批次
+            if attempt > 1 or check_first:
+                cur = node_current(emp_dir, wid, node)
+                if cur is None:
+                    _record({**base, "ok": False, "attempt": attempt, "result": "节点状态查询失败，留待下次"})
+                    continue
+                if cur != ("running", flow_id):
+                    _record({**base, "ok": False, "stale": True, "attempt": attempt,
+                             "result": f"节点已不是本批次在跑：status={cur[0]} flow={cur[1]}"})
+                    _log(f"dispatch 作废 flow={flow_id}：当前 {cur}")
+                    return
             ok, result = _post_dispatch(payload)
-            with _lock, open(DISPATCHED, "a") as f:
-                f.write(json.dumps({"at": time.strftime("%Y-%m-%d %H:%M:%S"), "flow_id": flow_id, "node": node,
-                                    "work_item_id": wid, "employee": employee_id, "ok": ok, "attempt": attempt,
-                                    "result": result[:300]}, ensure_ascii=False) + "\n")
+            _record({**base, "ok": ok, "attempt": attempt, "result": result[:300]})
             _log(f"dispatch employee={employee_id} node={node} wid={wid} flow={flow_id} ok={ok} attempt={attempt}")
             if ok:
                 return
-        _log(f"dispatch 重试 {len(RETRY_DELAYS)} 次仍失败，下次启动补派: flow={flow_id}")
+        _log(f"dispatch 重试 {len(RETRY_DELAYS)} 次仍失败，等定时补派: flow={flow_id}")
     finally:
         with _lock:
             _inflight.discard(flow_id)
@@ -190,8 +223,17 @@ def recover():
         if not rec.get("signature_ok") or data.get("event_type") != 8001 or after != "running":
             continue
         if data.get("ai_flow_id") and not _already_dispatched(data["ai_flow_id"]):
-            _log(f"启动补派 {name}")
-            dispatch(data)
+            _log(f"补派 {name}")
+            dispatch(data, check_first=True)
+
+
+def recover_loop():
+    while True:
+        try:
+            recover()
+        except Exception as e:  # noqa: BLE001
+            _log(f"补派异常: {e!r}")
+        time.sleep(RECOVER_EVERY_S)
 
 
 def claim(key: str) -> bool:
@@ -260,6 +302,6 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     os.makedirs(EVENTS_DIR, exist_ok=True)
     os.makedirs(SEEN_DIR, exist_ok=True)
-    threading.Thread(target=recover, daemon=True).start()
+    threading.Thread(target=recover_loop, daemon=True).start()
     print(f"meegle-hook listening on 127.0.0.1:{PORT}", flush=True)
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

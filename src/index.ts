@@ -87,7 +87,6 @@ import {
   deleteSession,
   getAllTasks,
   getLastBotMessageTimestamp,
-  getMessagesSince,
   getNewMessages,
   getRecentUserMessages,
   getMessageById,
@@ -106,6 +105,7 @@ import {
   storeMessageDirectIfAbsent,
   upsertGitHubProjectDispatchState,
 } from './db.js';
+import { getPendingMessages } from './message-backlog.js';
 import {
   createGhProjectItemLoader,
   createGroupQueueWake,
@@ -564,9 +564,10 @@ export async function processGroupMessages(chatJid: string, availableChannels: C
     logger.warn({ error, chatJid }, 'codex-as 通知补发失败，保留待下次补发');
   }
 
-  const missedMessages = getMessagesSince(
+  const missedMessages = getPendingMessages(
     chatJid,
     getOrRecoverCursor(chatJid),
+    registeredGroups[chatJid],
     ASSISTANT_NAME,
     MAX_MESSAGES_PER_PROMPT,
   );
@@ -2307,9 +2308,10 @@ async function startMessageLoop(): Promise<void> {
 
           // Pull all messages since lastAgentTimestamp so non-trigger
           // context that accumulated between triggers is included.
-          const allPending = getMessagesSince(
+          const allPending = getPendingMessages(
             chatJid,
             getOrRecoverCursor(chatJid),
+            registeredGroups[chatJid],
             ASSISTANT_NAME,
             MAX_MESSAGES_PER_PROMPT,
           );
@@ -2467,9 +2469,10 @@ async function startMessageLoop(): Promise<void> {
 function recoverPendingMessages(): void {
   for (const [chatJid, group] of Object.entries(registeredGroups)) {
     const cursor = getOrRecoverCursor(chatJid);
-    const pending = getMessagesSince(
+    const pending = getPendingMessages(
       chatJid,
       cursor,
+      registeredGroups[chatJid],
       ASSISTANT_NAME,
       MAX_MESSAGES_PER_PROMPT,
     );
@@ -2689,7 +2692,6 @@ async function main(): Promise<void> {
           hasMessage: (id, jid) => hasMessageInChat(id, jid),
           latestMessageTime: () =>
             Date.parse(getLatestMessageTimestamp() || '') || 0,
-          maxBatch: MAX_MESSAGES_PER_PROMPT,
           getState: getRouterState,
           setState: setRouterState,
         },

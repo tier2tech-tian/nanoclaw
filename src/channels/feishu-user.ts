@@ -40,8 +40,6 @@ export interface FeishuUserDeps {
   setState: (key: string, value: string) => void;
   /** 库里最新一条消息的时间（毫秒）；入库时间必须晚于它，message loop 才看得到 */
   latestMessageTime?: () => number;
-  /** message loop 每次最多交给 agent 几条（MAX_MESSAGES_PER_PROMPT），一轮补收超出就合并 */
-  maxBatch?: number;
   now?: () => number;
 }
 
@@ -117,34 +115,6 @@ export function messageText(m: LarkMessage): string {
   return text.trim();
 }
 
-/**
- * message loop 每次只把最新 maxBatch 条交给 agent。一轮补收超出时，把较早的合成一条放最前，
- * 保证这一轮的消息都能送到（长时间停机后回看 24 小时就会遇到）。
- */
-export function foldBacklog(
-  msgs: NewMessage[],
-  maxBatch: number,
-): NewMessage[] {
-  if (msgs.length <= maxBatch) return msgs;
-  const cut = msgs.length - maxBatch + 1;
-  const older = msgs.slice(0, cut);
-  const last = older[older.length - 1];
-  return [
-    {
-      ...last,
-      content:
-        `[补收：以下 ${older.length} 条是较早未处理的消息]\n` +
-        older
-          .map(
-            (m) =>
-              `${new Date(m.timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })} ${m.sender_name}：${m.content}`,
-          )
-          .join('\n'),
-    },
-    ...msgs.slice(cut),
-  ];
-}
-
 /** "员工 × 飞书会话"的会话配置：独立模式 + 共享账号组，cwd 指向员工目录 */
 export function buildUserChatGroup(
   employee: EmployeeManifest,
@@ -165,6 +135,8 @@ export function buildUserChatGroup(
       quietProgress: true,
       // 聊天会有追问，保留 10 分钟上下文进程；之后按 session 续接
       idleTimeout: 600_000,
+      // 每条都是发给它的请求：排队期间攒超了也不丢，合成一条（见 message-backlog.ts）
+      foldBacklog: true,
       env: { ...employee.env, PATH: path.join(employee.dir, 'bin') },
     },
   };
@@ -410,7 +382,7 @@ export class FeishuUserChannel implements Channel {
     }
     // 以下全同步，中间不 await：入库时间在这里现取，保证晚于库里任何消息，
     // message loop 一定看得到（等网络期间别的频道可能已把"已看过时间点"推到更后面）
-    const batch = foldBacklog(fresh, this.deps.maxBatch ?? 10);
+    const batch = fresh;
     if (batch.length) {
       const base = Math.max(
         this.now(),
@@ -420,17 +392,16 @@ export class FeishuUserChannel implements Channel {
         msg.timestamp = new Date(base + i).toISOString();
       });
       const ts = batch[0].timestamp;
-      if (!this.deps.getGroup(jid)) {
-        this.deps.registerGroup(
-          jid,
-          buildUserChatGroup(
-            this.employee,
-            chat.chat_id,
-            chat.name || chat.chat_id,
-            ts,
-          ),
-        );
-      }
+      // 每次都按当前配置重建（老会话补上 foldBacklog 等新配置），added_at 保留
+      this.deps.registerGroup(
+        jid,
+        buildUserChatGroup(
+          this.employee,
+          chat.chat_id,
+          chat.name || chat.chat_id,
+          this.deps.getGroup(jid)?.added_at ?? ts,
+        ),
+      );
       this.deps.storeChatMetadata(jid, ts, chat.name || chat.chat_id, isGroup);
       for (const msg of batch) this.deps.storeMessage(msg);
     }

@@ -41,6 +41,8 @@ export interface ContainerConfig {
   timeout?: number; // Default: 300000 (5 minutes)
   /** 最后一次回复后保持进程多久（毫秒），缺省用全局 IDLE_TIMEOUT；数字员工跑完即退，避免空占并发名额 */
   idleTimeout?: number;
+  /** 待处理消息超出单次上限时不丢较早的，合成一条（真人账号会话：每条都是发给它的请求） */
+  foldBacklog?: boolean;
   /** CLI 执行模式：sdk（默认）| print（--print spawn）| interactive（tmux + tap proxy）| codex | gemini */
   cliMode?: CliMode;
   /** Codex账号名称；缺省沿用系统账号，独立于Claude的OneCLI绑定。 */

@@ -279,7 +279,7 @@ describe('FeishuUserChannel 群归属', () => {
 });
 
 describe('FeishuUserChannel 补收可靠性', () => {
-  it('一轮补收超过 agent 单次上限：较早的合成一条，全部送达', async () => {
+  it('消息全部原样入库，会话标记 foldBacklog（消费端合并，老会话也补上配置）', async () => {
     const msgs = {
       oc_p2p: Array.from({ length: 12 }, (_, i) =>
         textMsg(`om_${i}`, 990_000 + i, 'ou_zhang', `第${i}条`),
@@ -288,19 +288,20 @@ describe('FeishuUserChannel 补收可靠性', () => {
     const ctx = setup(msgs, [
       { chat_id: 'oc_p2p', name: '张三', chat_mode: 'p2p' },
     ]);
-    ctx.deps.maxBatch = 10;
+    // 升级前注册的老会话：没有 foldBacklog
+    ctx.groups['nine:oc_p2p'] = {
+      folder: 'nine-oc_p2p',
+      added_at: 'old',
+      containerConfig: {},
+    } as RegisteredGroup;
     await ctx.channel.connect();
     await ctx.channel.disconnect();
     await ctx.channel.pollOnce();
-    expect(ctx.stored).toHaveLength(10);
-    expect(ctx.stored[0].content).toContain(
-      '[补收：以下 3 条是较早未处理的消息]',
-    );
-    for (const i of [0, 1, 2])
-      expect(ctx.stored[0].content).toContain(`张三：第${i}条`);
-    expect(ctx.stored.slice(1).map((m) => m.content)).toEqual(
-      Array.from({ length: 9 }, (_, i) => `第${i + 3}条`),
-    );
+    expect(ctx.stored).toHaveLength(12);
+    expect(ctx.groups['nine:oc_p2p']).toMatchObject({
+      added_at: 'old',
+      containerConfig: { foldBacklog: true, standalone: true },
+    });
   });
 
   it('入库时间晚于库里最新消息（拉取期间别的频道已入库更新的）', async () => {
