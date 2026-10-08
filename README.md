@@ -123,10 +123,12 @@ Skills we'd like to see:
 
 ## Requirements
 
+> **Fork note:** This fork replaces Docker / Apple Container isolation with **local Node.js subprocesses** — agents run directly on the host, without OS-level sandboxing (see `container/skills/dev/SKILL.md`). **Docker is not required to run it.** The "container" / "isolation" wording elsewhere in this README is inherited from upstream NanoClaw; the original Docker runtime is preserved in git tag `docker-runtime-v1`.
+
 - macOS, Linux, or Windows (via WSL2)
 - Node.js 20+
 - [Claude Code](https://claude.ai/download)
-- [Apple Container](https://github.com/apple/container) (macOS) or [Docker](https://docker.com/products/docker-desktop) (macOS/Linux)
+- A container runtime (Docker / Apple Container) — **not required in this fork** (agents run as local subprocesses)
 
 ## Architecture
 
@@ -153,11 +155,13 @@ Key files:
 
 **Why Docker?**
 
+> **In this fork:** Docker is no longer used — agents run as local Node.js subprocesses (see the Fork note under [Requirements](#requirements)). The answer below describes upstream NanoClaw.
+
 Docker provides cross-platform support (macOS, Linux and even Windows via WSL2) and a mature ecosystem. On macOS, you can optionally switch to Apple Container via `/convert-to-apple-container` for a lighter-weight native runtime. For additional isolation, [Docker Sandboxes](docs/docker-sandboxes.md) run each container inside a micro VM.
 
 **Can I run this on Linux or Windows?**
 
-Yes. Docker is the default runtime and works on macOS, Linux, and Windows (via WSL2). Just run `/setup`.
+Yes. This fork runs agents as local Node.js subprocesses, which work on macOS, Linux, and Windows (via WSL2). Just run `/setup`.
 
 **Is this secure?**
 

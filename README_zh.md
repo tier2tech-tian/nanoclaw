@@ -112,10 +112,12 @@ claude
 
 ## 系统要求
 
+> **Fork 说明：** 本 fork 已用**本地 Node.js 子进程**取代 Docker / Apple Container 隔离——智能体直接在宿主机上运行，没有操作系统级沙箱（详见 `container/skills/dev/SKILL.md`）。**运行不需要 Docker。** 本 README 其他位置的"容器 / 隔离"措辞沿袭自上游 NanoClaw；原 Docker 运行时保留在 git tag `docker-runtime-v1`。
+
 - macOS 或 Linux
 - Node.js 20+
 - [Claude Code](https://claude.ai/download)
-- [Apple Container](https://github.com/apple/container) (macOS) 或 [Docker](https://docker.com/products/docker-desktop) (macOS/Linux)
+- 容器运行时（Docker / Apple Container）——**本 fork 非必需**（智能体以本地子进程方式运行）
 
 ## 架构
 
@@ -142,11 +144,13 @@ claude
 
 **为什么是 Docker？**
 
+> **本 fork 中：** 已不再使用 Docker——智能体以本地 Node.js 子进程运行（见"系统要求"下的 Fork 说明）。下文描述的是上游 NanoClaw。
+
 Docker 提供跨平台支持（macOS 和 Linux）和成熟的生态系统。在 macOS 上，您可以选择通过运行 `/convert-to-apple-container` 切换到 Apple Container，以获得更轻量级的原生运行时体验。
 
 **我可以在 Linux 上运行吗？**
 
-可以。Docker 是默认的容器运行时，在 macOS 和 Linux 上都可以使用。只需运行 `/setup`。
+可以。本 fork 以本地 Node.js 子进程方式运行智能体，在 macOS 和 Linux 上均可使用。只需运行 `/setup`。
 
 **这个项目安全吗？**
 
