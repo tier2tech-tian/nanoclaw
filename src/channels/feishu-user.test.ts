@@ -192,6 +192,31 @@ describe('FeishuUserChannel 新会话', () => {
   });
 });
 
+describe('FeishuUserChannel 重启', () => {
+  it('重启期间新冒出来的会话，从上个进程最后一次刷新列表的时间接着收', async () => {
+    const msgs: Record<string, any[]> = {};
+    const chats = [{ chat_id: 'oc_p2p', name: '张三', chat_mode: 'p2p' }];
+    const ctx = setup(msgs, chats);
+    await ctx.channel.connect();
+    await ctx.channel.disconnect();
+    await ctx.channel.pollOnce(); // 旧进程在 1_000_000 刷新过列表
+    // 1_030_000 有人拉 nine 进新群并 @ 它；旧进程还没刷新就被重启
+    chats.push({ chat_id: 'oc_new', name: '新群', chat_mode: 'group' });
+    msgs.oc_new = [
+      textMsg('om_at', 1_030_000, 'ou_dj', '@_user_1 在吗', [
+        { key: '@_user_1', id: SELF, name: 'nine' },
+      ]),
+    ];
+    ctx.setNow(1_060_000);
+    // 新进程：同一个状态库
+    const fresh = new FeishuUserChannel(employee, ctx.lark, ctx.deps);
+    await fresh.connect();
+    await fresh.disconnect();
+    await fresh.pollOnce();
+    expect(ctx.stored.map((m) => m.id)).toEqual(['om_at']);
+  });
+});
+
 describe('messageText', () => {
   it('富文本拍平，图片给占位', () => {
     expect(

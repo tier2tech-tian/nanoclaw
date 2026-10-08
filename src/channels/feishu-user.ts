@@ -158,6 +158,8 @@ export class FeishuUserChannel implements Channel {
       );
     }
     this.selfOpenId = user.openId;
+    // 上次进程刷新会话列表的时间：重启期间新冒出来的会话从这里接着收，不漏消息
+    this.listedAt = Number(this.deps.getState(this.listedKey()) || 0);
     logger.info(
       { employee: this.employee.id, user: user.userName },
       '[feishu-user] 真人账号频道已启动',
@@ -233,6 +235,7 @@ export class FeishuUserChannel implements Channel {
         this.chats = res.data?.chats || [];
         this.prevListedAt = this.listedAt;
         this.listedAt = (this.deps.now ?? Date.now)();
+        this.deps.setState(this.listedKey(), String(this.listedAt));
       }
     }
     this.round++;
@@ -243,6 +246,10 @@ export class FeishuUserChannel implements Channel {
       stored += await this.pollChat(chat);
     }
     return stored;
+  }
+
+  private listedKey(): string {
+    return `feishu-user:${this.employee.id}:listed_at`;
   }
 
   private cursorKey(chatId: string): string {
