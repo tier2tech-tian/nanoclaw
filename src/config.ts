@@ -37,6 +37,7 @@ const envConfig = readEnvFile([
   'FEISHU_USER_EMPLOYEE',
   'FEISHU_USER_LARK_PROFILE',
   'FEISHU_USER_POLL_MS',
+  'FEISHU_USER_LOOKBACK_HOURS',
   'MEEGLE_GROUP_LARK_PROFILE',
   'MEEGLE_GROUP_MEMBERS',
   'GITHUB_PROJECT_AUTO_DISPATCH',
@@ -157,6 +158,12 @@ export const FEISHU_USER_LARK_PROFILE =
 export const FEISHU_USER_POLL_MS = parseInt(
   process.env.FEISHU_USER_POLL_MS || envConfig.FEISHU_USER_POLL_MS || '15000',
   10,
+);
+// 新发现的会话往回看多少小时补处理未处理消息
+export const FEISHU_USER_LOOKBACK_HOURS = parseFloat(
+  process.env.FEISHU_USER_LOOKBACK_HOURS ||
+    envConfig.FEISHU_USER_LOOKBACK_HOURS ||
+    '24',
 );
 // 数字员工会话绑定飞书群：用哪个 lark-cli profile 的机器人身份建群、默认拉哪些成员（open_id，逗号分隔）
 export const MEEGLE_GROUP_LARK_PROFILE =

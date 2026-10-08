@@ -32,6 +32,8 @@ export interface FeishuUserDeps {
     isGroup: boolean,
   ) => void;
   storeMessage: (msg: NewMessage) => void;
+  /** 消息是否已入库（按飞书消息 ID 去重，重复拉到不重复处理） */
+  hasMessage: (id: string) => boolean;
   getState: (key: string) => string | undefined;
   setState: (key: string, value: string) => void;
   now?: () => number;
@@ -134,15 +136,14 @@ export class FeishuUserChannel implements Channel {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
   private senderNames = new Map<string, string>();
-  /** 上一次成功刷新会话列表的时间；之后新冒出来的会话从这里开始收，不漏第一条 */
-  private prevListedAt = 0;
-  private listedAt = 0;
 
   constructor(
     private employee: EmployeeManifest,
     private lark: LarkRunner,
     private deps: FeishuUserDeps,
     private pollMs = 15_000,
+    /** 新发现的会话往回看多久：发给 nine、还没处理过的消息都补处理，只防翻太久的旧账 */
+    private lookbackMs = 24 * 3600_000,
   ) {}
 
   private get prefix(): string {
@@ -158,8 +159,6 @@ export class FeishuUserChannel implements Channel {
       );
     }
     this.selfOpenId = user.openId;
-    // 上次进程刷新会话列表的时间：重启期间新冒出来的会话从这里接着收，不漏消息
-    this.listedAt = Number(this.deps.getState(this.listedKey()) || 0);
     logger.info(
       { employee: this.employee.id, user: user.userName },
       '[feishu-user] 真人账号频道已启动',
@@ -231,12 +230,7 @@ export class FeishuUserChannel implements Channel {
         '--as',
         'user',
       ]);
-      if (res?.ok) {
-        this.chats = res.data?.chats || [];
-        this.prevListedAt = this.listedAt;
-        this.listedAt = (this.deps.now ?? Date.now)();
-        this.deps.setState(this.listedKey(), String(this.listedAt));
-      }
+      if (res?.ok) this.chats = res.data?.chats || [];
     }
     this.round++;
     let stored = 0;
@@ -248,10 +242,6 @@ export class FeishuUserChannel implements Channel {
     return stored;
   }
 
-  private listedKey(): string {
-    return `feishu-user:${this.employee.id}:listed_at`;
-  }
-
   private cursorKey(chatId: string): string {
     return `feishu-user:${this.employee.id}:cursor:${chatId}`;
   }
@@ -260,32 +250,32 @@ export class FeishuUserChannel implements Channel {
     const now = (this.deps.now ?? Date.now)();
     const key = this.cursorKey(chat.chat_id);
     const saved = this.deps.getState(key);
-    let cursor: number;
-    if (saved) {
-      cursor = Number(saved);
-    } else {
-      // 启动时已有的会话不回补历史（从此刻收）；启动后新冒出来的会话（如新人第一次私聊）
-      // 从上一次刷新列表的时间收，否则会漏掉触发建会话的第一条消息
-      cursor = this.prevListedAt || now;
-      this.deps.setState(key, String(cursor));
-      if (cursor >= now) return 0;
+    // 规则：发给 nine、还没处理过的消息都要处理。新发现的会话（含新人第一次私聊、刚被拉进群、
+    // 重启空档）往回看 lookbackMs，靠消息 ID 去重，不会回两遍
+    const cursor = saved ? Number(saved) : now - this.lookbackMs;
+    const items: LarkMessage[] = [];
+    let pageToken = '';
+    for (let page = 0; page < 10; page++) {
+      const res = await this.lark([
+        'api',
+        'GET',
+        '/open-apis/im/v1/messages',
+        '--params',
+        JSON.stringify({
+          container_id_type: 'chat',
+          container_id: chat.chat_id,
+          start_time: String(Math.floor(cursor / 1000)),
+          sort_type: 'ByCreateTimeAsc',
+          page_size: 50,
+          ...(pageToken ? { page_token: pageToken } : {}),
+        }),
+        '--as',
+        'user',
+      ]);
+      items.push(...(res?.data?.items || []));
+      if (!res?.data?.has_more || !res.data.page_token) break;
+      pageToken = res.data.page_token;
     }
-    const res = await this.lark([
-      'api',
-      'GET',
-      '/open-apis/im/v1/messages',
-      '--params',
-      JSON.stringify({
-        container_id_type: 'chat',
-        container_id: chat.chat_id,
-        start_time: String(Math.floor(cursor / 1000)),
-        sort_type: 'ByCreateTimeAsc',
-        page_size: 50,
-      }),
-      '--as',
-      'user',
-    ]);
-    const items: LarkMessage[] = res?.data?.items || [];
     const isGroup = chat.chat_mode !== 'p2p';
     const jid = `${this.prefix}${chat.chat_id}`;
     let maxTime = cursor;
@@ -298,6 +288,7 @@ export class FeishuUserChannel implements Channel {
       if (m.sender?.id === this.selfOpenId) continue; // 自己发的不回
       if (isGroup && !(m.mentions || []).some((x) => x.id === this.selfOpenId))
         continue; // 群里只接 @ 自己的
+      if (this.deps.hasMessage(m.message_id)) continue; // 已处理过
       const text = messageText(m);
       if (!text) continue;
       // 按入库时间记（不用飞书发送时间）：message loop 只看比"已看过时间点"新的消息，
@@ -327,7 +318,8 @@ export class FeishuUserChannel implements Channel {
       });
       stored++;
     }
-    if (maxTime > cursor) this.deps.setState(key, String(maxTime));
+    if (maxTime > cursor || !saved)
+      this.deps.setState(key, String(Math.max(maxTime, cursor)));
     // 不主动 enqueue：交给 message loop 统一发现。主动 enqueue 会和 loop 各送一次，
     // agent 进程活着时 loop 会把同一条再 pipe 进去，导致回复两遍（2026-10-08 实测）
     return stored;

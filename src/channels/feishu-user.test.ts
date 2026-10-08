@@ -74,6 +74,7 @@ function setup(
     }),
     storeChatMetadata: vi.fn(),
     storeMessage: (m) => stored.push(m),
+    hasMessage: (id) => stored.some((m) => m.id === id),
     getState: (k) => state.get(k),
     setState: (k, v) => state.set(k, v),
     now: () => now,
@@ -91,24 +92,26 @@ function setup(
 }
 
 describe('FeishuUserChannel 轮询', () => {
-  it('首次发现会话只记进度点不回补；之后新消息按 ID 只入库一次', async () => {
+  it('新发现的会话：回看窗口内发给 nine 的消息都补处理；重复拉取按 ID 不重复', async () => {
     const msgs = {
       oc_p2p: [
-        textMsg('om_old', 999_000, 'ou_zhang', '历史消息'),
+        textMsg('om_old', 999_000, 'ou_zhang', '发现会话之前就发了'),
         textMsg('om_1', 1_000_500, 'ou_zhang', '你好 nine'),
       ],
     };
-    const { channel, lark, stored, groups, setNow } = setup(msgs);
+    const { channel, stored, groups, setNow, deps } = setup(msgs);
     await channel.connect();
     await channel.disconnect(); // 只手动驱动 pollOnce
-    expect(await channel.pollOnce()).toBe(0); // 第一轮：记进度点
     setNow(1_005_000); // 轮询晚于消息发送（真实情况：有十几秒延迟）
-    expect(await channel.pollOnce()).toBe(1); // 第二轮：收到 om_1，历史消息被进度点挡住
-    expect(await channel.pollOnce()).toBe(0); // 第三轮：同一批再返回也不重复
-    expect(stored.map((m) => m.id)).toEqual(['om_1']);
-    // 按入库时间记，不早于本轮轮询时刻（message loop 才看得到）
-    expect(stored[0].timestamp).toBe(new Date(1_005_000).toISOString());
-    expect(stored[0]).toMatchObject({
+    expect(await channel.pollOnce()).toBe(2);
+    expect(await channel.pollOnce()).toBe(0); // 同一批再返回也不重复
+    expect(stored.map((m) => m.id)).toEqual(['om_old', 'om_1']);
+    // 按入库时间记，不早于本轮轮询时刻（message loop 才看得到），且保持先后顺序
+    expect(stored.map((m) => m.timestamp)).toEqual([
+      new Date(1_005_000).toISOString(),
+      new Date(1_005_001).toISOString(),
+    ]);
+    expect(stored[1]).toMatchObject({
       chat_jid: 'nine:oc_p2p',
       sender_name: '张三',
       content: '你好 nine',
@@ -118,7 +121,30 @@ describe('FeishuUserChannel 轮询', () => {
       customCwd: '/emp/nine',
       containerConfig: { standalone: true, sharedOneCLIAgent: true },
     });
-    expect(lark).toHaveBeenCalled();
+    // 进度点丢了（比如状态被清）也不会再处理一遍：按消息 ID 去重
+    (deps.setState as any)('feishu-user:nine:cursor:oc_p2p', '0');
+    expect(await channel.pollOnce()).toBe(0);
+  });
+
+  it('只回看到窗口上限，更早的旧消息不翻', async () => {
+    const msgs = {
+      oc_p2p: [
+        textMsg('om_ancient', 900_000, 'ou_zhang', '很久以前'),
+        textMsg('om_recent', 995_000, 'ou_zhang', '刚才'),
+      ],
+    };
+    const ctx = setup(msgs);
+    const ch = new FeishuUserChannel(
+      employee,
+      ctx.lark,
+      ctx.deps,
+      15_000,
+      10_000,
+    );
+    await ch.connect();
+    await ch.disconnect();
+    await ch.pollOnce();
+    expect(ctx.stored.map((m) => m.id)).toEqual(['om_recent']);
   });
 
   it('自己发的、群里没 @ 自己的都不收；群里 @ 自己的收', async () => {

@@ -24,6 +24,7 @@ import {
   EMPLOYEES_DIR,
   FEISHU_USER_EMPLOYEE,
   FEISHU_USER_LARK_PROFILE,
+  FEISHU_USER_LOOKBACK_HOURS,
   FEISHU_USER_POLL_MS,
   GITHUB_PROJECT_AUTO_DISPATCH_CONFIG,
   MEEGLE_GROUP_LARK_PROFILE,
@@ -89,6 +90,7 @@ import {
   getMessagesSince,
   getNewMessages,
   getRecentUserMessages,
+  getMessageById,
   getRouterState,
   initDatabase,
   setRegisteredGroup,
@@ -2673,10 +2675,12 @@ async function main(): Promise<void> {
           storeChatMetadata: (jid, ts, name, isGroup) =>
             storeChatMetadata(jid, ts, name, 'feishu-user', isGroup),
           storeMessage,
+          hasMessage: (id) => !!getMessageById(id),
           getState: getRouterState,
           setState: setRouterState,
         },
         FEISHU_USER_POLL_MS,
+        FEISHU_USER_LOOKBACK_HOURS * 3600_000,
       );
       try {
         await userChannel.connect();
