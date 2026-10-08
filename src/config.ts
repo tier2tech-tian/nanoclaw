@@ -34,6 +34,9 @@ const envConfig = readEnvFile([
   'CHAT_INDEX_DEBOUNCE_MS',
   'NANOCLAW_PERSONAL_DIR',
   'EMPLOYEES_DIR',
+  'FEISHU_USER_EMPLOYEE',
+  'FEISHU_USER_LARK_PROFILE',
+  'FEISHU_USER_POLL_MS',
   'GITHUB_PROJECT_AUTO_DISPATCH',
   'GITHUB_PROJECT_OWNER',
   'GITHUB_PROJECT_ASSIGNEE',
@@ -142,6 +145,17 @@ export const PERSONAL_DIR =
 // 飞书项目数字员工目录（每个子目录一个员工，含 employee.json）；空串=不启用
 export const EMPLOYEES_DIR =
   process.env.EMPLOYEES_DIR || envConfig.EMPLOYEES_DIR || '';
+// 飞书真人账号频道：哪个员工（EMPLOYEES_DIR 下的 id）用哪个 lark-cli profile 的用户身份收发；空串=不启用
+export const FEISHU_USER_EMPLOYEE =
+  process.env.FEISHU_USER_EMPLOYEE || envConfig.FEISHU_USER_EMPLOYEE || '';
+export const FEISHU_USER_LARK_PROFILE =
+  process.env.FEISHU_USER_LARK_PROFILE ||
+  envConfig.FEISHU_USER_LARK_PROFILE ||
+  '';
+export const FEISHU_USER_POLL_MS = parseInt(
+  process.env.FEISHU_USER_POLL_MS || envConfig.FEISHU_USER_POLL_MS || '15000',
+  10,
+);
 
 // --- Chat Index ---
 export const CHAT_INDEX_ENABLED =

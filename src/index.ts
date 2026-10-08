@@ -22,6 +22,9 @@ import {
   DATA_DIR,
   DEFAULT_TRIGGER,
   EMPLOYEES_DIR,
+  FEISHU_USER_EMPLOYEE,
+  FEISHU_USER_LARK_PROFILE,
+  FEISHU_USER_POLL_MS,
   GITHUB_PROJECT_AUTO_DISPATCH_CONFIG,
   getTriggerPattern,
   GROUPS_DIR,
@@ -46,6 +49,10 @@ import {
 import './channels/index.js';
 import type { FeishuChannel } from './channels/feishu.js';
 import { MeegleChannel } from './channels/meegle.js';
+import {
+  createLarkRunner,
+  FeishuUserChannel,
+} from './channels/feishu-user.js';
 import {
   dispatchToEmployee,
   EmployeeManifest,
@@ -2610,6 +2617,39 @@ async function main(): Promise<void> {
       { employeesDir: EMPLOYEES_DIR, employees: [...employees.keys()] },
       '[meegle] 数字员工频道已启用',
     );
+  }
+
+  // 飞书真人账号频道（如总控 nine）：用户身份轮询收消息、以该账号回复
+  if (EMPLOYEES_DIR && FEISHU_USER_EMPLOYEE) {
+    const employee = loadEmployees(EMPLOYEES_DIR).get(FEISHU_USER_EMPLOYEE);
+    if (!employee || !FEISHU_USER_LARK_PROFILE) {
+      logger.error(
+        { employee: FEISHU_USER_EMPLOYEE, profile: FEISHU_USER_LARK_PROFILE },
+        '[feishu-user] 员工清单或 lark profile 缺失，真人账号频道不启动',
+      );
+    } else {
+      const userChannel = new FeishuUserChannel(
+        employee,
+        createLarkRunner(FEISHU_USER_LARK_PROFILE),
+        {
+          getGroup: (jid) => registeredGroups[jid],
+          registerGroup,
+          storeChatMetadata: (jid, ts, name, isGroup) =>
+            storeChatMetadata(jid, ts, name, 'feishu-user', isGroup),
+          storeMessage,
+          enqueueMessageCheck: (jid) => queue.enqueueMessageCheck(jid),
+          getState: getRouterState,
+          setState: setRouterState,
+        },
+        FEISHU_USER_POLL_MS,
+      );
+      try {
+        await userChannel.connect();
+        channels.push(userChannel);
+      } catch (err) {
+        logger.error({ err: String(err) }, '[feishu-user] 启动失败');
+      }
+    }
   }
 
   // 启动时同步一次群列表（获取飞书群名等元数据）
