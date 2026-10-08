@@ -36,7 +36,13 @@ const textMsg = (
   mentions,
 });
 
-function setup(messages: Record<string, any[]>) {
+function setup(
+  messages: Record<string, any[]>,
+  chats: Array<{ chat_id: string; name: string; chat_mode: string }> = [
+    { chat_id: 'oc_p2p', name: '张三', chat_mode: 'p2p' },
+    { chat_id: 'oc_grp', name: '项目群', chat_mode: 'group' },
+  ],
+) {
   const state = new Map<string, string>();
   const groups: Record<string, RegisteredGroup> = {};
   const stored: NewMessage[] = [];
@@ -50,15 +56,7 @@ function setup(messages: Record<string, any[]>) {
         },
       };
     if (args[1] === '+chat-list')
-      return {
-        ok: true,
-        data: {
-          chats: [
-            { chat_id: 'oc_p2p', name: '张三', chat_mode: 'p2p' },
-            { chat_id: 'oc_grp', name: '项目群', chat_mode: 'group' },
-          ],
-        },
-      };
+      return { ok: true, data: { chats: [...chats] } };
     if (args[0] === 'api') {
       const p = JSON.parse(args[args.indexOf('--params') + 1]);
       return { data: { items: messages[p.container_id] || [] } };
@@ -170,6 +168,29 @@ describe('FeishuUserChannel 轮询', () => {
     }));
     const channel = new FeishuUserChannel(employee, lark, {} as FeishuUserDeps);
     await expect(channel.connect()).rejects.toThrow('未登录');
+  });
+});
+
+describe('FeishuUserChannel 新会话', () => {
+  it('启动后新冒出来的私聊，第一条消息不漏', async () => {
+    const msgs: Record<string, any[]> = {};
+    const chats = [
+      { chat_id: 'oc_p2p', name: '张三', chat_mode: 'p2p' },
+      { chat_id: 'oc_grp', name: '项目群', chat_mode: 'group' },
+    ];
+    const ctx = setup(msgs, chats);
+    const { channel, stored } = ctx;
+    await channel.connect();
+    await channel.disconnect();
+    await channel.pollOnce(); // 启动：两个已有会话记进度点
+    // 一分钟后有新人私聊：消息先到，会话列表下一次刷新才出现
+    ctx.setNow(1_060_000);
+    msgs.oc_new = [textMsg('om_first', 1_030_000, 'ou_wang', '第一次找你')];
+    chats.push({ chat_id: 'oc_new', name: '王五', chat_mode: 'p2p' });
+    for (let i = 0; i < 3; i++) await channel.pollOnce(); // 第 4 轮才刷新列表
+    expect(stored.map((m) => m.id)).toEqual([]);
+    await channel.pollOnce();
+    expect(stored.map((m) => m.id)).toEqual(['om_first']);
   });
 });
 

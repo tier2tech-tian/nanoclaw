@@ -135,6 +135,9 @@ export class FeishuUserChannel implements Channel {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
   private senderNames = new Map<string, string>();
+  /** 上一次成功刷新会话列表的时间；之后新冒出来的会话从这里开始收，不漏第一条 */
+  private prevListedAt = 0;
+  private listedAt = 0;
 
   constructor(
     private employee: EmployeeManifest,
@@ -227,7 +230,11 @@ export class FeishuUserChannel implements Channel {
         '--as',
         'user',
       ]);
-      if (res?.ok) this.chats = res.data?.chats || [];
+      if (res?.ok) {
+        this.chats = res.data?.chats || [];
+        this.prevListedAt = this.listedAt;
+        this.listedAt = (this.deps.now ?? Date.now)();
+      }
     }
     this.round++;
     let stored = 0;
@@ -245,12 +252,16 @@ export class FeishuUserChannel implements Channel {
     const now = (this.deps.now ?? Date.now)();
     const key = this.cursorKey(chat.chat_id);
     const saved = this.deps.getState(key);
-    if (!saved) {
-      // 新发现的会话不回补历史，从此刻开始收
-      this.deps.setState(key, String(now));
-      return 0;
+    let cursor: number;
+    if (saved) {
+      cursor = Number(saved);
+    } else {
+      // 启动时已有的会话不回补历史（从此刻收）；启动后新冒出来的会话（如新人第一次私聊）
+      // 从上一次刷新列表的时间收，否则会漏掉触发建会话的第一条消息
+      cursor = this.prevListedAt || now;
+      this.deps.setState(key, String(cursor));
+      if (cursor >= now) return 0;
     }
-    const cursor = Number(saved);
     const res = await this.lark([
       'api',
       'GET',
