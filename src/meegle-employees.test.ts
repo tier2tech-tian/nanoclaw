@@ -70,7 +70,6 @@ describe('dispatchToEmployee', () => {
       }),
       storeChatMetadata: vi.fn(),
       storeMessage: vi.fn(),
-      enqueueMessageCheck: vi.fn(),
       skillsSrcDir: path.join(root, 'skills'),
     };
     return { deps, groups };
@@ -96,7 +95,6 @@ describe('dispatchToEmployee', () => {
     const calls = vi.mocked(deps.registerGroup).mock.calls;
     expect(calls[1][1].folder).toBe(calls[0][1].folder);
     expect(calls[1][1].added_at).toBe(calls[0][1].added_at);
-    expect(deps.enqueueMessageCheck).toHaveBeenCalledTimes(2);
 
     const group = groups['meegle:prd-review:7126683372'];
     expect(group.customCwd).toBe(path.join(root, 'employees', 'prd-review'));

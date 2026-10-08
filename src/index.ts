@@ -2130,7 +2130,6 @@ async function startMessageLoop(): Promise<void> {
               storeChatMetadata: (jid, timestamp, name) =>
                 storeChatMetadata(jid, timestamp, name, 'meegle', true),
               storeMessage,
-              enqueueMessageCheck: (jid) => queue.enqueueMessageCheck(jid),
               skillsSrcDir: path.join(process.cwd(), 'container', 'skills'),
             });
             return result.ok
@@ -2637,7 +2636,6 @@ async function main(): Promise<void> {
           storeChatMetadata: (jid, ts, name, isGroup) =>
             storeChatMetadata(jid, ts, name, 'feishu-user', isGroup),
           storeMessage,
-          enqueueMessageCheck: (jid) => queue.enqueueMessageCheck(jid),
           getState: getRouterState,
           setState: setRouterState,
         },

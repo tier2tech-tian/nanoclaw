@@ -74,7 +74,6 @@ function setup(
     }),
     storeChatMetadata: vi.fn(),
     storeMessage: (m) => stored.push(m),
-    enqueueMessageCheck: vi.fn(),
     getState: (k) => state.get(k),
     setState: (k, v) => state.set(k, v),
     now: () => now,
@@ -116,7 +115,6 @@ describe('FeishuUserChannel 轮询', () => {
       customCwd: '/emp/nine',
       containerConfig: { standalone: true, sharedOneCLIAgent: true },
     });
-    expect(deps.enqueueMessageCheck).toHaveBeenCalledWith('nine:oc_p2p');
     expect(lark).toHaveBeenCalled();
   });
 

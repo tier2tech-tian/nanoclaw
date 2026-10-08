@@ -32,7 +32,6 @@ export interface FeishuUserDeps {
     isGroup: boolean,
   ) => void;
   storeMessage: (msg: NewMessage) => void;
-  enqueueMessageCheck: (jid: string) => void;
   getState: (key: string) => string | undefined;
   setState: (key: string, value: string) => void;
   now?: () => number;
@@ -318,7 +317,8 @@ export class FeishuUserChannel implements Channel {
       stored++;
     }
     if (maxTime > cursor) this.deps.setState(key, String(maxTime));
-    if (stored > 0) this.deps.enqueueMessageCheck(jid);
+    // 不主动 enqueue：交给 message loop 统一发现。主动 enqueue 会和 loop 各送一次，
+    // agent 进程活着时 loop 会把同一条再 pipe 进去，导致回复两遍（2026-10-08 实测）
     return stored;
   }
 

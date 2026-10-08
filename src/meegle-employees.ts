@@ -165,7 +165,6 @@ export interface MeegleDispatchDeps {
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   storeChatMetadata: (jid: string, timestamp: string, name: string) => void;
   storeMessage: (msg: NewMessage) => void;
-  enqueueMessageCheck: (jid: string) => void;
   skillsSrcDir: string;
   now?: () => Date;
 }
@@ -221,7 +220,7 @@ export function dispatchToEmployee(
     is_from_me: false,
     is_bot_message: false,
   });
-  deps.enqueueMessageCheck(jid);
+  // 不主动 enqueue，交给 message loop（2s 一轮）统一发现，避免同一条被送两次
   logger.info(
     {
       employee: employee.id,
