@@ -33,8 +33,8 @@ export interface FeishuUserDeps {
     isGroup: boolean,
   ) => void;
   storeMessage: (msg: NewMessage) => void;
-  /** 消息是否已入库（按飞书消息 ID 去重，重复拉到不重复处理） */
-  hasMessage: (id: string) => boolean;
+  /** 这条消息在该会话里是否已入库（按飞书消息 ID + 会话去重；同一条可能也被机器人频道存在它的群会话里） */
+  hasMessage: (id: string, jid: string) => boolean;
   getState: (key: string) => string | undefined;
   setState: (key: string, value: string) => void;
   now?: () => number;
@@ -291,7 +291,7 @@ export class FeishuUserChannel implements Channel {
       if (m.sender?.id === this.selfOpenId) continue; // 自己发的不回
       if (isGroup && !(m.mentions || []).some((x) => x.id === this.selfOpenId))
         continue; // 群里只接 @ 自己的
-      if (this.deps.hasMessage(m.message_id)) continue; // 已处理过
+      if (this.deps.hasMessage(m.message_id, jid)) continue; // 已处理过
       const text = messageText(m);
       if (!text) continue;
       // 按入库时间记（不用飞书发送时间）：message loop 只看比"已看过时间点"新的消息，

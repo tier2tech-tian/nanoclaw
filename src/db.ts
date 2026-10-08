@@ -825,6 +825,13 @@ export function getMessageById(
     .get(messageId) as { sender_name: string; content: string } | undefined;
 }
 
+/** 某会话里是否已有这条消息（按 id + chat_jid，与 messages 主键一致） */
+export function hasMessageInChat(messageId: string, chatJid: string): boolean {
+  return !!db
+    .prepare('SELECT 1 FROM messages WHERE id = ? AND chat_jid = ?')
+    .get(messageId, chatJid);
+}
+
 /**
  * Store a message directly.
  */

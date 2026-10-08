@@ -74,7 +74,8 @@ function setup(
     }),
     storeChatMetadata: vi.fn(),
     storeMessage: (m) => stored.push(m),
-    hasMessage: (id) => stored.some((m) => m.id === id),
+    hasMessage: (id, jid) =>
+      stored.some((m) => m.id === id && m.chat_jid === jid),
     getState: (k) => state.get(k),
     setState: (k, v) => state.set(k, v),
     now: () => now,
@@ -266,10 +267,14 @@ describe('FeishuUserChannel 群归属', () => {
     ]);
     ctx.groups['fs:oc_emp'] = { folder: 'emp-prd-review-1' } as RegisteredGroup;
     ctx.groups['fs:oc_bot'] = { folder: 'fs_oc_bot' } as RegisteredGroup;
+    // 机器人频道已把同一条消息存进它自己的群会话：不能因此被 nine 当成已处理
+    ctx.stored.push({ id: 'om_b', chat_jid: 'fs:oc_bot' } as NewMessage);
     await ctx.channel.connect();
     await ctx.channel.disconnect();
     await ctx.channel.pollOnce();
-    expect(ctx.stored.map((m) => m.id)).toEqual(['om_b']);
+    expect(
+      ctx.stored.filter((m) => m.chat_jid.startsWith('nine:')).map((m) => m.id),
+    ).toEqual(['om_b']);
   });
 });
 

@@ -91,6 +91,7 @@ import {
   getNewMessages,
   getRecentUserMessages,
   getMessageById,
+  hasMessageInChat,
   getRouterState,
   initDatabase,
   setRegisteredGroup,
@@ -2675,7 +2676,7 @@ async function main(): Promise<void> {
           storeChatMetadata: (jid, ts, name, isGroup) =>
             storeChatMetadata(jid, ts, name, 'feishu-user', isGroup),
           storeMessage,
-          hasMessage: (id) => !!getMessageById(id),
+          hasMessage: (id, jid) => hasMessageInChat(id, jid),
           getState: getRouterState,
           setState: setRouterState,
         },
