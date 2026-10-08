@@ -53,9 +53,9 @@ function setup(messages: Record<string, any[]>) {
       return {
         ok: true,
         data: {
-          items: [
-            { chat_id: 'oc_p2p', name: '张三', chat_type: 'p2p' },
-            { chat_id: 'oc_grp', name: '项目群', chat_type: 'group' },
+          chats: [
+            { chat_id: 'oc_p2p', name: '张三', chat_mode: 'p2p' },
+            { chat_id: 'oc_grp', name: '项目群', chat_mode: 'group' },
           ],
         },
       };

@@ -41,7 +41,8 @@ export interface FeishuUserDeps {
 interface LarkChat {
   chat_id: string;
   name?: string;
-  chat_type?: string;
+  /** lark-cli +chat-list 实际返回 chat_mode（p2p / group） */
+  chat_mode?: string;
 }
 
 interface LarkMessage {
@@ -226,7 +227,7 @@ export class FeishuUserChannel implements Channel {
         '--as',
         'user',
       ]);
-      if (res?.ok) this.chats = res.data?.items || [];
+      if (res?.ok) this.chats = res.data?.chats || [];
     }
     this.round++;
     let stored = 0;
@@ -266,7 +267,7 @@ export class FeishuUserChannel implements Channel {
       'user',
     ]);
     const items: LarkMessage[] = res?.data?.items || [];
-    const isGroup = chat.chat_type === 'group';
+    const isGroup = chat.chat_mode !== 'p2p';
     const jid = `${this.prefix}${chat.chat_id}`;
     let maxTime = cursor;
     let stored = 0;
