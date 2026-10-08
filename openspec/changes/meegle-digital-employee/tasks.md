@@ -23,13 +23,13 @@
 - [x] 3.4 单测：同一 work_item 两次 dispatch 命中同一 folder；不同 work_item 不同 folder
 
 ## 4. 回调迁移（细狗）
-- [ ] 4.1 meegle-hook 仓库推 GitHub 私有仓，细狗 clone
-- [ ] 4.2 ROUTES 改读 employee.json；dispatch 改调 /meegle/dispatch
-- [ ] 4.3 CF 隧道迁到细狗（大杰授权 cloudflared login），停 Mac mini 上的 server/tunnel
+- [x] 4.1 meegle-hook 迁入本仓库 services/meegle-hook（细狗 GitHub 账号拉不了新私有仓），随分支部署
+- [x] 4.2 ROUTES 改读 employee.json；dispatch 改调 /meegle/dispatch
+- [x] 4.3 CF 隧道迁到细狗（复用隧道凭证，无需重新 login；--protocol http2），Mac mini 的 server/tunnel 已 unload
 
 ## 5. 第一个员工：prd-review
 - [x] 5.1 员工目录（细狗 ~/ai/employees/prd-review，git 管理；工具 bin/meegle-emp 纯插件凭证，替代依赖个人登录的 meegle-np）：CLAUDE.md（由现 review 群 SOP 改写，去掉群相关）、skills（nine-refine product 阶段）、assets/index.md、bin/
-- [ ] 5.2 E2E（09-29 已验：本机派活→员工评审→识别重复批次不重复评论→自记经验并 commit；待验：新需求三条结论路径、写评论接口、退回续接）：tian-测试建需求 → 推到 AI 需求评审 → 细狗员工评审、写正式评论 → 需澄清/不通过/通过三条路径各走一遍；退回再进入验证会话续接
+- [x] 5.2 E2E（10-08 真实回调：7130664159 通过→done+confirm→预开发；7130751555 不通过→stop+rollback→需求提出，重新提交后续接原会话再评；7130751556 需澄清→节点保持运行；坑：评论内容类型须大写 RICHTEXT）：tian-测试建需求 → 推到 AI 需求评审 → 细狗员工评审、写正式评论 → 需澄清/不通过/通过三条路径各走一遍；退回再进入验证会话续接
 - [ ] 5.3 每周资产汇总定时任务
 
 ## 6. 收尾
