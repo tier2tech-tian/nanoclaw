@@ -7,7 +7,7 @@ import time
 import urllib.request
 
 DATA_DIR = os.path.expanduser(os.environ.get("MEEGLE_HOOK_DATA", "~/ai/meegle-hook-data"))
-url = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:18765/hook"
+url = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:18775/hook"
 tok = open(os.path.join(DATA_DIR, ".callback_token")).read().strip()
 rt = str(int(time.time() * 1000))
 good = hashlib.sha256(f"MII_6ABA18B45C808CB7{rt}{tok}".encode()).hexdigest()

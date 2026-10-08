@@ -22,7 +22,7 @@ DATA_DIR = os.path.expanduser(os.environ.get("MEEGLE_HOOK_DATA", "~/ai/meegle-ho
 EMPLOYEES_DIR = os.path.expanduser(os.environ.get("EMPLOYEES_DIR", "~/ai/employees"))
 EVENTS_DIR = os.path.join(DATA_DIR, "events")
 PLUGIN_ID = os.environ.get("MEEGLE_AI_PLUGIN_ID", "MII_6ABA18B45C808CB7")
-PORT = int(os.environ.get("MEEGLE_HOOK_PORT", "18765"))
+PORT = int(os.environ.get("MEEGLE_HOOK_PORT", "18775"))
 with open(os.path.join(DATA_DIR, ".callback_token")) as f:
     CALLBACK_TOKEN = f.read().strip()
 

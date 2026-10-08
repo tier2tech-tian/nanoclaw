@@ -4,5 +4,5 @@ ingress:
   # 只放行 /hook 和健康检查根路径，其它一律 404
   - hostname: meegle-hook.heasenbug.com
     path: ^/(hook)?$
-    service: http://127.0.0.1:18765
+    service: http://127.0.0.1:18775
   - service: http_status:404
