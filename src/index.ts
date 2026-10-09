@@ -2706,7 +2706,7 @@ async function main(): Promise<void> {
                 bind_group: false,
                 source: '群反馈巡检',
                 text: [
-                  `【群反馈新话题】话题 ${t.threadId}`,
+                  `【群反馈新话题】话题 ${t.threadId}，首帖消息 ${t.messageId}`,
                   `- 群：${w.chatId}`,
                   `- 发帖人：${t.senderName}（${t.senderId}）`,
                   `- 时间：${new Date(t.createTime).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}`,
