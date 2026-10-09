@@ -437,7 +437,8 @@ export function prepareGroupSession(
       settingsFile,
       JSON.stringify(
         {
-          model: 'claude-opus-4-8',
+          // [1m]：凭证代理下 CLI 不认第一方直连，不带后缀会回落 200K
+          model: 'claude-opus-5-5[1m]',
           env: {
             CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
             CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
