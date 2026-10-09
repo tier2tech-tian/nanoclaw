@@ -26,6 +26,7 @@ import {
   FEISHU_USER_LARK_PROFILE,
   FEISHU_USER_LOOKBACK_HOURS,
   FEISHU_USER_POLL_MS,
+  FEISHU_USER_WATCH,
   GITHUB_PROJECT_AUTO_DISPATCH_CONFIG,
   MEEGLE_GROUP_LARK_PROFILE,
   MEEGLE_GROUP_MEMBERS,
@@ -55,6 +56,7 @@ import { MeegleChannel } from './channels/meegle.js';
 import {
   createLarkRunner,
   FeishuUserChannel,
+  parseWatches,
 } from './channels/feishu-user.js';
 import {
   dispatchToEmployee,
@@ -2694,6 +2696,45 @@ async function main(): Promise<void> {
             Date.parse(getLatestMessageTimestamp() || '') || 0,
           getState: getRouterState,
           setState: setRouterState,
+          watches: parseWatches(FEISHU_USER_WATCH),
+          dispatchTopic: async (w, t) => {
+            const result = await dispatchToEmployee(
+              {
+                employee: w.employee,
+                work_item_id: t.threadId,
+                work_item_name: t.text.slice(0, 30),
+                bind_group: false,
+                source: '群反馈巡检',
+                text: [
+                  `【群反馈新话题】话题 ${t.threadId}`,
+                  `- 群：${w.chatId}`,
+                  `- 发帖人：${t.senderName}（${t.senderId}）`,
+                  `- 时间：${new Date(t.createTime).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}`,
+                  `- 首帖：${t.text || '[无文字，可能是图片]'}`,
+                  '按 CLAUDE.md 的 SOP 分析这个话题。',
+                ].join('\n'),
+              },
+              {
+                getEmployee: (id) => loadEmployees(EMPLOYEES_DIR).get(id),
+                getGroup: (jid) => registeredGroups[jid],
+                registerGroup,
+                storeChatMetadata: (jid, ts, name) =>
+                  storeChatMetadata(jid, ts, name, 'meegle', true),
+                storeMessage,
+                skillsSrcDir: path.join(process.cwd(), 'container', 'skills'),
+                getState: getRouterState,
+                setState: setRouterState,
+                latestMessageTime: () =>
+                  Date.parse(getLatestMessageTimestamp() || '') || 0,
+              },
+            );
+            if (!result.ok)
+              logger.error(
+                { watch: w.chatId, thread: t.threadId, error: result.error },
+                '[feishu-user] 群反馈派活失败，下一轮重试',
+              );
+            return result.ok;
+          },
         },
         FEISHU_USER_POLL_MS,
         FEISHU_USER_LOOKBACK_HOURS * 3600_000,

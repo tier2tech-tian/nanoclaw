@@ -215,6 +215,46 @@ describe('dispatchToEmployee', () => {
     expect(deps.registerGroup).not.toHaveBeenCalled();
   });
 
+  it('不绑群派活：话题 ID 当会话键，即使配了建群也不建；绑群模式仍要求数字 ID', async () => {
+    const { deps, groups } = makeDeps();
+    const createChat = vi.fn(async () => 'oc_x');
+    deps.groupBinding = {
+      trigger: '@bot',
+      createChat,
+      getBinding: () => undefined,
+      setBinding: vi.fn(),
+    };
+    const r = await dispatchToEmployee(
+      {
+        employee: 'prd-review',
+        work_item_id: 'omt_19ad3a39030fda42',
+        text: '分析',
+        bind_group: false,
+        source: '群反馈巡检',
+      },
+      deps,
+    );
+    expect(r).toMatchObject({
+      ok: true,
+      jid: 'meegle:prd-review:omt_19ad3a39030fda42',
+      folder: 'emp-prd-review-omt_19ad3a39030fda42',
+    });
+    expect(createChat).not.toHaveBeenCalled();
+    expect(vi.mocked(deps.storeMessage).mock.calls[0][0]).toMatchObject({
+      content: '分析',
+      sender_name: '群反馈巡检',
+    });
+    expect(
+      groups['meegle:prd-review:omt_19ad3a39030fda42'].requiresTrigger,
+    ).toBe(false);
+    expect(
+      await dispatchToEmployee(
+        { employee: 'prd-review', work_item_id: 'omt_x', text: 'x' },
+        deps,
+      ),
+    ).toMatchObject({ ok: false, status: 400 });
+  });
+
   it('同一需求并发首次派活只建一个群', async () => {
     const { deps } = makeDeps();
     const bindings = new Map<string, string>();

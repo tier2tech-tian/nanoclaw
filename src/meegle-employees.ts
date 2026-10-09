@@ -30,6 +30,8 @@ export const MEEGLE_JID_PREFIX = 'meegle:';
 
 const EMPLOYEE_ID_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;
 const WORK_ITEM_ID_RE = /^\d{1,20}$/;
+/** 不绑群的派活（如群反馈巡检）用任意会话键，如飞书话题 ID omt_xxx */
+const SESSION_KEY_RE = /^[A-Za-z0-9_-]{1,40}$/;
 const SKILL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 /** 扫描 EMPLOYEES_DIR/*\/employee.json；非法清单跳过并告警，不影响其他员工 */
@@ -168,6 +170,10 @@ export interface MeegleDispatchRequest {
   /** hook 传来的运行批次：同一批次只入队一次（hook 回包超时重试也不会派两遍） */
   flow_id?: string;
   state_key?: string;
+  /** false = 不绑飞书群，work_item_id 可为任意会话键（结果由员工自己用工具投递） */
+  bind_group?: boolean;
+  /** 派活消息的发送者名，缺省"飞书项目" */
+  source?: string;
 }
 
 /** 员工会话绑定飞书群：首次派活由机器人建群（拉总控等成员），群 = 会话 */
@@ -235,7 +241,10 @@ export async function dispatchToEmployee(
   const workItemId = String(req.work_item_id || '');
   const text = typeof req.text === 'string' ? req.text : '';
   if (!text.trim()) return { ok: false, status: 400, error: '缺 text' };
-  if (!WORK_ITEM_ID_RE.test(workItemId))
+  if (req.bind_group === false) {
+    if (!SESSION_KEY_RE.test(workItemId))
+      return { ok: false, status: 400, error: '会话键只能含字母数字_-' };
+  } else if (!WORK_ITEM_ID_RE.test(workItemId))
     return { ok: false, status: 400, error: 'work_item_id 须为数字' };
   const employee = deps.getEmployee(employeeId);
   if (!employee)
@@ -281,7 +290,7 @@ async function dispatchLocked(
   const title = `${employee.name} · ${req.work_item_name || '需求'} #${workItemId}`;
 
   let jid = employeeJid(employee.id, workItemId);
-  const binding = deps.groupBinding;
+  const binding = req.bind_group === false ? undefined : deps.groupBinding;
   if (binding) {
     const key = bindingKey(employee.id, workItemId);
     const bound = binding.getBinding(key);
@@ -326,7 +335,7 @@ async function dispatchLocked(
     id: messageId,
     chat_jid: jid,
     sender: 'meegle-hook',
-    sender_name: '飞书项目',
+    sender_name: req.source || '飞书项目',
     // 绑群时要求 @ 机器人才处理，派活消息带上前缀
     content: binding ? `${binding.trigger} ${text}` : text,
     timestamp,

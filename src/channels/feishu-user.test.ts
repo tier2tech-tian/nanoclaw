@@ -352,6 +352,92 @@ describe('FeishuUserChannel 补收可靠性', () => {
   });
 });
 
+describe('FeishuUserChannel 群反馈巡检', () => {
+  const W = {
+    chatId: 'oc_fb',
+    employee: 'feedback-triage',
+    intervalMs: 120_000,
+  };
+  const topic = (id: string, t: number, sender = 'ou_user', type = 'user') => ({
+    ...textMsg(id, t, sender, `反馈${id}`),
+    sender: { id: sender, sender_type: type },
+    thread_id: `omt_${id}`,
+  });
+  const reply = (id: string, t: number, thread: string) => ({
+    ...textMsg(id, t, 'ou_user', '+1'),
+    thread_id: thread,
+    parent_id: 'om_root',
+  });
+
+  function watchSetup(msgs: Record<string, any[]>, results: boolean[] = []) {
+    const ctx = setup(msgs, [
+      { chat_id: 'oc_fb', name: '多用多说', chat_mode: 'topic' },
+    ]);
+    const sent: any[] = [];
+    ctx.deps.watches = [W];
+    ctx.deps.dispatchTopic = vi.fn(async (_w, t) => {
+      sent.push(t);
+      return results.length ? results.shift()! : true;
+    });
+    return { ...ctx, sent };
+  }
+
+  it('首次巡检只记进度点不回补；之后新话题派一次，回复/自己/机器人不派，读过的不再派', async () => {
+    const msgs: Record<string, any[]> = { oc_fb: [topic('old', 999_000)] };
+    const ctx = watchSetup(msgs);
+    await ctx.channel.connect();
+    await ctx.channel.disconnect();
+    await ctx.channel.pollOnce();
+    expect(ctx.sent).toEqual([]);
+    msgs.oc_fb = [
+      topic('old', 999_000),
+      topic('a', 1_050_000),
+      reply('r1', 1_060_000, 'omt_a'),
+      topic('self', 1_070_000, SELF),
+      topic('bot', 1_080_000, 'cli_x', 'app'),
+      {
+        ...topic('at', 1_090_000),
+        mentions: [{ key: '@_user_1', id: SELF, name: 'nine' }],
+      },
+    ];
+    ctx.setNow(1_200_000);
+    await ctx.channel.pollOnce();
+    expect(ctx.sent.map((t) => t.threadId)).toEqual(['omt_a', 'omt_at']);
+    expect(ctx.sent[0]).toMatchObject({ messageId: 'a', text: '反馈a' });
+    ctx.setNow(1_400_000);
+    await ctx.channel.pollOnce();
+    expect(ctx.sent).toHaveLength(2);
+    // 群里 @nine 也不当私聊收、不在群里回
+    expect(ctx.stored).toEqual([]);
+    expect(ctx.channel.ownsJid('nine:oc_fb')).toBe(false);
+    await expect(ctx.channel.sendMessage('nine:oc_fb', 'x')).rejects.toThrow(
+      '不允许',
+    );
+  });
+
+  it('派活失败停在该话题，下一轮重试；未到间隔不巡检', async () => {
+    const msgs: Record<string, any[]> = { oc_fb: [] };
+    const ctx = watchSetup(msgs, [false, true, true]);
+    await ctx.channel.connect();
+    await ctx.channel.disconnect();
+    await ctx.channel.pollOnce(); // 记进度点 1_000_000
+    msgs.oc_fb = [topic('a', 1_050_000), topic('b', 1_060_000)];
+    ctx.setNow(1_200_000);
+    await ctx.channel.pollOnce(); // a 失败，b 不碰
+    expect(ctx.sent.map((t) => t.threadId)).toEqual(['omt_a']);
+    ctx.setNow(1_250_000); // 未满 2 分钟
+    await ctx.channel.pollOnce();
+    expect(ctx.sent).toHaveLength(1);
+    ctx.setNow(1_400_000);
+    await ctx.channel.pollOnce();
+    expect(ctx.sent.map((t) => t.threadId)).toEqual([
+      'omt_a',
+      'omt_a',
+      'omt_b',
+    ]);
+  });
+});
+
 describe('messageText', () => {
   it('富文本拍平，图片给占位', () => {
     expect(

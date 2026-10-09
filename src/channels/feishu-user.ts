@@ -40,7 +40,43 @@ export interface FeishuUserDeps {
   setState: (key: string, value: string) => void;
   /** 库里最新一条消息的时间（毫秒）；入库时间必须晚于它，message loop 才看得到 */
   latestMessageTime?: () => number;
+  /** 被监听的群（如用户反馈群）：nine 不在群里说话，新话题交给员工分析 */
+  watches?: WatchedChat[];
+  /** 把一个新话题派给员工；返回 false 表示没派出去，下一轮重试 */
+  dispatchTopic?: (watch: WatchedChat, topic: WatchTopic) => Promise<boolean>;
   now?: () => number;
+}
+
+export interface WatchedChat {
+  chatId: string;
+  /** 负责分析的员工 id */
+  employee: string;
+  /** 巡检间隔（毫秒） */
+  intervalMs: number;
+}
+
+export interface WatchTopic {
+  chatId: string;
+  /** 话题 ID（omt_xxx），一个话题 = 一个员工会话 */
+  threadId: string;
+  messageId: string;
+  createTime: number;
+  senderId: string;
+  senderName: string;
+  text: string;
+}
+
+/** 解析 FEISHU_USER_WATCH：`<chat_id>:<员工>:<间隔毫秒>`，多个用逗号分隔 */
+export function parseWatches(raw: string | undefined): WatchedChat[] {
+  return (raw || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map((x) => {
+      const [chatId, employee, ms] = x.split(':');
+      return { chatId, employee, intervalMs: Number(ms) || 120_000 };
+    })
+    .filter((w) => w.chatId && w.employee);
 }
 
 interface OutboxItem {
@@ -61,6 +97,9 @@ interface LarkMessage {
   msg_type: string;
   create_time: string;
   deleted?: boolean;
+  /** 话题群：根消息没有 parent_id，回复有 */
+  parent_id?: string;
+  thread_id?: string;
   sender?: { id?: string; sender_type?: string };
   body?: { content?: string };
   mentions?: Array<{ key: string; id: string; name: string }>;
@@ -151,6 +190,7 @@ export class FeishuUserChannel implements Channel {
   private stopped = false;
   private senderNames = new Map<string, string>();
   private flushing: Promise<void> | null = null;
+  private lastWatchPoll = new Map<string, number>();
 
   constructor(
     private employee: EmployeeManifest,
@@ -191,7 +231,14 @@ export class FeishuUserChannel implements Channel {
   }
 
   ownsJid(jid: string): boolean {
-    return jid.startsWith(this.prefix);
+    return (
+      jid.startsWith(this.prefix) &&
+      !this.watchOf(jid.slice(this.prefix.length))
+    );
+  }
+
+  private watchOf(chatId: string): WatchedChat | undefined {
+    return this.deps.watches?.find((w) => w.chatId === chatId);
   }
 
   async sendMessage(
@@ -200,6 +247,8 @@ export class FeishuUserChannel implements Channel {
     options?: SendMessageOptions,
   ): Promise<string | undefined> {
     if (options?.isProgress) return undefined;
+    if (this.watchOf(jid.slice(this.prefix.length)))
+      throw new Error('[feishu-user] 被监听的群不允许以 nine 身份发言');
     // 同会话还有没发出去的，先补发，保证先后顺序
     if (this.outbox().some((o) => o.jid === jid)) await this.flushOutbox();
     if (!this.outbox().some((o) => o.jid === jid)) {
@@ -311,13 +360,101 @@ export class FeishuUserChannel implements Channel {
     this.round++;
     let stored = 0;
     for (const chat of this.chats) {
+      // 被监听的群只做巡检，@nine 也不在群里回
+      if (this.watchOf(chat.chat_id)) continue;
       // 数字员工的需求群归员工处理，nine 只是成员、不插话；
       // 其他群即使机器人也在（会被机器人频道自动注册），@nine 的仍由 nine 回
       const botGroup = this.deps.getGroup(`fs:${chat.chat_id}`);
       if (botGroup && isEmployeeFolder(botGroup.folder)) continue;
       stored += await this.pollChat(chat);
     }
+    for (const w of this.deps.watches || []) {
+      const last = this.lastWatchPoll.get(w.chatId) ?? 0;
+      if (this.now() - last < w.intervalMs) continue;
+      this.lastWatchPoll.set(w.chatId, this.now());
+      await this.pollWatch(w);
+    }
     return stored;
+  }
+
+  /**
+   * 巡检被监听的群：只看进度点之后的新消息（读过的不再读），
+   * 新话题（根消息、真人发的）派给员工；派成功才记"已派"，失败停在这条下一轮重试。
+   * 第一次巡检从当前时刻开始，不回补历史话题。
+   */
+  async pollWatch(w: WatchedChat): Promise<number> {
+    const now = this.now();
+    const key = `feishu-user:${this.employee.id}:watch:${w.chatId}:cursor`;
+    const saved = this.deps.getState(key);
+    if (!saved) {
+      this.deps.setState(key, String(now));
+      return 0;
+    }
+    const cursor = Number(saved);
+    const items = await this.fetchSince(w.chatId, cursor);
+    let progress = cursor;
+    let dispatched = 0;
+    for (const m of items) {
+      const t = Number(m.create_time);
+      if (!(t > cursor)) continue;
+      const isTopic =
+        !m.parent_id &&
+        !m.deleted &&
+        m.sender?.sender_type === 'user' &&
+        m.sender?.id !== this.selfOpenId &&
+        !!m.thread_id;
+      if (isTopic) {
+        const seenKey = `feishu-user:${this.employee.id}:watch:${w.chatId}:topic:${m.thread_id}`;
+        if (!this.deps.getState(seenKey)) {
+          const topic: WatchTopic = {
+            chatId: w.chatId,
+            threadId: m.thread_id!,
+            messageId: m.message_id,
+            createTime: t,
+            senderId: m.sender?.id || '',
+            senderName: await this.senderName(m.sender?.id || ''),
+            text: messageText(m),
+          };
+          const ok = (await this.deps.dispatchTopic?.(w, topic)) ?? false;
+          if (!ok) break; // 停在这条之前，下一轮从这里重来
+          this.deps.setState(seenKey, String(now));
+          dispatched++;
+        }
+      }
+      progress = Math.max(progress, t);
+    }
+    if (progress > cursor) this.deps.setState(key, String(progress));
+    return dispatched;
+  }
+
+  private async fetchSince(
+    chatId: string,
+    cursor: number,
+  ): Promise<LarkMessage[]> {
+    const items: LarkMessage[] = [];
+    let pageToken = '';
+    for (let page = 0; page < 10; page++) {
+      const res = await this.lark([
+        'api',
+        'GET',
+        '/open-apis/im/v1/messages',
+        '--params',
+        JSON.stringify({
+          container_id_type: 'chat',
+          container_id: chatId,
+          start_time: String(Math.floor(cursor / 1000)),
+          sort_type: 'ByCreateTimeAsc',
+          page_size: 50,
+          ...(pageToken ? { page_token: pageToken } : {}),
+        }),
+        '--as',
+        'user',
+      ]);
+      items.push(...(res?.data?.items || []));
+      if (!res?.data?.has_more || !res.data.page_token) break;
+      pageToken = res.data.page_token;
+    }
+    return items;
   }
 
   private cursorKey(chatId: string): string {
@@ -331,29 +468,7 @@ export class FeishuUserChannel implements Channel {
     // 规则：发给 nine、还没处理过的消息都要处理。新发现的会话（含新人第一次私聊、刚被拉进群、
     // 重启空档）往回看 lookbackMs，靠消息 ID 去重，不会回两遍
     const cursor = saved ? Number(saved) : now - this.lookbackMs;
-    const items: LarkMessage[] = [];
-    let pageToken = '';
-    for (let page = 0; page < 10; page++) {
-      const res = await this.lark([
-        'api',
-        'GET',
-        '/open-apis/im/v1/messages',
-        '--params',
-        JSON.stringify({
-          container_id_type: 'chat',
-          container_id: chat.chat_id,
-          start_time: String(Math.floor(cursor / 1000)),
-          sort_type: 'ByCreateTimeAsc',
-          page_size: 50,
-          ...(pageToken ? { page_token: pageToken } : {}),
-        }),
-        '--as',
-        'user',
-      ]);
-      items.push(...(res?.data?.items || []));
-      if (!res?.data?.has_more || !res.data.page_token) break;
-      pageToken = res.data.page_token;
-    }
+    const items = await this.fetchSince(chat.chat_id, cursor);
     const isGroup = chat.chat_mode !== 'p2p';
     const jid = `${this.prefix}${chat.chat_id}`;
     let maxTime = cursor;

@@ -38,6 +38,7 @@ const envConfig = readEnvFile([
   'FEISHU_USER_LARK_PROFILE',
   'FEISHU_USER_POLL_MS',
   'FEISHU_USER_LOOKBACK_HOURS',
+  'FEISHU_USER_WATCH',
   'MEEGLE_GROUP_LARK_PROFILE',
   'MEEGLE_GROUP_MEMBERS',
   'GITHUB_PROJECT_AUTO_DISPATCH',
@@ -160,6 +161,9 @@ export const FEISHU_USER_POLL_MS = parseInt(
   10,
 );
 // 新发现的会话往回看多少小时补处理未处理消息
+/** 真人账号监听的群：`<chat_id>:<员工>:<间隔毫秒>`，逗号分隔；群里不发言，新话题派给员工 */
+export const FEISHU_USER_WATCH =
+  process.env.FEISHU_USER_WATCH || envConfig.FEISHU_USER_WATCH || '';
 export const FEISHU_USER_LOOKBACK_HOURS = parseFloat(
   process.env.FEISHU_USER_LOOKBACK_HOURS ||
     envConfig.FEISHU_USER_LOOKBACK_HOURS ||
