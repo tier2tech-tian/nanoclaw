@@ -1,15 +1,16 @@
 ---
-name: implement
-description: "Implement a piece of work based on a spec or set of tickets."
+name: mp-implement
+description: "按已确认规格或任务实现、测试并提交审查。"
 disable-model-invocation: true
 ---
 
-Implement the work described by the user in the spec or tickets.
+# 实现
 
-Use /tdd where possible, at pre-agreed seams.
+1. 读取当前需求、相关规格和项目规则，确认验收边界。已确认的需求直接执行；只有需求矛盾、范围变化或缺少关键决定时才追问。
+2. 检查工作树与已有改动，在任务分支工作。NanoClaw协作的驾驶舱、项目跟踪与交付约定见 [交付约定](references/delivery.md)。
+3. 按行为切小块，优先使用 [TDD](../mp-tdd/SKILL.md)：写失败测试、实现、立即运行，逐步完成；文档或配置改动使用对应解析、引用及运行验证。
+4. 测试范围随影响扩大：先定向测试，再相关模块回归；涉及共享入口、跨模块或运行环境时按项目要求扩至全量。区分原有失败、新增失败与未验证项，不用修改无关测试来制造全绿。
+5. 用 [code-review](../mp-code-review/SKILL.md) 审查固定版本的需求符合性、项目约定与测试有效性。核验反馈后修复，再跑受影响验证。
+6. 提交自己的改动并按项目要求创建PR，汇报证据及遗留项。合并、对外发布和部署分别遵守已有授权，不把“开始实现”视为全部授权。
 
-Run typechecking regularly, single test files regularly, and the full test suite once at the end.
-
-Once done, use /code-review to review the work.
-
-Commit your work to the current branch.
+改变用户可见流程时，读取 [e2e-testing](../e2e-testing/SKILL.md) 自行验证完整路径。真实消息、生产写入等越过既定边界的用例单列待确认；不得用模拟测试冒充真实链路通过。

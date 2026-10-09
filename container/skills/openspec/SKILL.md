@@ -1,6 +1,6 @@
 ---
 name: openspec
-description: 使用 OpenSpec CLI 管理变更规范。当用户要求写规范、写 spec、写 openspec、写设计文档、写方案文档时触发。触发词包括：openspec、写规范、写 spec、设计文档、方案文档、变更提案。
+description: "创建或维护OpenSpec变更提案、设计、规格与任务。"
 ---
 
 # OpenSpec 变更规范

@@ -1,6 +1,6 @@
 ---
 name: feishu-docs
-description: 读取、创建飞书文档，上传文件到用户云盘。当用户发飞书文档链接、要求创建文档、或要求上传文件时使用。
+description: "使用本项目feishu-docs脚本读取、创建文档或上传产物时使用。"
 codex-shared: true
 ---
 

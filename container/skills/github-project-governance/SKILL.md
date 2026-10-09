@@ -1,6 +1,6 @@
 ---
 name: github-project-governance
-description: GitHub Projects v2 低成本读写与配额治理。kickoff、implement、wrapup 或后台任务需要查询、绑定、更新项目项时必须使用。
+description: "查询或更新GitHub Projects v2项目项与字段时使用。"
 ---
 
 # GitHub Projects v2 配额治理

@@ -1,6 +1,6 @@
 ---
 name: eval-conversation
-description: 测评 Nine 机器人对话质量。分析 LLM 思考链路、tool call 参数/结果/性能，评估回复准确性，给出优化建议。触发词：测评、评估对话、分析会话、eval。
+description: "评估Nine会话的工具调用、回复质量与执行性能。"
 ---
 
 # 会话测评

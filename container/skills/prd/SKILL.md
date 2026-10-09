@@ -1,6 +1,6 @@
 ---
 name: prd
-description: "生成 Nine 平台需求文档/PRD/产品方案（方法论与 Nine 仓库 skills/ccskills/pm-lite 同源）。用户说'写 PRD'、'需求文档'、'产品方案'、'把刚才聊的整理成需求'时触发。主场景是 Nine 平台自身需求（基础架构/数据 agent/招聘/产研工作流）；多数时候先讨论、查证代码事实、完善已有文档，用户明示落档时按 prd-pipeline 流水线产飞书 PRD。需要 OpenSpec 四件套时走 /openspec，不自己生成。NOT for：纯数据查询、纯代码展示、纯飞书文档格式导出。"
+description: "将Nine平台已讨论的需求整理成PRD；支持补全或评审现有方案。"
 ---
 
 # Nine 平台 PRD skill

@@ -1,6 +1,6 @@
 ---
 name: draftbook
-description: NanoClaw 全局任务草稿本。用户说“保存草稿、记到草稿、打开草稿、查看草稿、继续上次方案、归档草稿”时使用；长任务出现关键方案转折或需要跨会话/跨群接力时也应使用。
+description: "保存、查找或续接跨会话任务草稿。"
 allowed-tools: Bash, Read, Edit, Write
 ---
 

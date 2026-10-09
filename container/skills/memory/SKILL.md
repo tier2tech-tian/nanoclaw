@@ -1,6 +1,6 @@
 ---
 name: memory
-description: 主动查询和存储用户记忆。当用户要求记住、回忆、查询、查一下内容时使用。
+description: "用户要求记住或回忆个人偏好、历史事实时使用。"
 ---
 
 # Memory Skill

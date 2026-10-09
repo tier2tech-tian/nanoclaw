@@ -1,6 +1,6 @@
 ---
 name: domain-modeling
-description: Build and sharpen a project's domain model. Use when discussing codebase terminology, writing or editing a CONTEXT.md, or recording or editing an ADR.
+description: "明确领域术语与边界，维护术语表及必要的决策记录。"
 ---
 
 # Domain Modeling
