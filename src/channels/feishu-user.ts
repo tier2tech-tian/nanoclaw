@@ -9,20 +9,26 @@
  * 回复发失败进待发件箱（router_state），每轮轮询先重投，超过 OUTBOX_TTL_MS 才放弃。
  */
 import { execFile } from 'child_process';
+import fs from 'fs';
 import path from 'path';
 
+import { resolveGroupFolderPath } from '../group-folder.js';
 import { logger } from '../logger.js';
 import { isEmployeeFolder } from '../meegle-employees.js';
 import type { EmployeeManifest } from '../meegle-employees.js';
 import type {
   Channel,
+  MessageAttachment,
   NewMessage,
   RegisteredGroup,
   SendMessageOptions,
 } from '../types.js';
 
-/** 调 lark-cli 并返回解析后的 JSON；测试里替换成假实现 */
-export type LarkRunner = (args: string[]) => Promise<any>;
+/** 调 lark-cli 并返回解析后的 JSON；测试里替换成假实现。cwd 给需要相对输出路径的下载类命令用 */
+export type LarkRunner = (
+  args: string[],
+  opts?: { cwd?: string },
+) => Promise<any>;
 
 export interface FeishuUserDeps {
   getGroup: (jid: string) => RegisteredGroup | undefined;
@@ -152,6 +158,25 @@ export function messageText(m: LarkMessage): string {
     text = text.split(mention.key).join(`@${mention.name}`);
   }
   return text.trim();
+}
+
+/** 消息里的图片 key：单图消息一个，富文本里可能多个；视频（media）封面下不下来，不算 */
+export function messageImageKeys(m: LarkMessage): string[] {
+  let content: any = {};
+  try {
+    content = JSON.parse(m.body?.content || '{}');
+  } catch {
+    return [];
+  }
+  const keys: string[] = [];
+  if (m.msg_type === 'image' && content.image_key) keys.push(content.image_key);
+  if (m.msg_type === 'post') {
+    const post = content.content ? content : Object.values(content)[0] || {};
+    for (const para of post.content || [])
+      for (const el of para)
+        if (el?.tag === 'img' && el.image_key) keys.push(el.image_key);
+  }
+  return [...new Set(keys)];
 }
 
 /** "员工 × 飞书会话"的会话配置：独立模式 + 共享账号组，cwd 指向员工目录 */
@@ -482,8 +507,14 @@ export class FeishuUserChannel implements Channel {
       if (isGroup && !(m.mentions || []).some((x) => x.id === this.selfOpenId))
         continue; // 群里只接 @ 自己的
       if (this.deps.hasMessage(m.message_id, jid)) continue; // 已处理过
-      const text = messageText(m);
+      let text = messageText(m);
       if (!text) continue;
+      // 图片落盘到会话目录 images/，正文带路径、附件带路径，模型才看得到图（之前只给「[图片]」三个字）
+      const attachments: MessageAttachment[] = [];
+      for (const imgPath of await this.downloadImages(m, chat.chat_id)) {
+        text += `\n[图片: ${imgPath}]`;
+        attachments.push({ type: 'image', path: imgPath, source: 'feishu' });
+      }
       fresh.push({
         id: m.message_id,
         chat_jid: jid,
@@ -493,6 +524,7 @@ export class FeishuUserChannel implements Channel {
         timestamp: new Date(t).toISOString(),
         is_from_me: false,
         is_bot_message: false,
+        ...(attachments.length ? { attachments } : {}),
       });
     }
     // 以下全同步，中间不 await：入库时间在这里现取，保证晚于库里任何消息，
@@ -528,6 +560,39 @@ export class FeishuUserChannel implements Channel {
     return stored;
   }
 
+  /** 用账号身份把消息里的图片下到 groups/<员工>-<chat>/images/，返回成功的绝对路径；失败只记日志 */
+  private async downloadImages(m: LarkMessage, chatId: string): Promise<string[]> {
+    const keys = messageImageKeys(m);
+    if (!keys.length) return [];
+    const out: string[] = [];
+    let imagesDir: string;
+    try {
+      imagesDir = path.join(resolveGroupFolderPath(`${this.employee.id}-${chatId}`), 'images');
+      fs.mkdirSync(imagesDir, { recursive: true });
+    } catch (err) {
+      logger.warn({ err, chatId }, '[feishu-user] 建图片目录失败');
+      return [];
+    }
+    for (const key of keys) {
+      const name = `${m.message_id}_${key}.png`;
+      const dst = path.join(imagesDir, name);
+      if (!fs.existsSync(dst)) {
+        // lark-cli 只收 cwd 相对输出路径
+        const res = await this.lark(
+          ['im', '+messages-resources-download', '--message-id', m.message_id,
+           '--file-key', key, '--type', 'image', '--output', name, '--as', 'user'],
+          { cwd: imagesDir },
+        ).catch(() => null);
+        if (!fs.existsSync(dst)) {
+          logger.warn({ messageId: m.message_id, key, res }, '[feishu-user] 图片下载失败');
+          continue;
+        }
+      }
+      out.push(dst);
+    }
+    return out;
+  }
+
   private async senderName(openId: string): Promise<string> {
     if (!openId) return '';
     const cached = this.senderNames.get(openId);
@@ -548,7 +613,7 @@ export class FeishuUserChannel implements Channel {
 
 /** 真实 lark-cli 调用：清掉代理变量，固定 profile，解析 stdout 里的 JSON */
 export function createLarkRunner(profile: string): LarkRunner {
-  return (args) =>
+  return (args, opts) =>
     new Promise((resolve) => {
       const env = Object.fromEntries(
         Object.entries(process.env).filter(
@@ -559,7 +624,7 @@ export function createLarkRunner(profile: string): LarkRunner {
       execFile(
         'lark-cli',
         [...args, '--profile', profile],
-        { env, timeout: 30_000, maxBuffer: 10 * 1024 * 1024 },
+        { env, cwd: opts?.cwd, timeout: 30_000, maxBuffer: 10 * 1024 * 1024 },
         (_err, stdout) => {
           const raw = String(stdout || '');
           const i = raw.indexOf('{');
