@@ -152,3 +152,22 @@ GET  /api/pool/stats
 **本轮踩的坑**：① 部署后 10 秒内的第一单建单失败（"卖家订单号没有获取到"），重跑正常，是冷启动，验证前等 30 秒；② 我第一版把补写放在二检方法后半段，非鞋类目根本跑不到，靠 poolNote 才发现。
 
 **仍未接**：数码 35（走 supplyC 不经过 e2e）、挂售线、服务包线。
+
+## 十一、10-14 01:30 一把梭进展（大杰 00:35 "指定计划一把梭"）
+
+**合并状态**：!322 同事已合 master，但只含前 3 个提交（到 4ee6e51）。之后的改动都在分支 `dagou/goods-pool-v2`，新开 MR !324，T1 当前跑的就是这个分支。
+
+**本轮做了什么**
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 池货号真正用上 | 修了两层：① `SceneController` 在 profile=real 且没传 code 时不再预填默认货号；② 用池货号前先过 Black `getSpuList` 可用性校验（T1 有 SPU 但"不在平台接受范围内"的会被拦，比如 FX8725），不可用回退默认并写进 poolNote | 随机两单直接用上池货号 332148-137 / M44480，标题白底图和实拍同一件 |
+| 池 v2（数仓） | 全走 MaxCompute jiuwu_sc，不碰线上库：`dm_goods_ds` + `dwd_goods_baseinfo_ds`（dt=20261012）+ `dwd_spc_flaw_setting_df` + `dwd_spc_flaw_setting_attr_ds` + `dwd_spc_examining_report_df` + `dwd_goods_backup_img_df`；10 类目 × 寄售/挂售 × 在售/已售 各 ≤150 = 6000 件，10.6MB，含 2935 件带瑕疵（其中已售挂售品 769 件）、301 份 3C 报告、893 件鉴别照 | `/api/pool/stats` version 2026-10-14-v2；**v1 的 gid 全部失效** |
+| 数码线接池 | `/api/jiShou/supplyC` 支持 profile；池货号/成色/实拍图；3C 鉴别报告按"模版定字段、线上定内容"覆盖（basic/appearance 标量，空值不覆盖，img_arr 用池图，character 保持模版） | goods 147378507700240518：报告 other_remark=线上序列号 TJ150259FA1433、img_arr 1 张池图；对照单是随机串 |
+| 挂售线接池 | `/api/guaShou/e2e` 支持 profile；**挂售一律不用池货号**（交易侧有独立可售白名单），只借图/成色/瑕疵 | **未验通**：T1 挂售线本身坏了——不带 profile 同货号同场景也报 `AssertionError expected [0] but found [90000]`，包类同样；和改动无关，挂账 |
+| 服务包线 | 寄售/挂售服务包请求透传 profile，只走图/价，瑕疵仍按质检模版 | 未单独验（服务包需要模版配置） |
+| 非鞋类目瑕疵 | 见 §十 | 六类各一单 |
+
+**本轮踩的坑**：① zsh 里 `GID` 是保留变量，脚本里用它当变量名会报"failed to change group ID"；② 数码报告模版校验 appearance.remark 必填，线上空值不能覆盖；③ 挂售默认货号池里有不能售的货号，建单直接报"暂时不支持出售该商品"，和 profile 无关。
+
+**没做的（下一轮）**：同运单批量建单两单共用一件池商品；回收单、拍卖线未碰池；挂售线等 T1 修好再验；配方 #13、三条真缺边、未抽状态（状态机侧）；非鞋类目 T1 没有真实瑕疵树，瑕疵 id 是借的。

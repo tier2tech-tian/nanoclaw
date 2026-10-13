@@ -49,7 +49,13 @@ description: 95分（T1 环境）造数一条龙：拿到用例要的页面/状�
 - 改工厂：走 datafactoryservice MR，合并后更新 `docs/` 和 `datafactory/README.md` 的边界段。
 - 发现"状态机说能到但实际到不了"：先在配方表把那条改成「已填未验」+ 备注，再改 build_sm.py 的证据等级，别只改 JSON。
 
-## 当前边界（0.2.0）
+## 当前边界（0.3.0）
+
+- 入口覆盖：寄售 `/api/jiShou/e2e`（8 类目验过）、数码 `/api/jiShou/supplyC`（验过）、挂售 `/api/guaShou/e2e`（代码接了，T1 挂售线本身坏，未验通）、服务包两条线（只图/价，未验）。
+- 池货号：profile=real 且不传 code 时优先用池货号（T1 存在 + Black getSpuList 可用），不可用回退默认，响应 poolNote 写明；挂售一律不用池货号。
+- 固定复现：池 v2 起 gid 变了，`real:<gid>` 先 `/api/pool/pick` 重新取。
+
+## 历史边界（0.2.0）
 
 - 寄售链 profile=real 实测过的品类：鞋 1、服 2、包 25、表 26、配饰 70、美妆 71、潮玩 72（10-14 T1 各造一单核库）。数码 35 走 supplyC 未接。
 - 非鞋类目的瑕疵文案是线上真实名称，但 id 是借 T1 测试树的节点（T1 这些类目没有真实瑕疵树），后台按 id 反查会对不上，App 展示没影响。

@@ -1,7 +1,7 @@
 {
  "source": "feishu base EKYmbTQ4za4UbJsS2t5cQ4aknuh table tblrZVesFOvjpDpM",
- "exported_at": "2026-10-14 00:26",
- "rev": 181,
+ "exported_at": "2026-10-14 01:21",
+ "rev": 182,
  "count": 89,
  "fields": [
   "配方id",
@@ -3267,7 +3267,7 @@
    "前置配方": null,
    "入口/场景码": "supply /api/jiShou/e2e OnSaleService + profile=real（工厂分支 dagou/goods-pool-v1，MR !322，T1 已部署）",
    "时效": "长期（池文件 goods_pool.json 版本 2026-10-13）",
-   "造数备注": "目前只有寄售链 + 鞋类完整：其它品类走池的只有图/成色/价，瑕疵鞋盒不走；挂售/数码/服务包建单未接池；池货号 T1 没有时标题白底图与实拍不是同一双。不传 profile 行为与原来一致。"
+   "造数备注": "【10-14 池升 v2】池换成数仓导出 6000 件（含已售挂售瑕疵、3C 报告、鉴别照），v1 的 gid 全部失效，固定复现请重新 /api/pool/pick 取 gid。货号逻辑：profile=real 且不传 code 时优先用池货号（T1 存在且 Black getSpuList 可用），不可用回退默认，poolNote 会写明。数码线 /api/jiShou/supplyC、挂售线 /api/guaShou/e2e、服务包线也支持 profile（服务包只走图/价）。"
   },
   {
    "record_id": "recvxWOt1Dpgdx",
@@ -3302,7 +3302,7 @@
    "前置配方": null,
    "入口/场景码": "supply /api/jiShou/e2e OnSaleService + profile=real（工厂分支 dagou/goods-pool-v1，MR !322，T1 已部署 10-14 00:18）",
    "时效": "长期（池文件 goods_pool.json 版本 2026-10-13）",
-   "造数备注": "鞋类单独见 D-商品-寄售鞋真实感-01（鞋走真实瑕疵树映射）。挂售线/数码线/服务包线建单未接池。"
+   "造数备注": "【10-14 池升 v2】池换成数仓导出 6000 件（含已售挂售瑕疵、3C 报告、鉴别照），v1 的 gid 全部失效，固定复现请重新 /api/pool/pick 取 gid。货号逻辑：profile=real 且不传 code 时优先用池货号（T1 存在且 Black getSpuList 可用），不可用回退默认，poolNote 会写明。数码线 /api/jiShou/supplyC、挂售线 /api/guaShou/e2e、服务包线也支持 profile（服务包只走图/价）。"
   }
  ]
 }
