@@ -17,4 +17,4 @@ python3 df.py supply /api/pool/pick '{"rid":1,"isNew":40,"saleType":3,"count":3}
 curl -s --noproxy '*' -H 'autotest: yes' -H 'dataSourceType: t1' http://10.217.8.230:8084/api/pool/stats
 python3 df.py supply /api/jiShou/e2e '{"mobile":"seller_mobile_main","rid":1,"scene":"firstAuditE2EService","env":"t1","profile":"real"}' 300
 ```
-边界：池瑕疵只在走 `addFlawInfo` 的分支生效（鞋 rid 1 一审、挂售一检），其他类目的瑕疵仍是原逻辑；池货号 T1 没有时只借图/瑕疵/价，货号走原解析。
+边界（10-14 更新）：寄售链 8 个一级类目都走池（鞋/服/包/表/配饰/美妆/潮玩实测；数码 35 走 supplyC 不经过 e2e 未接）。鞋类瑕疵按名称映射 T1 瑕疵树；其他类目 T1 的瑕疵树是测试配置对不上名，改为借节点 id、文案写池里的真实名称（App 展示的是文案）。包 rid 25 沿用原来不写 define_word 的规则。池货号 T1 没有时只借图/瑕疵/价，货号走原解析。响应 `poolNote` 记录写了几条瑕疵/define_word 是否成功，排查先看它。挂售线、数码线、服务包线建单未接池。

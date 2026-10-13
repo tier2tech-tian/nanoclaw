@@ -28,7 +28,7 @@ description: 95分（T1 环境）造数一条龙：拿到用例要的页面/状�
 2. **问状态机怎么到**：`python3 statemachine/smq.py how <graph> <status> [rid] [type] --json`。输出路径、每步工厂场景、挂的配方 id、品类注意。证据等级是"推断"的边别当事实。
 3. **查配方拿具体命令**：`python3 recipes/rq.py <配方id>`，或 `rq.py find <关键词>`。配方里有入口/场景码、前置配方、红线、验证方法。状态=「已验证」的才直接用；「待填」「已填未验」要先自己跑通再用。
 4. **调工厂**（在细狗）：`python3 ~/mock95/dfrun/df.py supply /api/jiShou/e2e '{"mobile":"seller_mobile_main","rid":1,"scene":"OnSaleService","env":"t1"}' 300`。
-   - 要商品看着像真的：加 `"profile":"real"`（随机线上池商品）或 `"profile":"real:<gid>"`（固定一件，复现用），响应 `poolGid` 回传。先 `/api/pool/pick` 看一眼也行。范围边界见 `docs/datafactory-profile-real.md` 第七节：**目前只有寄售链 + 鞋类是完整的**。
+   - 要商品看着像真的：加 `"profile":"real"`（随机线上池商品）或 `"profile":"real:<gid>"`（固定一件，复现用），响应 `poolGid` 回传、`poolNote` 记录瑕疵/鞋盒信息写入结果。先 `/api/pool/pick` 看一眼也行。范围：寄售链 8 个一级类目（数码除外）图/成色/价/瑕疵/附件信息都走池；挂售线、数码线、服务包线未接。细节见 `docs/datafactory-profile-real.md`。
    - 绝大多数工厂接口是"按手机号新建一张单跑到指定节点"，不是对已有单续推；吃单号的只有 `/api/jiShou/supply`、`payMock`、`getBack`、`guaShouAudit`。
 5. **核终态，三层都要**：库 `python3 ~/mock95/dfrun/t1q.py seller <单号|goods_id>`（status / audit / 轨迹节点）；App 深链 `fen95://95fenapp.com/goods/goodsDetail?goodsId=<id>&rid=<rid>` 截图看用户可见面；需要的话再核 ES/缓存。"接口返回 200"不算造成。
 
@@ -49,8 +49,9 @@ description: 95分（T1 环境）造数一条龙：拿到用例要的页面/状�
 - 改工厂：走 datafactoryservice MR，合并后更新 `docs/` 和 `datafactory/README.md` 的边界段。
 - 发现"状态机说能到但实际到不了"：先在配方表把那条改成「已填未验」+ 备注，再改 build_sm.py 的证据等级，别只改 JSON。
 
-## 当前边界（0.1.0）
+## 当前边界（0.2.0）
 
-- 完整验证过的只有寄售鞋线（建单 → 一检 → 二检 → 复审 → 出价 → 出售中），买家单四态，以及 08 文档里的 6 条边。
+- 寄售链 profile=real 实测过的品类：鞋 1、服 2、包 25、表 26、配饰 70、美妆 71、潮玩 72（10-14 T1 各造一单核库）。数码 35 走 supplyC 未接。
+- 非鞋类目的瑕疵文案是线上真实名称，但 id 是借 T1 测试树的节点（T1 这些类目没有真实瑕疵树），后台按 id 反查会对不上，App 展示没影响。
+- 池价低于 T1 该 SPU 价格下限会被出价接口改成提示价（原有 8001 重试逻辑）。
 - 挂售复审在工厂有 NPE、数码线 PHP 报错、问询态无入口，这三条挂账。
-- 其它品类：图 / 成色 / 价格会走池，瑕疵和鞋盒不会。

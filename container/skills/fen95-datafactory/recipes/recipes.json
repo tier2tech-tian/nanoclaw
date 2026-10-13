@@ -1,8 +1,8 @@
 {
  "source": "feishu base EKYmbTQ4za4UbJsS2t5cQ4aknuh table tblrZVesFOvjpDpM",
- "exported_at": "2026-10-13 23:22",
- "rev": 180,
- "count": 88,
+ "exported_at": "2026-10-14 00:26",
+ "rev": 181,
+ "count": 89,
  "fields": [
   "配方id",
   "引用边数",
@@ -3268,6 +3268,41 @@
    "入口/场景码": "supply /api/jiShou/e2e OnSaleService + profile=real（工厂分支 dagou/goods-pool-v1，MR !322，T1 已部署）",
    "时效": "长期（池文件 goods_pool.json 版本 2026-10-13）",
    "造数备注": "目前只有寄售链 + 鞋类完整：其它品类走池的只有图/成色/价，瑕疵鞋盒不走；挂售/数码/服务包建单未接池；池货号 T1 没有时标题白底图与实拍不是同一双。不传 profile 行为与原来一致。"
+  },
+  {
+   "record_id": "recvxWOt1Dpgdx",
+   "配方id": "D-商品-寄售全品类真实感-01",
+   "引用边数": null,
+   "引用它的导航边": null,
+   "步骤": "supply POST /api/jiShou/e2e body {\"mobile\":\"<卖家手机号>\",\"rid\":<一级类目>,\"scene\":\"OnSaleService\",\"env\":\"t1\",\"profile\":\"real\"}（固定某件 \"profile\":\"real:<gid>\"，gid 先 POST /api/pool/pick {\"rid\":<rid>,\"count\":3} 挑）→ 一步到 0 出售中；响应 content.poolGid 是用的池商品，content.poolNote 记录瑕疵写了几条/define_word 是否写入，None 表示池商品本身没瑕疵没附件信息",
+   "目标状态": "任一一级类目（鞋/服/包/表/配饰/美妆/潮玩）寄售出售中，商品像线上真货：线上实拍图、成色、瑕疵（真实文案）、附件/鞋盒信息、线上价",
+   "红线": "不点支付；数码 35 走 supplyC 不经过此入口；非鞋类目瑕疵 id 是借 T1 测试树节点，后台按 id 反查对不上，App 展示不受影响；池价低于 T1 价格下限会被 8001 改成提示价",
+   "状态": [
+    "已验证"
+   ],
+   "适用端": [
+    "全部"
+   ],
+   "备注": null,
+   "产出字段": "10-14 实测：服 147373141558034566 / 包 147373306444513414（瑕疵 2）/ 表 147373373905698950（瑕疵 7）/ 配饰 147372975513927814（瑕疵 7 + 附件图）/ 美妆 147373443061383302 / 潮玩 147373047421075590（瑕疵 2）",
+   "造数方式": [
+    "DataFactory场景"
+   ],
+   "已验证证据": "2026-10-14 00:25 大狗 六类各一单库核；对比页 http://10.117.0.159:8090/dfpool-effect-20261013.html 案例 3 配饰",
+   "数据对象": [
+    "商品"
+   ],
+   "造数平台是否直接满足": null,
+   "适用环境": [
+    "T1"
+   ],
+   "验证方法": "T1 库 jiuwu_goods.is_new=池成色、json_length(img_attr)=池图数、jiuwu_flaw_setting 行数=poolNote 写入数且 flaw_object/flaw_place/flaw_item 是线上文案、jiuwu_flaw_setting_attr.define_word=池原文（包 rid 25 不写）、jiuwu_sellers_order.price=池价",
+   "造数方法顺序": null,
+   "负责人": null,
+   "前置配方": null,
+   "入口/场景码": "supply /api/jiShou/e2e OnSaleService + profile=real（工厂分支 dagou/goods-pool-v1，MR !322，T1 已部署 10-14 00:18）",
+   "时效": "长期（池文件 goods_pool.json 版本 2026-10-13）",
+   "造数备注": "鞋类单独见 D-商品-寄售鞋真实感-01（鞋走真实瑕疵树映射）。挂售线/数码线/服务包线建单未接池。"
   }
  ]
 }
