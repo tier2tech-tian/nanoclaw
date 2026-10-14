@@ -1,3 +1,8 @@
+## 0.4.0 (2026-10-14)
+- df.py / t1q.py 去掉写死的 /Users/admin 路径：`DF_CREDS_DIR`/`DF_MOBILE_*`/`DF_SUPPLY_BASE`/`DF_TRADE_BASE`/`MOTHERSHIP_DIR`/`T1_DB_DSN` 可配置，手机号别名缺失时原样透传。
+- 接入 nine-refine `requirement-testing` 员工：employee.json skills 加 fen95-datafactory，CLAUDE.md 造数段改为允许在 T1 用本 skill 造数（账号用运行上下文下发的号）。
+- SKILL.md「在哪跑」改写为员工视角。
+
 # 变更记录
 
 版本号三段：状态机/配方/工厂接口有不兼容变化升中段，补配方补边升末段。改任何一处都在这里记一行：日期 · 改了什么 · 为什么 · 谁拍板。

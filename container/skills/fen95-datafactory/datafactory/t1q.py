@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """T1 终态核验：t1q.py seller <order_number|goods_id> | recycle <sn> | buyer <order_number>"""
-import sys,yaml,pymysql
+import sys,os,yaml,pymysql
+MS=os.path.expanduser(os.environ.get("MOTHERSHIP_DIR","~/code/mothership/server"))
+CRED_DIR=os.path.expanduser(os.environ.get("DF_CREDS_DIR","~/mock95/.df_creds"))
 def conn(db):
-    y=yaml.safe_load(open("/Users/admin/code/mothership/server/order/ms-goods-order/internal/conf/conf.t1.yaml")) if db!="ss_commodity" else None
+    # 优先环境变量 T1_DB_DSN=user:pass@host:port（测试库只读串），否则从本机 mothership 源码的 conf.t1.yaml 取
+    dsn=os.environ.get("T1_DB_DSN")
+    if dsn:
+        up,hp=dsn.rsplit("@",1); u,pw=up.split(":",1); h,pt=(hp.split(":")+["3306"])[:2]
+        return pymysql.connect(host=h,port=int(pt),user=u,password=pw,database=db,connect_timeout=5)
+    y=yaml.safe_load(open(f"{MS}/order/ms-goods-order/internal/conf/conf.t1.yaml")) if db!="ss_commodity" else None
     if db=="ss_commodity":
         import glob
-        for f in glob.glob("/Users/admin/code/mothership/server/product/ms-recycle/**/conf*t1*.y*ml",recursive=True):
+        for f in glob.glob(f"{MS}/product/ms-recycle/**/conf*t1*.y*ml",recursive=True):
             d=yaml.safe_load(open(f))
             def walk(o):
                 if isinstance(o,dict):
@@ -43,7 +50,7 @@ elif kind=="buyer":
     cur.execute("select node_code,node_time from jiuwu_order_trace_node where order_number=%s and is_deleted=0 order by node_time desc limit 6",(key,)); print("trace:",cur.fetchall())
 elif kind=="latest":
     c=conn("trade_jiuwu"); cur=c.cursor()
-    mobile=open(f"/Users/admin/mock95/.df_creds/{key}").read().strip()
+    mobile=os.environ.get("DF_MOBILE_"+key.upper()) or (open(os.path.join(CRED_DIR,key)).read().strip() if os.path.isfile(os.path.join(CRED_DIR,key)) else key)
     cur.execute("select uid from jiuwu_account where mobile=%s limit 1",(mobile,)); u=cur.fetchone(); uid=u[0] if u else None; print("uid:",uid)
     cur.execute("select o.order_number,o.goods_id,o.status,o.sale_type,g.root_category_id,o.created_at from jiuwu_sellers_order o left join jiuwu_goods g on g.id=o.goods_id where o.uid=%s order by o.id desc limit %s",(uid,int(sys.argv[3]) if len(sys.argv)>3 else 3))
     for r in cur.fetchall(): print("seller:",r)

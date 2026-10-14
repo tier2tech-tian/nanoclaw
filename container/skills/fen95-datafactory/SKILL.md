@@ -19,18 +19,20 @@ description: 95分（T1 环境）造数一条龙：拿到用例要的页面/状�
 ## 在哪跑
 
 - `smq.py` / `rq.py`：任何机器，纯本地 JSON。
-- `df.py` / `t1q.py`：**只能在细狗 xigou（用户 admin）跑**，手机号从 `~/mock95/.df_creds/` 读，T1 库连接信息从 mothership 各服务 `conf.t1.yaml` 取。细狗上的副本在 `~/mock95/dfrun/`；要更新用 `scp` 覆盖（禁止 scp 业务代码到服务器，这两个是本地工具不在此列）。
-- 工厂地址：supply `10.217.8.230:8084`、trade `:8096`，请求头 `autotest: yes`、`dataSourceType: t1`。
+- `df.py`（调工厂）：任何能访问办公网 `10.217.8.230` 的机器，包括细狗上的数字员工子进程。**账号就是请求里的 `mobile`，调用方要用哪个 T1 测试号就传哪个**（测试员工传运行上下文给的账号）；`seller_mobile_main` / `seller_mobile_z3` 只是可选别名（`DF_CREDS_DIR` 下同名文件或 `DF_MOBILE_<ALIAS>` 环境变量），没有就原样透传。工厂地址可用 `DF_SUPPLY_BASE` / `DF_TRADE_BASE` 覆盖。
+- `t1q.py`（核库）：需要 T1 库只读连接。两种来源：`T1_DB_DSN=user:pass@host:port` 环境变量，或本机 mothership 源码的 `conf.t1.yaml`（`MOTHERSHIP_DIR`，默认 `~/code/mothership/server`，细狗 admin 下现成）。
+- 请求头固定 `autotest: yes`、`dataSourceType: t1`，脚本已带。
+- 同一货号两次挂售之间隔 5 分钟（T1 鉴别能力缓存会被仓库步骤写成"不支持"，见 docs）。
 
 ## 五步法（agent 照着走）
 
 1. **把用例翻成目标状态**：图（seller/recycle/buyer）+ 状态码 + 品类 rid + 类型（寄售/挂售/拍卖）。拿不准先 `python3 statemachine/smq.py search <关键词>` 或 `nodes seller` 看 App 文案对照。
 2. **问状态机怎么到**：`python3 statemachine/smq.py how <graph> <status> [rid] [type] --json`。输出路径、每步工厂场景、挂的配方 id、品类注意。证据等级是"推断"的边别当事实。
 3. **查配方拿具体命令**：`python3 recipes/rq.py <配方id>`，或 `rq.py find <关键词>`。配方里有入口/场景码、前置配方、红线、验证方法。状态=「已验证」的才直接用；「待填」「已填未验」要先自己跑通再用。
-4. **调工厂**（在细狗）：`python3 ~/mock95/dfrun/df.py supply /api/jiShou/e2e '{"mobile":"seller_mobile_main","rid":1,"scene":"OnSaleService","env":"t1"}' 300`。
+4. **调工厂**：`python3 datafactory/df.py supply /api/jiShou/e2e '{"mobile":"seller_mobile_main","rid":1,"scene":"OnSaleService","env":"t1"}' 300`。
    - 要商品看着像真的：加 `"profile":"real"`（随机线上池商品）或 `"profile":"real:<gid>"`（固定一件，复现用），响应 `poolGid` 回传、`poolNote` 记录瑕疵/鞋盒信息写入结果。先 `/api/pool/pick` 看一眼也行。范围：寄售链 8 个一级类目（数码除外）图/成色/价/瑕疵/附件信息都走池；挂售线、数码线、服务包线未接。细节见 `docs/datafactory-profile-real.md`。
    - 绝大多数工厂接口是"按手机号新建一张单跑到指定节点"，不是对已有单续推；吃单号的只有 `/api/jiShou/supply`、`payMock`、`getBack`、`guaShouAudit`。
-5. **核终态，三层都要**：库 `python3 ~/mock95/dfrun/t1q.py seller <单号|goods_id>`（status / audit / 轨迹节点）；App 深链 `fen95://95fenapp.com/goods/goodsDetail?goodsId=<id>&rid=<rid>` 截图看用户可见面；需要的话再核 ES/缓存。"接口返回 200"不算造成。
+5. **核终态，三层都要**：库 `python3 datafactory/t1q.py seller <单号|goods_id>`（status / audit / 轨迹节点）；App 深链 `fen95://95fenapp.com/goods/goodsDetail?goodsId=<id>&rid=<rid>` 截图看用户可见面；需要的话再核 ES/缓存。"接口返回 200"不算造成。
 
 ## 三级策略（大杰 10-13 定）
 
@@ -39,7 +41,7 @@ description: 95分（T1 环境）造数一条龙：拿到用例要的页面/状�
 ## 红线
 
 - T1 可以真实出价 / 发布 / 改价 / mock 支付；退登、删数据、实名、删除类按钮不碰。预发 / 线上一律不造。
-- 主号是无理由账号，造"问询买家"用 z3（`seller_mobile_z3`）。
+- 大狗自用的主号是无理由账号，造"问询买家"用 z3 别名；员工按自己上下文里的账号传。
 - 造完一定核库，核库一定带单号写进汇报。
 
 ## 迭代规则
@@ -49,7 +51,11 @@ description: 95分（T1 环境）造数一条龙：拿到用例要的页面/状�
 - 改工厂：走 datafactoryservice MR，合并后更新 `docs/` 和 `datafactory/README.md` 的边界段。
 - 发现"状态机说能到但实际到不了"：先在配方表把那条改成「已填未验」+ 备注，再改 build_sm.py 的证据等级，别只改 JSON。
 
-## 当前边界（0.3.0）
+## 当前边界（0.4.0）
+
+- 0.4.0：脚本去掉写死的宿主机路径，账号/库连接改为参数与环境变量；接入 nine-refine 测试员工（employee.json skills + CLAUDE.md 造数段）。
+
+## 边界（0.3.0）
 
 - 入口覆盖：寄售 `/api/jiShou/e2e`（8 类目验过）、数码 `/api/jiShou/supplyC`（验过）、挂售 `/api/guaShou/e2e`（代码接了，T1 挂售线本身坏，未验通）、服务包两条线（只图/价，未验）。
 - 池货号：profile=real 且不传 code 时优先用池货号（T1 存在 + Black getSpuList 可用），不可用回退默认，响应 poolNote 写明；挂售一律不用池货号。
